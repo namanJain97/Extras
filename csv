@@ -1,0 +1,147 @@
+import csv
+import os
+import tkinter as tk
+from tkinter import filedialog, messagebox
+
+def generate_output():
+	#Get input from user for file paths, key column, and columns to ignore 
+	file1 = file1_entry.get() 
+	file2 = file2_entry.get()
+	key_column= key_column_entry.get() 
+	ignore_columns= ignore_columns_entry.get().split(",")
+	output_file = output_file_entry.get()
+
+	# Read the files and store data in dictionaries
+	data1 = {}
+	with open(file1, 'r') as f:
+		reader = csv.DictReader(f)
+		for row in reader:
+			key = row[key_column]
+			# Ignore the specified columns
+			for col in ignore_columns:
+				row.pop(col, None)
+			data1[key] = row
+
+	data2 = {}
+	with open(file2, 'r') as f:
+		reader = csv.DictReader(f)
+		for row in reader:
+			key = row[key_column]
+			# Ignore the specified columns
+			for col in ignore_columns:
+				row.pop(col, None)
+			data2[key] = row
+
+	# Compare the data and store the differences in a list
+	differences = []
+	row_number = 0
+	for key in data1.keys() & data2.keys():
+		row_number += 1
+		diff1 = {'key': key, 'file': file1, 'availability': 'Both file', 'row_number': row_number}
+		diff2 = {'key': key, 'file': file2, 'availability': 'Both file', 'row_number': row_number}
+		for column in data1[key].keys():
+			if data1[key][column] != data2[key][column]:
+				diff1[column] = data1[key].get(column, '')
+				diff2[column] = data2[key].get(column, '')
+			else:
+				continue
+	if any(diff1.values()) or any(diff2.values()):
+		differences.append(diff1)
+		differences.append(diff2)
+
+	# Add rows that exist only in file 1 to the differences list
+	for key in data1.keys() - data2.keys():
+		row_number += 1
+		differences.append({'key': key, 'file': file1, 'availability': 'file1 only', 'row_number': row_number, **data1[key]})
+
+	# Add rows that exist only in file 2 to the differences list
+	for key in data2.keys() - data1.keys():
+		row_number += 1
+		differences.append({'key': key, 'file': file2, 'availability': 'file2 only', 'row_number': row_number, **data2[key]})
+
+
+	# Write the differences to the output file
+
+	with open(output_file, 'w', newline='') as f:
+		writer = csv.writer(f) 
+		headers = [key_column, 'file', 'availability', 'row_number', *data2[key].keys()]
+		writer.writerow(headers) 
+		for diff in differences: 
+			row = [diff['key'], diff['file'], diff["availability"], diff['row_number'], *[diff.get(column, '') for column in data2[key].keys()]]
+			if any(row[4:]):
+				writer.writerow(row)
+
+	output_path = os.path.abspath(output_file)
+	messagebox.showinfo(title="Success", message=f"Output file generated at {output_path}")
+
+# Create the GUI 
+root = tk.Tk()
+root.title("CSV Compare Tool")
+root.geometry("{0}x{1}+0+0".format(root.winfo_screenwidth(), root.winfo_screenheight()))
+root.wm_state('zoomed')
+mainframe = tk.Frame(root, bd=10, relief="groove", pady=25)
+mainframe.pack(fill="both", expand=True, padx=10, pady=25)
+
+
+# Add the 3D border to the main frame
+mainframe.columnconfigure(0, weight=1)
+mainframe.columnconfigure(1, weight=1)
+mainframe.rowconfigure(3, weight=1)
+
+
+# Function to reset all fields
+def reset_fields():
+    file1_entry.delete(0, tk.END)
+    file2_entry.delete(0, tk.END)
+    key_column_entry.delete(0, tk.END)
+    ignore_columns_entry.delete(0, tk.END)
+    output_file_entry.delete(0, tk.END)
+	
+# File 1 label and entry widget
+file1_label = tk.Label(mainframe, text="File 1:", font=('Helvetica', 12, 'bold'), fg='blue')
+file1_label.pack(pady=8)
+file1_entry = tk.Entry(mainframe, width=50, font=('Helvetica', 12), borderwidth=2, relief='groove', highlightcolor='blue', highlightthickness=2, insertborderwidth=0, selectborderwidth=0, selectbackground='light blue', selectforeground='black')
+file1_entry.pack(pady=4)
+file1_button = tk.Button(mainframe, text="Browse", command=lambda: file1_entry.insert(tk.END, filedialog.askopenfilename()))
+file1_button.pack(padx=1, pady=8)
+
+# File 2 label and entry widget
+file2_label = tk.Label(mainframe, text="File 2:", font=('Helvetica', 12, 'bold'), fg='blue')
+file2_label.pack(pady=8)
+file2_entry = tk.Entry(mainframe, width=50, font=('Helvetica', 12), borderwidth=2, relief='groove', highlightcolor='blue', highlightthickness=2, insertborderwidth=0, selectborderwidth=0, selectbackground='light blue', selectforeground='black')
+file2_entry.pack(pady=4)
+file2_button = tk.Button(mainframe, text="Browse", command=lambda: file2_entry.insert(tk.END, filedialog.askopenfilename()))
+file2_button.pack(padx=1, pady=8)
+
+# Key column label and entry widget
+key_column_label = tk.Label(mainframe, text="Key Column Name", font=('Helvetica', 12, 'bold'), fg='blue')
+key_column_label.pack(pady=8)
+key_column_entry = tk.Entry(mainframe, width=50, font=('Helvetica', 12), borderwidth=2, relief='groove', highlightcolor='blue', highlightthickness=2, insertborderwidth=0, selectborderwidth=0, selectbackground='light blue', selectforeground='black')
+key_column_entry.pack(pady=4)
+
+# Ignore columns label and entry widget
+ignore_columns_label = tk.Label(mainframe, text="Ignore Columns (comma-separated)", font=('Helvetica', 12, 'bold'), fg='blue')
+ignore_columns_label.pack(pady=8)
+ignore_columns_entry = tk.Entry(mainframe, width=50, font=('Helvetica', 12), borderwidth=2, relief='groove', highlightcolor='blue', highlightthickness=2, insertborderwidth=0, selectborderwidth=0, selectbackground='light blue', selectforeground='black')
+ignore_columns_entry.pack(pady=4)
+
+# Output file label and entry widget
+output_file_label = tk.Label(mainframe, text="Output File Name", font=('Helvetica', 12, 'bold'), fg='blue')
+output_file_label.pack(pady=8)
+output_file_entry = tk.Entry(mainframe, width=50, font=('Helvetica', 12), borderwidth=2, relief='groove', highlightcolor='blue', highlightthickness=2, insertborderwidth=0, selectborderwidth=0, selectbackground='light blue', selectforeground='black')
+output_file_entry.pack(pady=4)
+
+# Add buttons to generate the differences and reset the form
+button_frame = tk.Frame(mainframe)
+button_frame.pack(pady=9)
+
+# Create the Generate button and style it
+generate_button = tk.Button(button_frame, text="Generate", bg="green", fg="white", font=("Arial", 12), padx=10, pady=5, borderwidth=0, command=lambda: generate_differences())
+generate_button.pack(side="left", padx=(25, 5), pady=5)
+
+# Create the Reset button and style it
+reset_button = tk.Button(button_frame, text="Reset", command=reset_fields, bg="#FF9800", fg="white", font=("Arial", 12), padx=10, pady=5, borderwidth=0)
+reset_button.pack(side="right", padx=(5, 25), pady=5)
+
+
+root.mainloop()
