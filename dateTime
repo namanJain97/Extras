@@ -5,25 +5,19 @@ import numpy as np
 # Read the CSV file into a DataFrame
 data = pd.read_csv('C:\\Users\\jainnbr\\merged.csv')
 
-
-
 date_columns = data.select_dtypes(include=['datetime']).columns.tolist()
 
 # Replace values in date columns
-data[date_columns] = np.where(data[date_columns].notnull(), 1, 0)
+datecolumns = data.filter(like='Date')
+date_columns.extend(datecolumns)
+
+#for date columns
+for col in date_columns:
+    data[col] = data[col].replace('', 0)
+    data.loc[~data[col].isin([0]), col] = 1 
 
 
 # Save the modified data to a new CSV file
 data.to_csv('normalisedfile.csv', index=False)
 
 print('file saved')
-
-
-datecolumns = data.filter(like='Date')
-datetime_column.extend(datecolumns)
-datetime_column.extend(somecols)
-
-#for date columns
-for col in datetime_column:
-    data[col] = data[col].replace('', 0)
-    data.loc[~data[col].isin([0]), col] = 1
