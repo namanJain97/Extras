@@ -3,7 +3,7 @@ import numpy as np
 
 
 # Read the CSV file into a DataFrame
-data = pd.read_csv(r'C:\Temp\ML\testAI\MAS_ACK_NACK_Error_ALL\merged.csv')
+data = pd.read_csv('C:\\Users\\jainnbr\\merged.csv')
 
 
 
@@ -14,6 +14,6 @@ data[date_columns] = np.where(data[date_columns].notnull(), 1, 0)
 
 
 # Save the modified data to a new CSV file
-data.to_csv(r'C:\Temp\ML\testAI\MAS_ACK_NACK_Error_ALL\normalisedfile.csv', index=False)
+data.to_csv('normalisedfile.csv', index=False)
 
 print('file saved')
