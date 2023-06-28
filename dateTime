@@ -17,3 +17,13 @@ data[date_columns] = np.where(data[date_columns].notnull(), 1, 0)
 data.to_csv('normalisedfile.csv', index=False)
 
 print('file saved')
+
+
+datecolumns = data.filter(like='Date')
+datetime_column.extend(datecolumns)
+datetime_column.extend(somecols)
+
+#for date columns
+for col in datetime_column:
+    data[col] = data[col].replace('', 0)
+    data.loc[~data[col].isin([0]), col] = 1
