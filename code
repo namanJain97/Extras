@@ -1,18 +1,3 @@
-package com.rbs.aw.TestClasses;
-
-import com.rbs.odc.access.domain.*;
-import com.rbs.odc.core.domain.DoddFrankReportingImpl;
-import com.rbs.odc.core.domain.ODCId;
-import com.rbs.odc.core.domain.ProductImpl;
-import com.rbs.odc.core.domain.RegulatoryRegimeImpactImpl;
-
-import java.math.BigDecimal;
-import java.text.DateFormat;
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
-import java.util.*;
-
-
 public  class SampleESMAGDSRatesFlowNewTransaction implements Transaction {
 
     @Override
