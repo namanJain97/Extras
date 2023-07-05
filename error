@@ -1,0 +1,1 @@
+com.rbs.aw.TestClasses.SampleESMAGDSRatesFlowNewTransaction is not abstract and does not override abstract method getEventType() in com.rbs.odc.access.domain.Transaction
