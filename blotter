@@ -1,0 +1,21 @@
+public void Create_New_Interaction_App()
+        {
+            driver.SwitchToWindow(Toolbar);
+            driver.Click(AdvancedAppLauncherToggle);
+            driver.SwitchToWindow(AdvancedAppLauncherMenu);
+            Thread.Sleep(2000);
+            driver.FindElements(By.XPath(ActionMenuAAL))[1].Click();
+            Thread.Sleep(1000);
+            var appName = "Demo Interaction App";
+            driver.FindElements(By.XPath(SingleInputBox))[0].SendKeys(appName);
+            driver.FindElements(By.XPath(SingleInputBox))[1].SendKeys("https://natwestmarkets--tst221202--c.sandbox.vf.force.com/apex/nwm_interactions");
+            driver.Click(ConfirmButton);
+            Thread.Sleep(2000);
+            driver.SwitchToWindow(AdvancedAppLauncherMenu);
+            driver.SearchAndOpenApp(InputSearchBox, "Demo Interaction App");
+            Thread.Sleep(5000);
+            driver.SwitchToWindow(WindowTitleBar);
+            driver.FindElement(By.XPath(MaximiseButton)).Click();
+            driver.SwitchToWindow(InteractionWindow);
+            Assert.IsTrue(driver.Title == "Interactions", "Faield to launch Interactions app");
+        }
