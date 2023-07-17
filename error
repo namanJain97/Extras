@@ -1,7 +1,1 @@
-response = self.execute(Command.NEW_SESSION, parameters)
-  File "C:\Program Files\Python310\lib\site-packages\selenium\webdriver\remote\webdriver.py", line 321, in execute
-    self.error_handler.check_response(response)
-  File "C:\Program Files\Python310\lib\site-packages\selenium\webdriver\remote\errorhandler.py", line 242, in check_response
-    raise exception_class(message, screen, stacktrace)
-selenium.common.exceptions.WebDriverException: Message: unknown error: DevToolsActivePort file doesn't exist
-  (Driver info: chromedriver=98.0.4758.80 (7f0488e8ba0d8e019187c6325a16c29d9b7f4989-refs/branch-heads/4758@{#972}),platform=Windows NT 10.0.19045 x86_64)
+[31372:0717/173942.732:ERROR:gpu_init.cc(454)] Passthrough is not supported, GL is disabled, ANGLE is
