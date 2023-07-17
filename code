@@ -2,6 +2,7 @@ from __future__ import annotations
 from selenium import webdriver
 from selenium.common.exceptions import WebDriverException
 from os import path, environ
+import time
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -187,11 +188,31 @@ def _launch_chromedriver_for_electron_app(path_to_chromedriver: str, chrome_opti
 
     # Convert partial paths & environment shortcuts to full-fledged paths.
     path_to_chromedriver = path.abspath(path.expandvars(path_to_chromedriver))
-
-    # Set any additional ChromeOptions needed to hook Selenium + ChromeDriver into an Electron app.
+	
+	# Set any additional ChromeOptions needed to hook Selenium + ChromeDriver into an Electron app.
     chrome_options.add_argument('--remote-debugging-port=9222')
     chrome_options.add_experimental_option('w3c', False)
 
-    # Launch and return the Electron app with Selenium + ChromeDriver hooked into it.
+    # Set any additional ChromeOptions needed to hook Selenium + ChromeDriver into an Electron app.
+    chrome_options.add_argument('--manifest-name=uat')
+
+    # Add headless mode options
+    chrome_options.add_argument('--headless')
+    chrome_options.add_argument('--disable-gpu')
+
+    # Add additional options to bypass DevToolsActivePort check
+    chrome_options.add_argument('--disable-dev-shm-usage')
+
+
+    # Add a delay to allow the application to load
+    time.sleep(9)  # Adjust the delay as needed
+	
+	# Launch and return the Electron app with Selenium + ChromeDriver hooked into it.
     driver = webdriver.Chrome(executable_path=path_to_chromedriver, options=chrome_options)
-    return driver
+	return driver
+	
+# Paths:
+finsemble_exe_path = r'C:\Users\jainnbr\AppData\Local\NWM\FluidLauncher\installs\Frontier.Desktop\4.5.4\FrontierDesktop.exe'
+chromedriver_path = r'C:\Program Files\Selenium\98\chromedriver.exe'
+
+driver = launch_chromedriver_for_finsemble_from_exe(finsemble_exe_path, chromedriver_path)
