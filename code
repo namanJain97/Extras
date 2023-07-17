@@ -133,7 +133,7 @@ def _get_chrome_options_for_finsemble_from_src(path_to_finsemble_project: str) -
     chrome_options = webdriver.ChromeOptions()
     chrome_options.binary_location = path_to_electron_exe
     chrome_options.add_argument('--manifest-name=uat')
-	chrome_options.add_argument(f'app={path_to_fea_startup}')
+    chrome_options.add_argument(f'app={path_to_fea_startup}')
 
     return chrome_options
 
@@ -164,7 +164,7 @@ def _get_chrome_options_for_finsemble_from_exe(path_to_finsemble_exe: str) -> Ch
     chrome_options = webdriver.ChromeOptions()
     chrome_options.binary_location = path_to_finsemble_exe
     chrome_options.add_argument('--manifest-name=uat')
-	chrome_options.add_argument('--no-sandbox')
+    chrome_options.add_argument('--no-sandbox')
 
     return chrome_options
 
@@ -202,6 +202,7 @@ def _launch_chromedriver_for_electron_app(path_to_chromedriver: str, chrome_opti
     # Launch and return the Electron app with Selenium + ChromeDriver hooked into it.
     driver = webdriver.Chrome(executable_path=path_to_chromedriver, options=chrome_options)
     return driver
+
 
 # Paths:
 finsemble_exe_path = r'C:\Users\jainnbr\AppData\Local\NWM\FluidLauncher\installs\Frontier.Desktop\4.5.4\FrontierDesktop.exe'
