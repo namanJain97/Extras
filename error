@@ -1,4 +1,7 @@
-Traceback (most recent call last):
-  File "C:\Users\jainnbr\automation.py", line 11, in <module>
-    def launch_chromedriver_for_finsemble_from_exe(path_to_finsemble_exe: str, path_to_chromedriver: str) -> WebDriver:
-NameError: name 'WebDriver' is not defined. Did you mean: 'webdriver'?
+response = self.execute(Command.NEW_SESSION, parameters)
+  File "C:\Program Files\Python310\lib\site-packages\selenium\webdriver\remote\webdriver.py", line 321, in execute
+    self.error_handler.check_response(response)
+  File "C:\Program Files\Python310\lib\site-packages\selenium\webdriver\remote\errorhandler.py", line 242, in check_response
+    raise exception_class(message, screen, stacktrace)
+selenium.common.exceptions.WebDriverException: Message: unknown error: DevToolsActivePort file doesn't exist
+  (Driver info: chromedriver=98.0.4758.80 (7f0488e8ba0d8e019187c6325a16c29d9b7f4989-refs/branch-heads/4758@{#972}),platform=Windows NT 10.0.19045 x86_64)
