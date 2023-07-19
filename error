@@ -2,3 +2,6 @@ driver.find_element(By.CLASS_NAME, 'sc-bdVaJa sc-EHOje knYcft userGuideNewSearch
 
    raise exception_class(message, screen, stacktrace)
 selenium.common.exceptions.InvalidSelectorException: Message: invalid selector: Compound class names not permitted
+
+
+class="sc-bdVaJa sc-EHOje knYcft userGuideNewSearch ab-SimpleButton ab-SimpleButton--font-weight=normal ab-SimpleButton--variant-text ab-SimpleButton--tone-neutral"
