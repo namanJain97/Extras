@@ -2,32 +2,23 @@ import scipy.stats as stats
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
-import time
+
+%matplotlib inline
+
+df1 = pd.read_csv(r'C:\Users\jainnbr\goldeinputDateNormalised.csv')
 
 categorical_cols = df1.select_dtypes(include=['object']).columns
+df1[categorical_cols] = df1[categorical_cols].apply(lambda x: pd.Categorical(x).codes)
 
-# Load the raw and sampled data
-start_time = time.time()
-df1 = pd.read_csv(r'C:\Users\jainnbr\goldeinputDateNormalised.csv')
-print(f"Time taken to load rawdata.csv: {time.time() - start_time:.4f} seconds")
-
-start_time = time.time()
 df2 = pd.read_csv(r'C:\Users\jainnbr\sampledDataWith10Percentage.csv')
-print(f"Time taken to load sampled_data.csv: {time.time() - start_time:.4f} seconds")
-
-# Assuming you've already applied Categorical encoding to df2 as shown in your original code
 
 # Pairplot for raw data (df1)
-start_time = time.time()
 print("Pairplot for raw data (df1)")
 sns.set()
 sns.pairplot(df1[categorical_cols])
 plt.show()
-print(f"Time taken to create pairplot for df1: {time.time() - start_time:.4f} seconds")
 
 # Pairplot for sampled data (df2)
-start_time = time.time()
 print("Pairplot for sampled data (df2)")
 sns.pairplot(df2[categorical_cols])
 plt.show()
-print(f"Time taken to create pairplot for df2: {time.time() - start_time:.4f} seconds")
