@@ -1,24 +1,44 @@
-import scipy.stats as stats
-import pandas as pd
-import seaborn as sns
-import matplotlib.pyplot as plt
+import requests
 
-%matplotlib inline
+url = "http://lonrs14595.fm.rbsgrp.net:40533/ignite/trade/regulatory/mas/trade/query"
+sso_token = "IPWka9Lxut8D+ScAHved/aWrMb/Q3RJswmkK824MDc88Kh7MFqSq5A4DDc56P6i2cE4/xSvIIF4f+NpNFJED4/0tS78IX0yfLwf6T+DFZsuKjo/v3Ck36sS83UoOisdjog6GIeBuYjXoU062FxuMzRjkGvsrNt9AAnglQeeoty0=|0|jainnbr|Ignite|20230722095557|86400|"
 
-df1 = pd.read_csv(r'C:\Users\jainnbr\goldeinputDateNormalised.csv')
+page_size = 100  # Number of records per page
+start_index = 0  # Starting index for pagination
 
-categorical_cols = df1.select_dtypes(include=['object']).columns
-df1[categorical_cols] = df1[categorical_cols].apply(lambda x: pd.Categorical(x).codes)
+request_body = {
+    "select": "",
+    "orderBy": "",
+    "where": "tradeId = '23199LN013996D' AND sourceSystemId = 'SystemX'",
+    "maxResults": 0
+}
 
-df2 = pd.read_csv(r'C:\Users\jainnbr\sampledDataWith10Percentage.csv')
+headers = {
+    "Authorization": f"Bearer {sso_token}",
+    "Content-Type": "application/json"
+}
 
-# Pairplot for raw data (df1)
-print("Pairplot for raw data (df1)")
-sns.set()
-sns.pairplot(df1[categorical_cols])
-plt.show()
+try:
+    while True:
+        # Modify the start index for each page
+        request_body["start"] = start_index
 
-# Pairplot for sampled data (df2)
-print("Pairplot for sampled data (df2)")
-sns.pairplot(df2[categorical_cols])
-plt.show()
+        response = requests.post(url, json=request_body, headers=headers)
+        response.raise_for_status()  # Raise an exception for any error status code
+
+        # Process the response data
+        data = response.json()
+        # Process the fetched records as per your requirement
+        print(f"Received {len(data)} records for page starting at index {start_index}")
+        print(data)  # Print the fetched records
+
+        if len(data) < page_size:
+            # Break the loop if the received records are less than the page size
+            break
+
+        start_index += page_size
+
+    print("Data fetched successfully!")
+
+except requests.exceptions.RequestException as e:
+    print(f"Error occurred: {e}")
