@@ -1,26 +1,69 @@
-driver.find_element(By.CLASS_NAME, 'sc-bdVaJa sc-EHOje knYcft userGuideNewSearch ab-SimpleButton ab-SimpleButton--font-weight=normal ab-SimpleButton--variant-text ab-SimpleButton--tone-neutral').click()
+import csv
+import requests
 
-   raise exception_class(message, screen, stacktrace)
-selenium.common.exceptions.InvalidSelectorException: Message: invalid selector: Compound class names not permitted
+url = "http://lonrs14595.fm.rbsgrp.net:40533/ignite/trade/regulatory/mas/trade/query"
+sso_token = "dTOymB4fV4qhs0YHnQZs4/TyEeZmOolsMsGorOW3Fyv8zpBdofZoHL9aTg4UIN8FmDVGuQ1i9+XMuFRxhPSa2T4jX4QWscEkOLLd+dbaHQcB8D9yAo7Nm9EeDzmXACREqpVLVwcIEcC+5rO5MCXo+etrX1jT6kx1ayXJYK6fBTQ=|0|jainnbr|TNTR-User|20230722122333|18000|"
 
+page_size = 100  # Number of records per page
+start_index = 0  # Starting index for pagination
 
-class="sc-bdVaJa sc-EHOje knYcft userGuideNewSearch ab-SimpleButton ab-SimpleButton--font-weight=normal ab-SimpleButton--variant-text ab-SimpleButton--tone-neutral"
+request_body = {
+    "select": "",
+    "orderBy": "",
+    "where": "tradeId in ('23199LN013996D', '23199LN014058D') AND sourceSystemId = 'SystemX'",
+    "maxResults": 0
+}
 
-toolbar_handle = component_discoverer.get_selenium_handle_of_page_containing_url('/toolbar/toolbar.html')
-driver.switch_to.window(toolbar_handle)
+headers = {
+    "Authorization": f"Bearer {sso_token}",
+    "Content-Type": "application/json"
+}
 
-time.sleep(10)
+# List to hold all fetched records
+all_records = []
 
-print("Launching Blotter")
-driver.execute_script(
-    "await FSBL.Clients.LauncherClient.spawn(arguments[0], arguments[1]);",
-    "Blotter | TNTR - MI", {"addToWorkspace": True}
-)
+try:
+    while True:
+        # Modify the start index for each page
+        request_body["start"] = start_index
 
-time.sleep(6)
+        response = requests.post(url, json=request_body, headers=headers)
+        response.raise_for_status()  # Raise an exception for any error status code
 
-print("Locating the Blotter | TNTR - MI")
-tntr_mi = component_discoverer.get_selenium_handle_of_page_containing_url('Finsemble-SD-ChartIQ/technical-analysis-chart.html')
-driver.switch_to.window(tntr_mi)
+        # Process the response data
+        data = response.json()
 
+        # Append the fetched records to the list
+        all_records.extend(data)
 
+        print(f"Received {len(data)} records for page starting at index {start_index}")
+
+        if len(data) < page_size:
+            # Break the loop if the received records are less than the page size
+            break
+
+        start_index += page_size
+
+    print("Data fetched successfully!")
+
+except requests.exceptions.RequestException as e:
+    print(f"Error occurred: {e}")
+
+# Save the data to a CSV file
+csv_file_path = "data.csv"
+
+try:
+    with open(csv_file_path, "w", newline="") as csvfile:
+        # Create a CSV writer object
+        writer = csv.DictWriter(csvfile, fieldnames=all_records[0].keys())
+
+        # Write the header row
+        writer.writeheader()
+
+        # Write the data rows
+        writer.writerows(all_records)
+
+    print(f"Data saved to {csv_file_path} successfully!")
+
+except IOError as e:
+    print(f"Error occurred while saving data to CSV: {e}")
