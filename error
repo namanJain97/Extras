@@ -1,9 +1,1 @@
-Exception occured while processing message for message: 20220922093014463_ICEICE199750340TR2_RAD_MIFID_CR.csv 
-
-Message 
-
-Failed to transform Message; nested exception is org.springframework.messaging.MessageHandlingException: nested exception is com.rbsfm.gtr.argon.client.MessageSourceException: please initialise the source Sender- Argon CNA::MsgType  ln:pre:cmg:rad_outbound_uat::file_xfer before calling handleMessage method  
-
-Exception Stacktrace 
-
-org.springframework.integration.transformer.MessageTransformationException: Failed to transform Message; nested exception is org.springframework.messaging.MessageHandlingException: nested exception is com.rbsfm.gtr.argon.client.MessageSourceException: please initialise the source Sender- Argon CNA::MsgType  ln:pre:cmg:rad_outbound_uat::file_xfer before calling handleMessage method  
+f"((tradeId = ('{trade_id}') AND recordVersion = {record_version}) OR(tradeId = ('{trade_id}') AND recordVersion = {record_version}) OR (tradeId = ('{trade_id}') AND recordVersion = {record_version})) AND sourceSystemId = 'SystemX'"
