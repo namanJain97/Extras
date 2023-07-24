@@ -1,0 +1,10 @@
+element1 = driver.find_element(By.ID, 'react-select-9-input')
+element1.click()
+element1.send_keys("Real Time")
+element1.send_keys(Keys.ENTER + Keys.TAB + Keys.TAB + Keys.TAB + Keys.TAB + Keys.TAB + Keys.TAB)
+
+
+active_element = driver.switch_to.active_element
+actions = ActionChains(driver)
+actions.move_to_element(active_element)
+actions.send_keys("Transaction")
