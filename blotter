@@ -1,21 +1,121 @@
-public void Create_New_Interaction_App()
-        {
-            driver.SwitchToWindow(Toolbar);
-            driver.Click(AdvancedAppLauncherToggle);
-            driver.SwitchToWindow(AdvancedAppLauncherMenu);
-            Thread.Sleep(2000);
-            driver.FindElements(By.XPath(ActionMenuAAL))[1].Click();
-            Thread.Sleep(1000);
-            var appName = "Demo Interaction App";
-            driver.FindElements(By.XPath(SingleInputBox))[0].SendKeys(appName);
-            driver.FindElements(By.XPath(SingleInputBox))[1].SendKeys("https://natwestmarkets--tst221202--c.sandbox.vf.force.com/apex/nwm_interactions");
-            driver.Click(ConfirmButton);
-            Thread.Sleep(2000);
-            driver.SwitchToWindow(AdvancedAppLauncherMenu);
-            driver.SearchAndOpenApp(InputSearchBox, "Demo Interaction App");
-            Thread.Sleep(5000);
-            driver.SwitchToWindow(WindowTitleBar);
-            driver.FindElement(By.XPath(MaximiseButton)).Click();
-            driver.SwitchToWindow(InteractionWindow);
-            Assert.IsTrue(driver.Title == "Interactions", "Faield to launch Interactions app");
-        }
+[
+    {
+        "ApplicationId": "OpenFin.Downloader",
+        "Version": "1.0.3",
+        "IsRunning": true,
+        "WorkingDirectory": "C:\\Users\\jainnbr\\AppData\\Local\\NWM\\FluidDesktopServices\\installs\\OpenFin.Downloader\\1.0.3",
+        "Arguments": "\"C:\\Users\\jainnbr\\AppData\\Local\\NWM\\FluidDesktopServices\\installs\\OpenFin.Downloader\\1.0.3\\Openfin.Downloader.exe\" env=UAT fdsProcessId=\"OpenFin.Downloader\"",
+        "LogFile": "C:\\Users\\jainnbr\\AppData\\Local\\Temp\\NWM\\Fluid\\${var:env}\\logs\\Openfin.Downloader.2023-07-26.log",
+        "StartTime": "2023-07-26T16:38:24.0692381+05:30",
+        "ProcessName": "Openfin.Downloader.exe",
+        "Uri": "fluid-uat://OpenFin.Downloader/uat",
+        "Id": "OpenFin.Downloader",
+        "Pid": 32856,
+        "ReferenceCount": 1,
+        "KeepAlive": true,
+        "OrphanLifetimeSeconds": 0,
+        "ChildProcesses": []
+    },
+    {
+        "ApplicationId": "FluidDesktop.User",
+        "Version": "22.1.148.0",
+        "IsRunning": true,
+        "WorkingDirectory": "C:\\Users\\jainnbr\\AppData\\Local\\NWM\\FluidDesktopServices\\installs\\FluidDesktop.User\\22.2.1",
+        "Arguments": "\"C:\\Users\\jainnbr\\AppData\\Local\\NWM\\FluidDesktopServices\\installs\\FluidDesktop.User\\22.2.1\\Fluid.Desktop.User.exe\" env=UAT fdsProcessId=\"FluidDesktop.User\"",
+        "LogFile": "C:\\Users\\jainnbr\\AppData\\Local\\Temp\\NWM\\Fluid\\UAT\\logs\\Fluid.Desktop.User.2023-07-26.log",
+        "StartTime": "2023-07-26T16:38:18.8433101+05:30",
+        "ProcessName": "Fluid.Desktop.User.exe",
+        "Uri": "fluid-uat://FluidDesktop.User/uat",
+        "Id": "FluidDesktop.User",
+        "Pid": 29944,
+        "ReferenceCount": 1,
+        "KeepAlive": true,
+        "OrphanLifetimeSeconds": 0,
+        "ChildProcesses": []
+    },
+    {
+        "ApplicationId": "Frontier.Diagnostics.Agent",
+        "Version": "1.2.0-alpha.2",
+        "IsRunning": true,
+        "WorkingDirectory": "C:\\Users\\jainnbr\\AppData\\Local\\NWM\\FluidDesktopServices\\installs\\Frontier.Diagnostics.Agent\\1.2.0-alpha.2",
+        "Arguments": "\"C:\\Users\\jainnbr\\AppData\\Local\\NWM\\FluidDesktopServices\\installs\\Frontier.Diagnostics.Agent\\1.2.0-alpha.2\\Frontier.Diagnostics.Agent.exe\" env=UAT fdsProcessId=\"Frontier.Diagnostics.Agent\"",
+        "LogFile": "C:\\Users\\jainnbr\\AppData\\Local\\Temp\\NWM\\Fluid\\UAT\\logs\\Frontier.Diagnostics.Agent.2023-07-26.log",
+        "StartTime": "2023-07-26T16:38:29.1765377+05:30",
+        "ProcessName": "Frontier.Diagnostics.Agent.exe",
+        "Uri": "fluid-uat://Frontier.Diagnostics.Agent/uat",
+        "Id": "Frontier.Diagnostics.Agent",
+        "Pid": 27288,
+        "ReferenceCount": 1,
+        "KeepAlive": true,
+        "OrphanLifetimeSeconds": 0,
+        "ChildProcesses": []
+    },
+    {
+        "ApplicationId": "TNTR.Kortex",
+        "Version": "1.4.0.387",
+        "IsRunning": true,
+        "WorkingDirectory": "C:\\Users\\jainnbr\\AppData\\Local\\NWM\\FluidDesktopServices\\installs\\TNTR.Kortex\\1.0.0.387",
+        "Arguments": "\"C:\\Users\\jainnbr\\AppData\\Local\\NWM\\FluidDesktopServices\\installs\\TNTR.Kortex\\1.0.0.387\\Tntr.Kortex.Service.Host.exe\" env=UAT fdsProcessId=\"TNTR.Kortex\"",
+        "LogFile": "${basedir}/Logs/2023-07-26.log",
+        "StartTime": "2023-07-26T16:40:05.3313159+05:30",
+        "ProcessName": "Tntr.Kortex.Service.Host.exe",
+        "Uri": "fluid-uat://TNTR.Kortex/UAT",
+        "Id": "TNTR.Kortex",
+        "Pid": 7448,
+        "ReferenceCount": 1,
+        "KeepAlive": false,
+        "OrphanLifetimeSeconds": 0,
+        "ChildProcesses": []
+    },
+    {
+        "ApplicationId": "Fdc3.DesktopAgent.Backplane",
+        "Version": "1.5.1",
+        "IsRunning": true,
+        "WorkingDirectory": "C:\\Users\\jainnbr\\AppData\\Local\\NWM\\FluidDesktopServices\\installs\\Fdc3.DesktopAgent.Backplane\\1.5.1",
+        "Arguments": "\"C:\\Users\\jainnbr\\AppData\\Local\\NWM\\FluidDesktopServices\\installs\\Fdc3.DesktopAgent.Backplane\\1.5.1\\Fdc3.DesktopAgent.Backplane.exe\" env=UAT fdsProcessId=\"Fdc3.DesktopAgent.Backplane\"",
+        "LogFile": "C:\\Users\\jainnbr\\AppData\\Local\\Temp\\NWM\\Fluid\\UAT\\logs\\Fdc3.DesktopAgent.Backplane.2023-07-26.log",
+        "StartTime": "2023-07-26T16:38:34.0606752+05:30",
+        "ProcessName": "Fdc3.DesktopAgent.Backplane.exe",
+        "Uri": "fluid-uat://Fdc3.DesktopAgent.Backplane/uat",
+        "Id": "Fdc3.DesktopAgent.Backplane",
+        "Pid": 20944,
+        "ReferenceCount": 1,
+        "KeepAlive": true,
+        "OrphanLifetimeSeconds": 0,
+        "ChildProcesses": []
+    },
+    {
+        "ApplicationId": "FluidDesktop.Logging",
+        "Version": "22.1.147.0",
+        "IsRunning": true,
+        "WorkingDirectory": "C:\\Users\\jainnbr\\AppData\\Local\\NWM\\FluidDesktopServices\\installs\\FluidDesktop.Logging\\22.1.147",
+        "Arguments": "\"C:\\Users\\jainnbr\\AppData\\Local\\NWM\\FluidDesktopServices\\installs\\FluidDesktop.Logging\\22.1.147\\Fluid.Desktop.Logging.exe\" env=UAT fdsProcessId=\"FluidDesktop.Logging\"",
+        "LogFile": "C:\\Users\\jainnbr\\AppData\\Local\\Temp\\NWM\\Fluid\\UAT\\logs\\Fluid.Desktop.Logging.2023-07-26.log",
+        "StartTime": "2023-07-26T16:38:17.7806951+05:30",
+        "ProcessName": "Fluid.Desktop.Logging.exe",
+        "Uri": "fluid-uat://FluidDesktop.Logging/uat",
+        "Id": "FluidDesktop.Logging",
+        "Pid": 26488,
+        "ReferenceCount": 1,
+        "KeepAlive": true,
+        "OrphanLifetimeSeconds": 0,
+        "ChildProcesses": []
+    },
+    {
+        "ApplicationId": "FluidDesktop.Notifications",
+        "Version": "22.1.147.0",
+        "IsRunning": true,
+        "WorkingDirectory": "C:\\Users\\jainnbr\\AppData\\Local\\NWM\\FluidDesktopServices\\installs\\FluidDesktop.Notifications\\22.1.147",
+        "Arguments": "\"C:\\Users\\jainnbr\\AppData\\Local\\NWM\\FluidDesktopServices\\installs\\FluidDesktop.Notifications\\22.1.147\\Fluid.Desktop.Notifications.exe\" env=UAT userSettings=\"FluidDesktop.Notifications\" fdsProcessId=\"FluidDesktop.Notifications\"",
+        "LogFile": "C:\\Users\\jainnbr\\AppData\\Local\\Temp\\NWM\\Fluid\\UAT\\logs\\Fluid.Desktop.Notifications.2023-07-26.log",
+        "StartTime": "2023-07-26T16:38:14.2795009+05:30",
+        "ProcessName": "Fluid.Desktop.Notifications.exe",
+        "Uri": "fluid-uat://FluidDesktop.Notifications/uat",
+        "Id": "FluidDesktop.Notifications",
+        "Pid": 20252,
+        "ReferenceCount": 1,
+        "KeepAlive": true,
+        "OrphanLifetimeSeconds": 0,
+        "ChildProcesses": []
+    }
+]
