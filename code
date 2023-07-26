@@ -1,44 +1,26 @@
-import requests
+ private async getAllDetails(serviceUrl: string): Promise<Map<string, ProcessDetails>> {
+    try {
 
-url = "http://lonrs14595.fm.rbsgrp.net:40533/ignite/trade/regulatory/mas/trade/query"
-sso_token = "IPWka9Lxut8D+ScAHved/aWrMb/Q3RJswmkK824MDc88Kh7MFqSq5A4DDc56P6i2cE4/xSvIIF4f+NpNFJED4/0tS78IX0yfLwf6T+DFZsuKjo/v3Ck36sS83UoOisdjog6GIeBuYjXoU062FxuMzRjkGvsrNt9AAnglQeeoty0=|0|jainnbr|Ignite|20230722095557|86400|"
+      const res = await fetch(
+        `${serviceUrl}${getSelectedEnvironmentConfig().endpointFluidProcess}details`,
+        {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
+      );
 
-page_size = 100  # Number of records per page
-start_index = 0  # Starting index for pagination
+      if (!res.ok) {
+        throw new Error(res.statusText);
+      }
 
-request_body = {
-    "select": "",
-    "orderBy": "",
-    "where": "tradeId = '23199LN013996D' AND sourceSystemId = 'SystemX'",
-    "maxResults": 0
-}
+      const result: ProcessDetails[] = await res.json();
+      const processes = new Map(result.filter(i => i.IsRunning).map(i => [i.Id, i]));
+      return processes;
 
-headers = {
-    "Authorization": f"Bearer {sso_token}",
-    "Content-Type": "application/json"
-}
+    } catch (e) {
+      return new Map();
+    }
 
-try:
-    while True:
-        # Modify the start index for each page
-        request_body["start"] = start_index
-
-        response = requests.post(url, json=request_body, headers=headers)
-        response.raise_for_status()  # Raise an exception for any error status code
-
-        # Process the response data
-        data = response.json()
-        # Process the fetched records as per your requirement
-        print(f"Received {len(data)} records for page starting at index {start_index}")
-        print(data)  # Print the fetched records
-
-        if len(data) < page_size:
-            # Break the loop if the received records are less than the page size
-            break
-
-        start_index += page_size
-
-    print("Data fetched successfully!")
-
-except requests.exceptions.RequestException as e:
-    print(f"Error occurred: {e}")
+  }
