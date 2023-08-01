@@ -1,26 +1,40 @@
- private async getAllDetails(serviceUrl: string): Promise<Map<string, ProcessDetails>> {
-    try {
+import unittest
+import requests
 
-      const res = await fetch(
-        `${serviceUrl}${getSelectedEnvironmentConfig().endpointFluidProcess}details`,
-        {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        }
-      );
+def is_service_running(service_url, service_name):
+    try:
+        res = requests.get(f"{service_url}/details", headers={"Content-Type": "application/json"})
+        res.raise_for_status()
+        running_services = res.json()
 
-      if (!res.ok) {
-        throw new Error(res.statusText);
-      }
+        for service in running_services:
+            if service["ApplicationId"] == service_name:
+                return True
 
-      const result: ProcessDetails[] = await res.json();
-      const processes = new Map(result.filter(i => i.IsRunning).map(i => [i.Id, i]));
-      return processes;
+        return False
 
-    } catch (e) {
-      return new Map();
-    }
+    except requests.exceptions.RequestException as e:
+        raise Exception(f"Failed to fetch service details: {e}")
 
-  }
+class TestMiBlotterAutomation(unittest.TestCase):
+    def test_kortex_service_running(self):
+        service_url = "http://localhost:56002/api/process"  # Replace this with your actual service URL
+        service_name = "TNTR.Kortex"
+
+        try:
+            if is_service_running(service_url, service_name):
+                self.assertTrue(True, "TNTR.Kortex service is running.")
+            else:
+                self.fail("TNTR.Kortex service is not running.")
+
+        except Exception as e:
+            self.fail(f"Error: {e}")
+
+    # Add more test methods for other scenarios in TestBlotterAutomation class
+
+class TestSomeOtherScenario(unittest.TestCase):
+    def test_something(self):
+        # Your test logic here
+        self.assertNotEqual(1, 0)
+
+    # Add more test methods for other scenarios in TestSomeOtherScenario class
