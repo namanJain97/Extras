@@ -2,17 +2,17 @@ def display_results_in_table(results):
     root = tk.Tk()
     root.title("Automation Results")
     root.configure(bg="lightgray")
-    table = ttk.Treeview(root)
     
     style = ttk.Style()
-    style.configure("Treeview.Heading", font=("Arial", 12, "bold"))
-    style.configure("Treeview", rowheight=25)
+    style.configure("Treeview.Heading", font=("Arial", 12, "bold"), background="#336699")
+    style.configure("Treeview", rowheight=25, borderwidth=2, relief="solid", padding=10)
 
+    table = ttk.Treeview(root, show="headings", style="Treeview")
     table["columns"] = ("Step", "Description", "Status")
     table.column("#0", width=1, stretch=tk.NO)
-    table.column("Step", anchor=tk.CENTER, width=400)
-    table.column("Description", anchor=tk.CENTER, width=400)
-    table.column("Status", anchor=tk.CENTER, width=400)
+    table.column("Step", anchor=tk.CENTER, width=350)
+    table.column("Description", anchor=tk.CENTER, width=350)
+    table.column("Status", anchor=tk.CENTER, width=350)
 
     table.heading("#0", text="", anchor=tk.CENTER)
     table.heading("Step", text="Test Name", anchor=tk.CENTER)
@@ -20,8 +20,8 @@ def display_results_in_table(results):
     table.heading("Status", text="Status", anchor=tk.CENTER)
 
     for step, description, status in results:
-        table.insert("", tk.END, values=(step, description, status))
-
+        table.insert("", tk.END, values=(step, description, status))   
+        
     table.pack(pady=25)
 
     root.mainloop()
