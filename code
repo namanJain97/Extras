@@ -1,12 +1,27 @@
-try:
-    if is_service_running(service_url, service_name):
-        print("TNTR.Kortex service is running.")
-    else:
-        # Show a popup message when the service is not running
-        root = tk.Tk()
-        root.withdraw()
-        messagebox.showerror("Service Not Running", "TNTR.Kortex service is not running for UAT.")
-        root.destroy()
+def display_results_in_table(results):
+    root = tk.Tk()
+    root.title("Automation Results")
+    root.configure(bg="lightgray")
+    table = ttk.Treeview(root)
+    
+    style = ttk.Style()
+    style.configure("Treeview.Heading", font=("Arial", 12, "bold"))
+    style.configure("Treeview", rowheight=25)
 
-except Exception as e:
-    print(f"Error: {e}")
+    table["columns"] = ("Step", "Description", "Status")
+    table.column("#0", width=1, stretch=tk.NO)
+    table.column("Step", anchor=tk.CENTER, width=400)
+    table.column("Description", anchor=tk.CENTER, width=400)
+    table.column("Status", anchor=tk.CENTER, width=400)
+
+    table.heading("#0", text="", anchor=tk.CENTER)
+    table.heading("Step", text="Test Name", anchor=tk.CENTER)
+    table.heading("Description", text="Description", anchor=tk.CENTER)
+    table.heading("Status", text="Status", anchor=tk.CENTER)
+
+    for step, description, status in results:
+        table.insert("", tk.END, values=(step, description, status))
+
+    table.pack(pady=25)
+
+    root.mainloop()
