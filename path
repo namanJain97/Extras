@@ -1,6 +1,0 @@
-driver = webdriver.Chrome('C:/Program Files/Selenium/chromedriver.exe')
-
-# Open the application directly
-driver.get('fluid-uat://Frontier.Desktop/uat/')
-
-application path - 'C:\Users\jainnbr\AppData\Local\NWM\FluidLauncher\installs\Frontier.Desktop\4.5.4\FrontierDesktop.exe'
