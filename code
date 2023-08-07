@@ -1,3 +1,26 @@
-element = driver.find_element(By.XPATH, "//div[contains(@class, 'ag-root-wrapper ag-ltr ag-layout-normal')]")
+inner_text_list = []
+    element = driver.find_element(By.XPATH, "//div[contains(@class, 'ag-body ag-layout-normal')]")  
     inner_text = element.text
-    print(inner_text)
+    inner_text_list.append(inner_text)
+        
+    while True:
+        last_scroll_height = driver.execute_script("return document.body.scrollHeight")
+        actions = ActionChains(driver)
+        actions.send_keys(Keys. PAGE_DOWN)
+        time.sleep(1)
+        actions.perform()
+        new_scroll_height = driver.execute_script("return document.body.scrollHeight")
+        # Get the new inner text
+        new_inner_text = element.text
+           
+        if new_inner_text == inner_text:
+            # No new content added, break the loop
+            break
+        
+        # Update the inner_text with the new inner text
+        inner_text = new_inner_text
+
+        # Append the new inner_text to the list
+        inner_text_list.append(inner_text)
+        
+    print(inner_text_list)
