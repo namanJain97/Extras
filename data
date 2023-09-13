@@ -1,3 +1,19 @@
-driver.find_element(By.XPATH, "//span[contains(text(),'Export')]").click()
+pyperclip.copy("")
+        
+        # Select all content on the page by sending Ctrl+A keys
+        actionChains.send_keys(Keys.CONTROL + 'a')
+        time.sleep(1)
+        
+        # Copy the selected content by sending Ctrl+C keys
+        actionChains.send_keys(Keys.CONTROL + 'c')
+        
+        actionChains.perform()
 
-ag-menu-option-part ag-menu-option-text
+        # Get the copied text from the clipboard using pyperclip
+        copied_text = pyperclip.paste()
+        print("text copied")
+
+        # Save the copied text to a text file
+        with open("copied_content.txt", "w", encoding="utf-8") as text_file:
+            text_file.write(copied_text)
+            print("text pasted")
