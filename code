@@ -1,10 +1,20 @@
-first_row = driver.find_element(By.XPATH, "//div[contains(@class, 'ag-row-odd ag-row-no-focus ag-row ag-row-level-0 ag-row-position-absolute ag-row-not-inline-editing') and contains(@row-index, '1')]")
-        first_column = first_row.find_element(By.XPATH, "//div[contains(@class, 'ag-cell ag-cell-not-inline-editing ag-cell-normal-height padding-horizontal-tiny ag-cell-value') and contains(@col-id, 'reportDate')]")
-        first_column.click()
-        time.sleep(1)
-        driver.context_click(first_column)
-        time.sleep(1)
-        driver.find_element(By.XPATH, "//span[contains(@class, 'ag-menu-option-part ag-menu-option-text') and contains(text(),'Export')]").click()
-        time.sleep(1)
-        driver.find_element(By.XPATH, "//span[contains(@class, 'ag-menu-option-part ag-menu-option-text') and contains(text(),'CSV Export')]").click()
-        time.sleep(1)
+# Function to compare two CSV files
+def compare_csv_files(file1_path, file2_path):
+    # Function to read a CSV file and return its content as a list of rows
+    def read_csv_file(file_path):
+        with open(file_path, mode='r', encoding='utf-8') as file:
+            reader = csv.reader(file)
+            return list(reader)
+
+    # Read the content of both CSV files
+    csv_file1_data = read_csv_file(file1_path)
+    csv_file2_data = read_csv_file(file2_path)
+
+    # Compare the data from the two CSV files (for example, compare the first rows)
+    if csv_file1_data == csv_file2_data:
+        print("The CSV files are identical.")
+        return True
+        
+    else:
+        print("The CSV files are different.")
+        return False
