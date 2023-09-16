@@ -1,26 +1,10 @@
-inner_text_list = []
-    element = driver.find_element(By.XPATH, "//div[contains(@class, 'ag-body ag-layout-normal')]")  
-    inner_text = element.text
-    inner_text_list.append(inner_text)
-        
-    while True:
-        last_scroll_height = driver.execute_script("return document.body.scrollHeight")
-        actions = ActionChains(driver)
-        actions.send_keys(Keys. PAGE_DOWN)
+first_row = driver.find_element(By.XPATH, "//div[contains(@class, 'ag-row-odd ag-row-no-focus ag-row ag-row-level-0 ag-row-position-absolute ag-row-not-inline-editing') and contains(@row-index, '1')]")
+        first_column = first_row.find_element(By.XPATH, "//div[contains(@class, 'ag-cell ag-cell-not-inline-editing ag-cell-normal-height padding-horizontal-tiny ag-cell-value') and contains(@col-id, 'reportDate')]")
+        first_column.click()
         time.sleep(1)
-        actions.perform()
-        new_scroll_height = driver.execute_script("return document.body.scrollHeight")
-        # Get the new inner text
-        new_inner_text = element.text
-           
-        if new_inner_text == inner_text:
-            # No new content added, break the loop
-            break
-        
-        # Update the inner_text with the new inner text
-        inner_text = new_inner_text
-
-        # Append the new inner_text to the list
-        inner_text_list.append(inner_text)
-        
-    print(inner_text_list)
+        driver.context_click(first_column)
+        time.sleep(1)
+        driver.find_element(By.XPATH, "//span[contains(@class, 'ag-menu-option-part ag-menu-option-text') and contains(text(),'Export')]").click()
+        time.sleep(1)
+        driver.find_element(By.XPATH, "//span[contains(@class, 'ag-menu-option-part ag-menu-option-text') and contains(text(),'CSV Export')]").click()
+        time.sleep(1)
