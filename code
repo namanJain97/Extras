@@ -1,20 +1,10 @@
-# Function to compare two CSV files
-def compare_csv_files(file1_path, file2_path):
-    # Function to read a CSV file and return its content as a list of rows
-    def read_csv_file(file_path):
-        with open(file_path, mode='r', encoding='utf-8') as file:
-            reader = csv.reader(file)
-            return list(reader)
-
-    # Read the content of both CSV files
-    csv_file1_data = read_csv_file(file1_path)
-    csv_file2_data = read_csv_file(file2_path)
-
-    # Compare the data from the two CSV files (for example, compare the first rows)
-    if csv_file1_data == csv_file2_data:
-        print("The CSV files are identical.")
-        return True
-        
-    else:
-        print("The CSV files are different.")
-        return False
+actionChains = ActionChains(driver)
+        actionChains.send_keys(Keys.TAB)
+        actionChains.send_keys(Keys.TAB)
+        actionChains.send_keys(Keys.TAB)
+        actionChains.send_keys(Keys.TAB)
+        actionChains.send_keys(Keys.TAB)
+        time.sleep(1)
+        actionChains.send_keys(Keys.END)
+        actionChains.perform()
+        time.sleep(1)
