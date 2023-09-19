@@ -1,2 +1,3 @@
-driver.find_element(By.XPATH, "//form[@class='SearchQueryModal_form__rx4hf']//input[@class='sc-bdVaJa iXDzJJ ab-Input ab-Input--type-text']").send_keys("Daily MI")
-        time.sleep(1)
+# Reset Buttons
+help_button = driver.find_element(By.XPATH, "//button[contains(@class, 'sc-bdVaJa sc-EHOje cOOiJf ab-DashboardToolbar__Home__help  ab-SimpleButton ab-SimpleButton--font-weight=normal ab-SimpleButton--variant-text ab-SimpleButton--tone-neutral')]")
+reset_blotter = driver.find_element(By.XPATH, "//div[@class='sc-bdVaJa ftpPTU ab-Dialog ab-Dialog--modal']//div[@class='HelpModal_toolbarHeader__2JFr-']//button[contains(@class, 'sc-bdVaJa sc-EHOje cOOiJf ab-SimpleButton ab-SimpleButton--font-weight=normal ab-SimpleButton--variant-outlined ab-SimpleButton--tone-neutral')]")
