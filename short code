@@ -1,3 +1,11 @@
-# Reset Buttons
-help_button = driver.find_element(By.XPATH, "//button[contains(@class, 'sc-bdVaJa sc-EHOje cOOiJf ab-DashboardToolbar__Home__help  ab-SimpleButton ab-SimpleButton--font-weight=normal ab-SimpleButton--variant-text ab-SimpleButton--tone-neutral')]")
-reset_blotter = driver.find_element(By.XPATH, "//div[@class='sc-bdVaJa ftpPTU ab-Dialog ab-Dialog--modal']//div[@class='HelpModal_toolbarHeader__2JFr-']//button[contains(@class, 'sc-bdVaJa sc-EHOje cOOiJf ab-SimpleButton ab-SimpleButton--font-weight=normal ab-SimpleButton--variant-outlined ab-SimpleButton--tone-neutral')]")
+# Checking Kortex Service
+    if is_service_running(service_url, service_name):
+        
+        print("TNTR.Kortex service is running.")
+        recon_automation_results.append(("Kortex service", "Checking if Kortex service is running", "Passed"))
+        
+    elif is_service_running(service_url, service_name) == False:
+        step, description, status = ("Kortex service", "Kortex service running for UAT", "Failed")
+        recon_automation_results.append((step, description, status))
+        recon_automation_results.append(("Advance Search", "Advance Search Query for blotter", "Not run"))
+    
