@@ -1,11 +1,12 @@
-# Checking Kortex Service
-    if is_service_running(service_url, service_name):
-        
-        print("TNTR.Kortex service is running.")
-        recon_automation_results.append(("Kortex service", "Checking if Kortex service is running", "Passed"))
-        
-    elif is_service_running(service_url, service_name) == False:
-        step, description, status = ("Kortex service", "Kortex service running for UAT", "Failed")
-        recon_automation_results.append((step, description, status))
-        recon_automation_results.append(("Advance Search", "Advance Search Query for blotter", "Not run"))
+def search_test(driver):
     
+    row_count = driver.find_elements(By.CLASS_NAME, "ag-status-name-value-value")
+    
+    # Iterate through each header cell element
+    for element in row_count:
+            try:
+                text = element.text
+                print(text)
+            except StaleElementReferenceException:
+                # Handle stale element exception here, e.g., by re-locating the element
+                pass
