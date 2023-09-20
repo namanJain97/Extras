@@ -1,6 +1,8 @@
 def search_test(driver):
-    
     row_count = driver.find_elements(By.CLASS_NAME, "ag-status-name-value-value")
+    
+    # Initialize a flag to track if any value is greater than 0
+    found_greater_than_zero = False
     
     # Iterate through each header cell element
     for element in row_count:
@@ -8,9 +10,10 @@ def search_test(driver):
             text = element.text
             text_as_int = int(text)
             if text_as_int > 0:
-                print("Pass")
-            else:
-                print("Fail")
+                found_greater_than_zero = True
         except StaleElementReferenceException:
             # Handle stale element exception here, e.g., by re-locating the element
             pass
+    
+    # Return True if any value is greater than 0, otherwise return False
+    return found_greater_than_zero
