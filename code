@@ -20,18 +20,12 @@ app = Application(backend="uia").connect(path=full_exe_path)
 button_text = "UAT"
 
 try:
-    # Find the specific window by its title
+    # Activate the specific window by its title
     specific_window_title = "Active Dashboard Manager"
-    specific_window = app.window(title=specific_window_title)
-
-    # Activate the specific window
-    specific_window.set_focus()
-
-    # Maximize the specific window
-    specific_window.maximize()
+    app.window(title=specific_window_title).set_focus()
 
     # Find the button element by its text and click it
-    button_element = specific_window.child_window(title=button_text, control_type="Button")
+    button_element = app.window(title=specific_window_title).child_window(title=button_text, control_type="Button")
     if button_element.exists():
         button_element.click_input()
     else:
