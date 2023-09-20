@@ -1,7 +1,8 @@
 import os
 import subprocess
 import time
-from pywinauto import Application
+from pywinauto.application import Application
+from pywinauto import findwindows
 
 working_directory = r"C:\Users\jainnbr\AppData\Local\Microsoft\AppV\Client\Integration\69A67715-479F-47AC-AF29-2CB913A54A51\Root\VFS\ProgramFilesX64\ITRSGroup\Geneos Active Console"
 exe_path = "ActiveConsole.exe"
@@ -13,22 +14,31 @@ subprocess.Popen([full_exe_path], cwd=working_directory)
 # Sleep time for opening the application
 time.sleep(20)
 
-# Use pywinauto to attach to the application window
-app = Application(backend="uia").connect(path=full_exe_path)
+# Find the specific window by its title
+specific_window_title = "Active Dashboard Manager"
+window = None
+for window in findwindows.find_elements(title_re=specific_window_title):
+    if window.window_text() == specific_window_title:
+        break
 
-# Specify the button's text you want to click
-button_text = "UAT"
+if window:
+    app = Application(backend="uia").connect(handle=window.handle)
 
-try:
-    # Activate the specific window by its title
-    specific_window_title = "Active Dashboard Manager"
-    app.window(title=specific_window_title).set_focus()
+    # Specify the button's text you want to click
+    button_text = "UAT"
 
-    # Find the button element by its text and click it
-    button_element = app.window(title=specific_window_title).child_window(title=button_text, control_type="Button")
-    if button_element.exists():
-        button_element.click_input()
-    else:
-        print(f"Button with text '{button_text}' not found.")
-except Exception as e:
-    print(f"Error: {e}")
+    try:
+        # Activate and maximize the specific window
+        window.set_focus()
+        window.maximize()
+
+        # Find the button element by its text and click it
+        button_element = app.window(title=button_text)
+        if button_element.exists():
+            button_element.click_input()
+        else:
+            print(f"Button with text '{button_text}' not found.")
+    except Exception as e:
+        print(f"Error: {e}")
+else:
+    print(f"Specific window with title '{specific_window_title}' not found.")
