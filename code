@@ -1,10 +1,32 @@
-actionChains = ActionChains(driver)
-        actionChains.send_keys(Keys.TAB)
-        actionChains.send_keys(Keys.TAB)
-        actionChains.send_keys(Keys.TAB)
-        actionChains.send_keys(Keys.TAB)
-        actionChains.send_keys(Keys.TAB)
-        time.sleep(1)
-        actionChains.send_keys(Keys.END)
-        actionChains.perform()
-        time.sleep(1)
+import os
+import subprocess
+import time
+import pygetwindow as gw
+
+working_directory = r"C:\Users\jainnbr\AppData\Local\Microsoft\AppV\Client\Integration\69A67715-479F-47AC-AF29-2CB913A54A51\Root\VFS\ProgramFilesX64\ITRSGroup\Geneos Active Console"
+
+# Set the .exe file path relative to the working directory
+exe_path = "ActiveConsole.exe"
+
+# Combine the working directory and exe_path to get the full path
+full_exe_path = os.path.join(working_directory, exe_path)
+
+# Run the .exe file with the specified working directory
+subprocess.Popen([full_exe_path], cwd=working_directory)
+
+# Sleep time for opening the application
+time.sleep(20)
+
+# Activate or bring the specific window to the foreground
+specific_window_title = "Active Dashboard Manager"
+specific_window = gw.getWindowsWithTitle(specific_window_title)
+
+if specific_window:
+    specific_window = specific_window[0]  # Get the specific window object
+    specific_window.activate()
+    specific_window.maximize()  # Maximize the window
+    
+    time.sleep(5)
+
+else:
+    print("Specific window not found.")
