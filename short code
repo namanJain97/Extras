@@ -1,5 +1,9 @@
+import re
+
 def search_test(driver):
-    
     rowCount = driver.find_element(By.CLASS_NAME, row_count)
+    text_with_commas = rowCount.text
+    # Use regular expression to remove commas
+    cleaned_text = re.sub(r'[^\d]', '', text_with_commas)
     
-    return int(rowCount.text)
+    return int(cleaned_text)
