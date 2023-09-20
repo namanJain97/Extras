@@ -4,9 +4,13 @@ def search_test(driver):
     
     # Iterate through each header cell element
     for element in row_count:
-            try:
-                text = element.text
-                print(text)
-            except StaleElementReferenceException:
-                # Handle stale element exception here, e.g., by re-locating the element
-                pass
+        try:
+            text = element.text
+            text_as_int = int(text)
+            if text_as_int > 0:
+                print("Pass")
+            else:
+                print("Fail")
+        except StaleElementReferenceException:
+            # Handle stale element exception here, e.g., by re-locating the element
+            pass
