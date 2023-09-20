@@ -24,12 +24,17 @@ try:
     specific_window_title = "Active Dashboard Manager"
     specific_window = app.window(title=specific_window_title)
 
-    # Activate and maximize the specific window
-    specific_window.wait('visible')
+    # Activate the specific window
+    specific_window.set_focus()
+
+    # Maximize the specific window
     specific_window.maximize()
 
     # Find the button element by its text and click it
-    specific_window.window(title=button_text).click_input()
+    button_element = specific_window.child_window(title=button_text, control_type="Button")
+    if button_element.exists():
+        button_element.click_input()
+    else:
+        print(f"Button with text '{button_text}' not found.")
 except Exception as e:
     print(f"Error: {e}")
-
