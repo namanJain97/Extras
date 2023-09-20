@@ -1,8 +1,9 @@
 import os
 import subprocess
 import time
+import pygetwindow as gw
 from pywinauto import Application, findwindows
-from pywinauto.keyboard import send_keys
+from pywinauto.keyboard import *
 
 working_directory = r"C:\Users\jainnbr\AppData\Local\Microsoft\AppV\Client\Integration\69A67715-479F-47AC-AF29-2CB913A54A51\Root\VFS\ProgramFilesX64\ITRSGroup\Geneos Active Console"
 exe_path = "ActiveConsole.exe"
@@ -18,18 +19,21 @@ time.sleep(20)
 app = Application(backend="uia").connect(path=full_exe_path)
 
 # Specify the button's text you want to click
-button_text = "Your Button Text"  # Replace with your button's text
+button_text = "UAT"
 
-try:
-    # Find the specific window by its title
-    specific_window_title = "Active Dashboard Manager"
-    specific_window = app.window(title=specific_window_title)
+# Find the specific window by its title
+specific_window_title = "Active Dashboard Manager"
+specific_window = gw.getWindowsWithTitle(specific_window_title)
 
-    # Activate and maximize the specific window
-    specific_window.activate()
-    specific_window.maximize()
+if specific_window:
+        specific_window = specific_window[0]  # Get the specific window object
+        specific_window.activate()
+        specific_window.maximize()  # Maximize the window
+        
+        time.sleep(5)
 
-    # Find the button element by its text and click it
-    specific_window.window(title=button_text).click_input()
-except findwindows.ElementNotFoundError:
-    print(f"Button with text '{button_text}' not found in the specific window.")
+        # Find the button element by its text and click it
+        specific_window.window(title=button_text).click_input()
+        
+else:
+        print("Specific window not found.")
