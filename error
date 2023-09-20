@@ -1,1 +1,3 @@
-f"((tradeId = ('{trade_id}') AND recordVersion = {record_version}) OR(tradeId = ('{trade_id}') AND recordVersion = {record_version}) OR (tradeId = ('{trade_id}') AND recordVersion = {record_version})) AND sourceSystemId = 'SystemX'"
+C:\ProgramData\anaconda3\Lib\site-packages\pywinauto\base_application.py:361: UserWarning: Wait method is deprecated and will be removed. Please, use find() instead of wait() or wait('exists'). wait_visible(), wait_enabled() and wait_active() are methods of HwndWrapper object, so you can use it like .find().wait_active(), .find().wait_visible().wait_enabled(), etc.
+  warnings.warn("Wait method is deprecated and will be removed. "
+Error: dictionary keys changed during iteration
