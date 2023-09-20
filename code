@@ -1,3 +1,9 @@
+import os
+import subprocess
+import time
+from pywinauto import Application, findwindows
+from pywinauto.keyboard import send_keys
+
 working_directory = r"C:\Users\jainnbr\AppData\Local\Microsoft\AppV\Client\Integration\69A67715-479F-47AC-AF29-2CB913A54A51\Root\VFS\ProgramFilesX64\ITRSGroup\Geneos Active Console"
 exe_path = "ActiveConsole.exe"
 full_exe_path = os.path.join(working_directory, exe_path)
@@ -15,9 +21,15 @@ app = Application(backend="uia").connect(path=full_exe_path)
 button_text = "Your Button Text"  # Replace with your button's text
 
 try:
-    # Find the button element by its text and click it
-    app.window(title=button_text).click_input()
-except findwindows.ElementNotFoundError:
-    print(f"Button with text '{button_text}' not found.")
+    # Find the specific window by its title
+    specific_window_title = "Active Dashboard Manager"
+    specific_window = app.window(title=specific_window_title)
 
-# You can also send keys or interact with other elements as needed
+    # Activate and maximize the specific window
+    specific_window.activate()
+    specific_window.maximize()
+
+    # Find the button element by its text and click it
+    specific_window.window(title=button_text).click_input()
+except findwindows.ElementNotFoundError:
+    print(f"Button with text '{button_text}' not found in the specific window.")
