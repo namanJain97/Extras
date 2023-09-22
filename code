@@ -1,44 +1,28 @@
-import os
-import subprocess
-import time
-from pywinauto.application import Application
-from pywinauto import findwindows
+# Fetches all fields name from columns
+def get_column_names(driver):
+    
+    column_fields = driver.find_elements(By.XPATH, all_col_fields)
+    
+    # Iterate through each cell element
+    for element in column_fields:
+            all_fields = element
+            
+    return all_fields
 
-working_directory = r"C:\Users\jainnbr\AppData\Local\Microsoft\AppV\Client\Integration\69A67715-479F-47AC-AF29-2CB913A54A51\Root\VFS\ProgramFilesX64\ITRSGroup\Geneos Active Console"
-exe_path = "ActiveConsole.exe"
-full_exe_path = os.path.join(working_directory, exe_path)
-
-# Run the .exe file with the specified working directory
-subprocess.Popen([full_exe_path], cwd=working_directory)
-
-# Sleep time for opening the application
-time.sleep(20)
-
-# Find the specific window by its title
-specific_window_title = "Active Dashboard Manager"
-window = None
-for window in findwindows.find_elements(title_re=specific_window_title):
-    if window.window_text() == specific_window_title:
-        break
-
-if window:
-    app = Application(backend="uia").connect(handle=window.handle)
-
-    # Specify the button's text you want to click
-    button_text = "UAT"
-
-    try:
-        # Activate and maximize the specific window
-        window.set_focus()
-        window.maximize()
-
-        # Find the button element by its text and click it
-        button_element = app.window(title=button_text)
-        if button_element.exists():
-            button_element.click_input()
-        else:
-            print(f"Button with text '{button_text}' not found.")
-    except Exception as e:
-        print(f"Error: {e}")
-else:
-    print(f"Specific window with title '{specific_window_title}' not found.")
+# For selecting a specific column by clicking on text
+def select_columnByText(driver, column_name):
+    
+    column_input = driver.find_element(By.XPATH, filter_column)
+    column_input.clear()
+    column_input.send_keys(column_name)
+    time.sleep(1)
+    
+    for element in get_column_names(driver):
+        if element.text == column_name:
+            element.click()
+            
+    column_input.clear()
+    column_input.send_keys("last action performed on")
+    time.sleep(1)
+    sel_col  = driver.find_element(By.XPATH, select_filtered_col)
+    sel_col.click()
