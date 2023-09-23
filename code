@@ -1,19 +1,21 @@
-# Get the username of the currently logged-in user
-username = os.getlogin()
-print("Racf:", username)
-    
 # Get the current date
-current_timestamp = datetime.now()
-current_date = current_timestamp.date()
-print("date:", current_date)
+    current_timestamp = datetime.now()
+    current_date = current_timestamp.date()
+    print(current_date)
     
-expected_last_action = "TntrAssignSelf"
+    # Get the username of the currently logged-in user
+    username = os.getlogin()
     
-# Extracts field values and validation for assign to self
-try:
+    # Expected last action
+    expected_last_action = "TntrAssignSelf"
+    
+    # Extracts field values and validation for assign to self
+    try:
         results_dict = validate_assignToSelf(driver)
         for item, result in results_dict.items():
-            if item == "Last Action Performed":
+            if item == "Last Action Performed On":
+                assert result == current_date
+            elif item == "Last Action Performed":
                 assert result == expected_last_action
             elif item == "Last Action Performed By":
                 assert result == username
@@ -25,8 +27,18 @@ try:
     except:
         recon_automation_results.append(("Assign To Self", "Assign To Self action on trade", "Failed"))
 
-# Convert the timestamp string to a datetime object
+# Returns the value of Last Action Performed On field
+def store_actionPerformedOn(driver):
+    
+    # Locate your web elements and store them in variables
+    element1 = driver.find_element(By.XPATH, value_performedOn)
+
+    # Extract text from the web elements
+    actionPerformedOn = element1.text
+    
+    # Convert the timestamp string to a date object
     timestamp = datetime.strptime(actionPerformedOn, "%Y-%m-%dT%H:%M:%S.%fZ")
     field_date = timestamp.date()
+    formatted_date = field_date.strftime("%Y-%m-%d")
 
-    return field_date
+    return formatted_date
