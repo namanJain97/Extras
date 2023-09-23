@@ -1,28 +1,32 @@
-# Fetches all fields name from columns
-def get_column_names(driver):
+# Get the username of the currently logged-in user
+username = os.getlogin()
+print("Racf:", username)
     
-    column_fields = driver.find_elements(By.XPATH, all_col_fields)
+# Get the current date
+current_timestamp = datetime.now()
+current_date = current_timestamp.date()
+print("date:", current_date)
     
-    # Iterate through each cell element
-    for element in column_fields:
-            all_fields = element
-            
-    return all_fields
+expected_last_action = "TntrAssignSelf"
+    
+# Extracts field values and validation for assign to self
+try:
+        results_dict = validate_assignToSelf(driver)
+        for item, result in results_dict.items():
+            if item == "Last Action Performed":
+                assert result == expected_last_action
+            elif item == "Last Action Performed By":
+                assert result == username
+            elif item == "Assigned To":
+                assert result == username
+        recon_automation_results.append(("Assign To Self", "Assign To Self action on trade", "Passed"))
+        time.sleep(1)
+        
+    except:
+        recon_automation_results.append(("Assign To Self", "Assign To Self action on trade", "Failed"))
 
-# For selecting a specific column by clicking on text
-def select_columnByText(driver, column_name):
-    
-    column_input = driver.find_element(By.XPATH, filter_column)
-    column_input.clear()
-    column_input.send_keys(column_name)
-    time.sleep(1)
-    
-    for element in get_column_names(driver):
-        if element.text == column_name:
-            element.click()
-            
-    column_input.clear()
-    column_input.send_keys("last action performed on")
-    time.sleep(1)
-    sel_col  = driver.find_element(By.XPATH, select_filtered_col)
-    sel_col.click()
+# Convert the timestamp string to a datetime object
+    timestamp = datetime.strptime(actionPerformedOn, "%Y-%m-%dT%H:%M:%S.%fZ")
+    field_date = timestamp.date()
+
+    return field_date
