@@ -1,9 +1,9 @@
-import re
+selectJiraTypeAction = "//div[@role='listbox']//div[contains (text(), 'Over Reporting')]"
 
-def search_test(driver):
-    rowCount = driver.find_element(By.CLASS_NAME, row_count)
-    text_with_commas = rowCount.text
-    # Use regular expression to remove commas
-    cleaned_text = re.sub(r'[^\d]', '', text_with_commas)
-    
-    return int(cleaned_text)
+def select_jiraType(driver):
+    sel_jiraType = driver.find_element(By.XPATH, selectJiraType)
+    sel_jiraType.click()
+    sel_jiraType.send_keys(Keys.ENTER)
+    select_jira_type = driver.find_element(By.XPATH, selectJiraTypeAction)
+    select_jira_type.click()
+    time.sleep(1)
