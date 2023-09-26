@@ -5,11 +5,12 @@
     rows = clipboard_data.split('\n')
 
     # Create a CSV file and write the rows to it
-    with open('output.csv', 'w', newline='') as csv_file:
+    with open('recon_output.csv', 'w', newline='') as csv_file:
         csv_writer = csv.writer(csv_file)
         for row in rows:
+            
             # Split each row into columns based on the delimiter (e.g., comma)
-            columns = row.split('	')  # Change '\t' to the appropriate delimiter
+            columns = row.split('	')  # Change to the appropriate delimiter
             csv_writer.writerow(columns)
 
     print("Data saved as 'output.csv'")
