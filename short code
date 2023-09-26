@@ -1,16 +1,22 @@
-# Get data from the clipboard
-    clipboard_data = pyperclip.paste()
+def compare_recon_csv():
+    
+    # Define the columns to ignore from the first file
+    columns_to_ignore = ["Party Id", "Blotter-runtime-primary-key"]  # Replace with the actual column names to ignore
 
-    # Split the clipboard data into rows
-    rows = clipboard_data.split('\n')
-
-    # Create a CSV file and write the rows to it
-    with open('recon_output.csv', 'w', newline='') as csv_file:
-        csv_writer = csv.writer(csv_file)
-        for row in rows:
-            
-            # Split each row into columns based on the delimiter (e.g., comma)
-            columns = row.split('	')  # Change to the appropriate delimiter
-            csv_writer.writerow(columns)
-
-    print("Data saved as 'output.csv'")
+    # Load the two CSV files into DataFrames
+    df1 = pd.read_csv('recon_output.csv')
+    df2 = pd.read_csv('C:/Users/jainnbr/Downloads/export.csv')
+    
+    # Remove the specified columns from the first DataFrame
+    df1 = df1.drop(columns=columns_to_ignore, errors='ignore')
+    
+    # Sort the DataFrames by their content to ignore the order of rows
+    df1 = df1.sort_values(by=list(df1.columns)).reset_index(drop=True)
+    df2 = df2.sort_values(by=list(df2.columns)).reset_index(drop=True)
+    
+    # Check if the DataFrames are equal
+    if df1.equals(df2):
+        print("The files are equal")
+        return True
+    else:
+        print("The files are not equal")
