@@ -1,3 +1,1 @@
-C:\ProgramData\anaconda3\Lib\site-packages\pywinauto\base_application.py:361: UserWarning: Wait method is deprecated and will be removed. Please, use find() instead of wait() or wait('exists'). wait_visible(), wait_enabled() and wait_active() are methods of HwndWrapper object, so you can use it like .find().wait_active(), .find().wait_visible().wait_enabled(), etc.
-  warnings.warn("Wait method is deprecated and will be removed. "
-Error: dictionary keys changed during iteration
+pandas.errors.ParserError: Error tokenizing data. C error: Expected 260 fields in line 171, saw 268
