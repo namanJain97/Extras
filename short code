@@ -1,9 +1,15 @@
-selectJiraTypeAction = "//div[@role='listbox']//div[contains (text(), 'Over Reporting')]"
+# Get data from the clipboard
+    clipboard_data = pyperclip.paste()
 
-def select_jiraType(driver):
-    sel_jiraType = driver.find_element(By.XPATH, selectJiraType)
-    sel_jiraType.click()
-    sel_jiraType.send_keys(Keys.ENTER)
-    select_jira_type = driver.find_element(By.XPATH, selectJiraTypeAction)
-    select_jira_type.click()
-    time.sleep(1)
+    # Split the clipboard data into rows
+    rows = clipboard_data.split('\n')
+
+    # Create a CSV file and write the rows to it
+    with open('output.csv', 'w', newline='') as csv_file:
+        csv_writer = csv.writer(csv_file)
+        for row in rows:
+            # Split each row into columns based on the delimiter (e.g., comma)
+            columns = row.split('	')  # Change '\t' to the appropriate delimiter
+            csv_writer.writerow(columns)
+
+    print("Data saved as 'output.csv'")
