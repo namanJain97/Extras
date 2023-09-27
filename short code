@@ -1,22 +1,20 @@
-def compare_recon_csv():
+def update_csvFile():
     
-    # Define the columns to ignore from the first file
-    columns_to_ignore = ["Party Id", "Blotter-runtime-primary-key"]  # Replace with the actual column names to ignore
+    # Load the CSV file into a DataFrame
+    df = pd.read_csv('C:/Users/jainnbr/Downloads/All_Data.csv')
+    
+    # Define your regex pattern and replacement text
+    regex_pattern = r'\bTNTR(.*)\TNTR-\d{4}\b'
+    replacement_text = '"$&"'
 
-    # Load the two CSV files into DataFrames
-    df1 = pd.read_csv('recon_output.csv')
-    df2 = pd.read_csv('C:/Users/jainnbr/Downloads/export.csv')
-    
-    # Remove the specified columns from the first DataFrame
-    df1 = df1.drop(columns=columns_to_ignore, errors='ignore')
-    
-    # Sort the DataFrames by their content to ignore the order of rows
-    df1 = df1.sort_values(by=list(df1.columns)).reset_index(drop=True)
-    df2 = df2.sort_values(by=list(df2.columns)).reset_index(drop=True)
-    
-    # Check if the DataFrames are equal
-    if df1.equals(df2):
-        print("The files are equal")
-        return True
-    else:
-        print("The files are not equal")
+    # Use the replace method with regex across the entire DataFrame
+    df.replace(regex_pattern, replacement_text, regex=True, inplace=True)
+
+    # Save the modified DataFrame back to a CSV file
+    df.to_csv('output_file.csv', index=False)
+        
+    print("csv file updated")
+
+
+raise source.error("bad escape %s" % escape, len(escape))
+re.error: bad escape \T at position 10
