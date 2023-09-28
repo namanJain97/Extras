@@ -4,17 +4,17 @@ def update_csvFile():
     df = pd.read_csv('C:/Users/jainnbr/Downloads/All_Data.csv')
     
     # Define your regex pattern and replacement text
-    regex_pattern = r'\bTNTR(.*)\TNTR-\d{4}\b'
-    replacement_text = '"$&"'
+    regex_pattern = r"(\btntr(.*)TNTR-\d{4}\b)"
+    replacement_text = "\"\\g<0>\""
+    
+    result = re.sub(regex_pattern, replacement_text, df.to_string)
 
     # Use the replace method with regex across the entire DataFrame
-    df.replace(regex_pattern, replacement_text, regex=True, inplace=True)
+    #df.replace(regex_pattern, replacement_text, regex=True, inplace=True)
 
     # Save the modified DataFrame back to a CSV file
-    df.to_csv('output_file.csv', index=False)
+    result.to_csv('output_file.csv', index=False)
         
     print("csv file updated")
 
-
-raise source.error("bad escape %s" % escape, len(escape))
-re.error: bad escape \T at position 10
+TypeError: expected string or bytes-like object, got 'method'
