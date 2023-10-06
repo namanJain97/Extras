@@ -1,4 +1,8 @@
-selectColumn = driver.find_element(By.XPATH, select_all_columns)
+def select_all_column(driver):
+    column_input = driver.find_element(By.XPATH, filter_column)
+    column_input.clear()
+    time.sleep(1)
+    selectColumn = driver.find_element(By.XPATH, select_all_columns)
     selectColumn.click()
     selectColumn.click()
     time.sleep(1)
