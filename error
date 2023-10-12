@@ -1,2 +1,6 @@
-ModuleNotFoundError: No module named 'framework'
-
+Traceback (most recent call last):
+  File "c:\blotter_automation\Blotter-Automation-repo\tests\user_interface_automation\web_user_interface_automation\__main__.py", line 9, in <module>
+    from framework.proxima_ui_automation.src.finsemble_component_discoverer import *
+  File "c:\blotter_automation\Blotter-Automation-repo\framework\proxima_ui_automation\src\finsemble_component_discoverer.py", line 2, in <module>
+    from src.chromedriver_remote_debugger import RemoteDebugger
+ModuleNotFoundError: No module named 'src'
