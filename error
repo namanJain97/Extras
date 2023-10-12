@@ -1,6 +1,31 @@
-Traceback (most recent call last):
-  File "c:\blotter_automation\Blotter-Automation-repo\tests\user_interface_automation\web_user_interface_automation\__main__.py", line 9, in <module>
-    from framework.proxima_ui_automation.src.finsemble_component_discoverer import *
-  File "c:\blotter_automation\Blotter-Automation-repo\framework\proxima_ui_automation\src\finsemble_component_discoverer.py", line 2, in <module>
-    from src.chromedriver_remote_debugger import RemoteDebugger
-ModuleNotFoundError: No module named 'src'
+def pig_latin(text):
+  say = ""
+  # Separate the text into words
+  words = text.split()
+  for word in words:
+    # Create the pig latin word and add it to the list
+    if word[0] in "aeiou":
+      say += word + "way"
+    else:
+      # Find the first vowel in the word
+      first_vowel = word.find("a")
+      first_vowel = word.find("e") if first_vowel == -1 else first_vowel
+      first_vowel = word.find("i") if first_vowel == -1 else first_vowel
+      first_vowel = word.find("o") if first_vowel == -1 else first_vowel
+      first_vowel = word.find("u") if first_vowel == -1 else first_vowel
+
+      # If the word starts with multiple consonants, move them to the end of the word and add "ay"
+      if first_vowel > 0:
+        say += word[first_vowel:] + word[:first_vowel] + "ay"
+      else:
+        say += word + "way"
+    # Turn the list back into a phrase
+    say += " "
+  return say[:-1]
+		
+print(pig_latin("hello how are you")) # Should be "ellohay owhay reaay ouyay"
+print(pig_latin("programming in python is fun")) # Should be "rogrammingpay niay ythonpay siay unfay"
+
+
+ellohay owhay areway ouyay
+ammingprogray inway onpythay isway unfay
