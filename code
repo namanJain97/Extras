@@ -1,44 +1,53 @@
-# Get the current date
-    current_timestamp = datetime.now()
-    current_date = current_timestamp.date()
-    print(current_date)
-    
-    # Get the username of the currently logged-in user
-    username = os.getlogin()
-    
-    # Expected last action
-    expected_last_action = "TntrAssignSelf"
-    
-    # Extracts field values and validation for assign to self
-    try:
-        results_dict = validate_assignToSelf(driver)
-        for item, result in results_dict.items():
-            if item == "Last Action Performed On":
-                assert result == current_date
-            elif item == "Last Action Performed":
-                assert result == expected_last_action
-            elif item == "Last Action Performed By":
-                assert result == username
-            elif item == "Assigned To":
-                assert result == username
-        recon_automation_results.append(("Assign To Self", "Assign To Self action on trade", "Passed"))
-        time.sleep(1)
-        
-    except:
-        recon_automation_results.append(("Assign To Self", "Assign To Self action on trade", "Failed"))
+import pytest
+import sys
+import os
+from framework.proxima_ui_automation.src.finsemble_component_discoverer import *
+from framework.proxima_ui_automation.common.driver_setup import *
+from proxima_blotter_automation.mi_blotter.mi_blotter import *
+from proxima_blotter_automation.daily_mi_blotter.daily_mi_blotter import *
+#from recon_break_manager.recon import *
+from proxima_blotter_automation.exception_manager.exception_manager import *
+import time
 
-# Returns the value of Last Action Performed On field
-def store_actionPerformedOn(driver):
-    
-    # Locate your web elements and store them in variables
-    element1 = driver.find_element(By.XPATH, value_performedOn)
+current_dir  = os.path.dirname(os.path.abspath(__file__))
+parent_dir = (os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))))
+sys.path.append(parent_dir)
 
-    # Extract text from the web elements
-    actionPerformedOn = element1.text
-    
-    # Convert the timestamp string to a date object
-    timestamp = datetime.strptime(actionPerformedOn, "%Y-%m-%dT%H:%M:%S.%fZ")
-    field_date = timestamp.date()
-    formatted_date = field_date.strftime("%Y-%m-%d")
+# The `FinsembleComponentDiscoverer` helps to find specific components by looking by their URL.
+print("Preparing to discover Finsemble components with Selenium...")
+time.sleep(36)
+component_discoverer = FinsembleComponentDiscoverer(driver)
+time.sleep(5)
 
-    return formatted_date
+# Finsemble's Toolbar has access to the `FSBL` API, so executing JavaScript in order to interact directly with Finsemble's API.
+print("Locating the Finsemble Toolbar with Selenium...")
+toolbar_handle = component_discoverer.get_selenium_handle_of_page_containing_url('/toolbar/toolbar.html')
+driver.switch_to.window(toolbar_handle)
+time.sleep(3)
+
+# Executing Blotter TNTR - MI
+MiBlotter(driver)
+time.sleep(3)
+
+# Executing Daily Mi Blotter
+#DailyMiBlotter(driver)
+#time.sleep(3)
+
+# Executing Reconciliation Break Manager Blotter
+# test_launch_reconBlotter(driver)
+# test_recon_advanceSearch(driver)
+# test_recon_searchFields(driver)
+# test_recon_export(driver) 
+# test_recon_assignToSelf(driver)
+# test_recon_addComment(driver)
+# test_recon_addJira(driver)
+# test_recon_addJiraType(driver)
+# test_recon_addWorkflow(driver)
+# test_recon_assignToOther(driver)
+# recon_testResults()
+# time.sleep(3)
+
+# Executing TNTR Exception Manager Blotter
+# test_launch_exception_manager_Blotter(driver)
+# exception_manager_testResults()
+# time.sleep(3)
