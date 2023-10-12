@@ -1,3 +1,25 @@
+filenames = ["program.c", "stdio.hpp", "sample.hpp", "a.out", "math.hpp", "hpp.out"]
+# Generate newfilenames as a list containing the new filenames
+# Create a new list to store the new filenames.
+new_filenames = []
 
-ellohay owhay areway ouyay
-ogrammingpray inway onpythay isway unfay
+# Iterate over the original list of filenames.
+for filename in filenames:
+
+  # Find the index of the last `.hpp` in the filename.
+  i = filename.rfind(".hpp")
+
+  # If the `.hpp` extension is at the end of the filename, remove it.
+  if i == len(filename) - 2:
+    new_filename = filename[:i]
+  else:
+    new_filename = filename
+
+  # Add the new filename to the new list.
+  new_filenames.append(new_filename)
+
+# Print the new list of filenames.
+print(new_filenames)
+# Should be ["program.c", "stdio.h", "sample.h", "a.out", "math.h", "hpp.out"]
+
+['program.c', 'stdio.hpp', 'sample.hpp', 'a.out', 'math.hpp', 'hpp.out']
