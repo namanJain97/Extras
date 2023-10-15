@@ -1,19 +1,15 @@
-from selenium import webdriver
 from framework.webdriver_factory import WebDriverFactory
 from framework.ui_automation import UIAutomation
 from common.driver_setup import *
+from mi_blotter.mi_blotter import *
 
 class AutomationImplementation(WebDriverFactory, UIAutomation):
     
-    def web_driver(self) -> webdriver:
-        return webdriver.Chrome(executable_path=PATH_TO_CHROMEDRIVER)
+    def web_driver(self, browser_type: str) -> None:
+        self.driver = super().create_webdriver(browser_type, executable_path=PATH_TO_CHROMEDRIVER)
 
     def __init__(self):
-        super().__init__(self.create_webdriver(), PATH_TO_FINSEMBLE_EXE)
-
-    def login(self, username, password):
-        print("")
-        # Implementation for login
+        super().__init__(self.web_driver(browser_type="chrome"), PATH_TO_FINSEMBLE_EXE)
 
     def create_task(self):
         print("")
@@ -24,14 +20,5 @@ if __name__ == "__main__":
     # Either provide a URL or an executable path
     automation_instance = AutomationImplementation()
     automation_instance.open_application()
-    automation_instance.login("your_username", "your_password")
     automation_instance.create_task()
     automation_instance.close_application()
-
-
-from selenium import webdriver
-
-class WebDriverFactory:
-    
-    def web_driver(self) -> webdriver:
-        return webdriver
