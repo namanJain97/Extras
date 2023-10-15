@@ -1,17 +1,15 @@
 from selenium import webdriver
 from framework.webdriver_factory import WebDriverFactory
 from framework.ui_automation import UIAutomation
+from common.driver_setup import *
 
 class AutomationImplementation(WebDriverFactory, UIAutomation):
     
-    def create_webdriver(self) -> webdriver:
-        return webdriver.Chrome()
+    def web_driver(self) -> webdriver:
+        return webdriver.Chrome(executable_path=PATH_TO_CHROMEDRIVER)
 
-    def __init__(self, executable_path: str = None):
-        super().__init__(self.create_webdriver(), executable_path)
-    
-    def open_application(self):
-        return super().open_application()
+    def __init__(self):
+        super().__init__(self.create_webdriver(), PATH_TO_FINSEMBLE_EXE)
 
     def login(self, username, password):
         print("")
@@ -23,10 +21,17 @@ class AutomationImplementation(WebDriverFactory, UIAutomation):
 
 
 if __name__ == "__main__":
-    automation_instance = AutomationImplementation(executable_path="path/to/your/application.exe")
-    
-    automation_instance.set_base_url("https://example.com")
+    # Either provide a URL or an executable path
+    automation_instance = AutomationImplementation()
     automation_instance.open_application()
     automation_instance.login("your_username", "your_password")
     automation_instance.create_task()
     automation_instance.close_application()
+
+
+from selenium import webdriver
+
+class WebDriverFactory:
+    
+    def web_driver(self) -> webdriver:
+        return webdriver
