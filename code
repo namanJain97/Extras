@@ -1,24 +1,22 @@
-from framework.webdriver_factory import WebDriverFactory
-from framework.ui_automation import UIAutomation
+from src.finsemble_component_discoverer import *
 from common.driver_setup import *
 from mi_blotter.mi_blotter import *
+from daily_mi_blotter.daily_mi_blotter import *
+from recon_break_manager.recon import *
+from exception_manager.exception_manager import *
+import time
 
-class AutomationImplementation(WebDriverFactory, UIAutomation):
-    
-    def web_driver(self, browser_type: str) -> None:
-        self.driver = super().create_webdriver(browser_type, executable_path=PATH_TO_CHROMEDRIVER)
+# The `FinsembleComponentDiscoverer` helps to find specific components by looking by their URL.
+print("Preparing to discover Finsemble components with Selenium...")
+time.sleep(36)
+component_discoverer = FinsembleComponentDiscoverer(driver)
+time.sleep(5)
 
-    def __init__(self):
-        super().__init__(self.web_driver(browser_type="chrome"), PATH_TO_FINSEMBLE_EXE)
+# Finsemble's Toolbar has access to the `FSBL` API, so executing JavaScript in order to interact directly with Finsemble's API.
+print("Locating the Finsemble Toolbar with Selenium...")
+toolbar_handle = component_discoverer.get_selenium_handle_of_page_containing_url('/toolbar/toolbar.html')
+driver.switch_to.window(toolbar_handle)
+time.sleep(3)
 
-    def create_task(self):
-        print("")
-        # Implementation for creating a task
-
-
-if __name__ == "__main__":
-    # Either provide a URL or an executable path
-    automation_instance = AutomationImplementation()
-    automation_instance.open_application()
-    automation_instance.create_task()
-    automation_instance.close_application()
+# Executing Blotter TNTR - MI
+# MiBlotter(driver)
