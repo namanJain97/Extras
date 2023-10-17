@@ -1,3 +1,25 @@
+import matplotlib.pyplot as plt
+import pandas as pd
+
+# Original DataFrame
+original_df = df.copy()
+
+# Function to create pie chart
+def create_pie_chart(data, column_name):
+    counts = data[column_name].value_counts()
+    plt.figure(figsize=(5, 5))
+    plt.pie(counts, labels=counts.index, autopct='%1.1f%%', startangle=140)
+    plt.title(f'Distribution of {column_name}')
+    plt.show()
+
+# Create pie charts for each categorical variable before grouping
+create_pie_chart(original_df, 'reportableData.tradeParty2CountryOfOtherCpty')
+create_pie_chart(original_df, 'reportableData.premiumCurrency')
+create_pie_chart(original_df, 'reportableData.leg1NotionalCurrency')
+create_pie_chart(original_df, 'reportableData.leg2NotionalCurrency')
+create_pie_chart(original_df, 'reportableData.leg1ExchangeRateBasisCurrency')
+create_pie_chart(original_df, 'reportableData.leg2ExchangeRateBasisCurrency')
+
 threshold = len(df) * 0.15
 
 countryCpty_counts = df['reportableData.tradeParty2CountryOfOtherCpty'].value_counts()
@@ -5,7 +27,6 @@ less_frequent_CountryCpty = countryCpty_counts[countryCpty_counts < threshold].i
 def group_countryCpty(countryCpty):
     return countryCpty if countryCpty not in less_frequent_CountryCpty else 'Other'
 df['reportableData.tradeParty2CountryOfOtherCpty'] = df['reportableData.tradeParty2CountryOfOtherCpty'].apply(group_countryCpty)
-
 
 premium_currency_counts = df['reportableData.premiumCurrency'].value_counts()
 less_frequent_premium = premium_currency_counts[premium_currency_counts < threshold].index
