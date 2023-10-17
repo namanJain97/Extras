@@ -1,59 +1,69 @@
-import matplotlib.pyplot as plt
 import pandas as pd
+import numpy as np
 
-# Original DataFrame
-original_df = df.copy()
+def date_comparison(df, column_list, new_column_name_prefix):
 
-# Function to create pie chart
-def create_pie_chart(data, column_name):
-    counts = data[column_name].value_counts()
-    plt.figure(figsize=(5, 5))
-    plt.pie(counts, labels=counts.index, autopct='%1.1f%%', startangle=140)
-    plt.title(f'Distribution of {column_name}')
-    plt.show()
+    compared_pairs = set()  # Set to store already compared pairs
 
-# Create pie charts for each categorical variable before grouping
-create_pie_chart(original_df, 'reportableData.tradeParty2CountryOfOtherCpty')
-create_pie_chart(original_df, 'reportableData.premiumCurrency')
-create_pie_chart(original_df, 'reportableData.leg1NotionalCurrency')
-create_pie_chart(original_df, 'reportableData.leg2NotionalCurrency')
-create_pie_chart(original_df, 'reportableData.leg1ExchangeRateBasisCurrency')
-create_pie_chart(original_df, 'reportableData.leg2ExchangeRateBasisCurrency')
+    for i, col1 in enumerate(column_list):
+        for j, col2 in enumerate(column_list):
+            if i != j and (col1, col2) not in compared_pairs and (col2, col1) not in compared_pairs:
+                
+                df[col1] = pd.to_datetime(df[col1])
+                df[col2] = pd.to_datetime(df[col2])
 
-threshold = len(df) * 0.15
+                df[f'year_{col1}'] = df[col1].dt.year
+                df[f'month_{col1}'] = df[col1].dt.month
+                df[f'day_{col1}'] = df[col1].dt.day
+                df[f'year_{col2}'] = df[col2].dt.year
+                df[f'month_{col2}'] = df[col2].dt.month
+                df[f'day_{col2}'] = df[col2].dt.day
 
-countryCpty_counts = df['reportableData.tradeParty2CountryOfOtherCpty'].value_counts()
-less_frequent_CountryCpty = countryCpty_counts[countryCpty_counts < threshold].index
-def group_countryCpty(countryCpty):
-    return countryCpty if countryCpty not in less_frequent_CountryCpty else 'Other'
-df['reportableData.tradeParty2CountryOfOtherCpty'] = df['reportableData.tradeParty2CountryOfOtherCpty'].apply(group_countryCpty)
+                # Calculate sine and cosine values for year, month, and day
+                df[f'sin_year_{col1}'] = np.sin(2 * np.pi * df[f'year_{col1}'] / max(df[f'year_{col1}']))
+                df[f'cos_year_{col1}'] = np.cos(2 * np.pi * df[f'year_{col1}'] / max(df[f'year_{col1}']))
+                df[f'sin_month_{col1}'] = np.sin(2 * np.pi * df[f'month_{col1}'] / 12)
+                df[f'cos_month_{col1}'] = np.cos(2 * np.pi * df[f'month_{col1}'] / 12)
+                df[f'sin_day_{col1}'] = np.sin(2 * np.pi * df[f'day_{col1}'] / 31)
+                df[f'cos_day_{col1}'] = np.cos(2 * np.pi * df[f'day_{col1}'] / 31)
 
-premium_currency_counts = df['reportableData.premiumCurrency'].value_counts()
-less_frequent_premium = premium_currency_counts[premium_currency_counts < threshold].index
-def group_currency_premium(currency):
-    return currency if currency not in less_frequent_premium else 'Other'
-df['reportableData.premiumCurrency'] = df['reportableData.premiumCurrency'].apply(group_currency_premium)
+                df[f'sin_year_{col2}'] = np.sin(2 * np.pi * df[f'year_{col2}'] / max(df[f'year_{col2}']))
+                df[f'cos_year_{col2}'] = np.cos(2 * np.pi * df[f'year_{col2}'] / max(df[f'year_{col2}']))
+                df[f'sin_month_{col2}'] = np.sin(2 * np.pi * df[f'month_{col2}'] / 12)
+                df[f'cos_month_{col2}'] = np.cos(2 * np.pi * df[f'month_{col2}'] / 12)
+                df[f'sin_day_{col2}'] = np.sin(2 * np.pi * df[f'day_{col2}'] / 31)
+                df[f'cos_day_{col2}'] = np.cos(2 * np.pi * df[f'day_{col2}'] / 31)
 
-notional_currency_counts = df['reportableData.leg1NotionalCurrency'].value_counts()
-less_frequent_notional = notional_currency_counts[notional_currency_counts < threshold].index
-def group_currency_notional(currency):
-    return currency if currency not in less_frequent_notional else 'Other'
-df['reportableData.leg1NotionalCurrency'] = df['reportableData.leg1NotionalCurrency'].apply(group_currency_notional)
+                # Check if dates are in the past before performing the comparison
+                conditions = (df[col1] == df[col2]) | \
+                              ((df[col1] < df[col2]) & \
+                              ((df[f'sin_year_{col1}'] > df[f'sin_year_{col2}']) | \
+                               ((df[f'sin_year_{col1}'] == df[f'sin_year_{col2}']) & (df[f'cos_year_{col1}'] > df[f'cos_year_{col2}'])) | \
+                               (df[f'sin_month_{col1}'] > df[f'sin_month_{col2}']) | \
+                               ((df[f'sin_month_{col1}'] == df[f'sin_month_{col2}']) & (df[f'cos_month_{col1}'] > df[f'cos_month_{col2}'])) | \
+                               (df[f'sin_day_{col1}'] > df[f'sin_day_{col2}']) | \
+                               ((df[f'sin_day_{col1}'] == df[f'sin_day_{col2}']) & (df[f'cos_day_{col1}'] > df[f'cos_day_{col2}']))))
 
-notional2_currency_counts = df['reportableData.leg2NotionalCurrency'].value_counts()
-less_frequent_notional2 = notional2_currency_counts[notional2_currency_counts < threshold].index
-def group_currency_notional2(currency):
-    return currency if currency not in less_frequent_notional2 else 'Other'
-df['reportableData.leg2NotionalCurrency'] = df['reportableData.leg2NotionalCurrency'].apply(group_currency_notional2)
+                new_col_name = f'{new_column_name_prefix}_{col1}_vs_{col2}'
+                df[new_col_name] = np.where(conditions, 0, np.where((df[col1] < df[col2]) , -1, 1))
 
-leg1_currency_counts = df['reportableData.leg1ExchangeRateBasisCurrency'].value_counts()
-less_frequent_leg1 = leg1_currency_counts[leg1_currency_counts < threshold].index
-def group_currency_leg1(currency):
-    return currency if currency not in less_frequent_leg1 else 'Other'
-df['reportableData.leg1ExchangeRateBasisCurrency'] = df['reportableData.leg1ExchangeRateBasisCurrency'].apply(group_currency_leg1)
+                #Check to avoid redundant comparisons
+                compared_pairs.add((col1, col2))
 
-leg2_currency_counts = df['reportableData.leg2ExchangeRateBasisCurrency'].value_counts()
-less_frequent_leg2 = leg2_currency_counts[leg2_currency_counts < threshold].index
-def group_currency_leg2(currency):
-    return currency if currency not in less_frequent_leg2 else 'Other'
-df['reportableData.leg2ExchangeRateBasisCurrency'] = df['reportableData.leg2ExchangeRateBasisCurrency'].apply(group_currency_leg2)
+    #Deleting year and month column as not needed for our requirement, only keeping days
+    df = df.drop(columns=[f'year_{col}' for col in column_list] +
+                       [f'month_{col}' for col in column_list])
+
+    return df
+data = {'date1': ['2023-01-15'],
+        'date2': ['2022-01-15'],
+        'date3': ['2024-01-15']}
+
+df = pd.DataFrame(data)
+
+# Define columns and perform comparison
+columns = ['date1', 'date2', 'date3']
+new_column_prefix = 'comparison'
+df = date_comparison(df, columns, new_column_prefix)
+
+print(df)
