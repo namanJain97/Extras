@@ -1,31 +1,26 @@
 import pandas as pd
 import numpy as np
+from itertools import combinations
 
-# Sample DataFrame
-data = {
-    'date_col1': ['2023-01-01', '2023-02-15', '2023-03-20'],
-    'date_col2': ['2023-01-15', '2023-02-01', '2023-03-20'],
-    'date_col3': ['2023-05-01', '2023-04-01', '2023-03-20'],
-}
-df = pd.DataFrame(data)
+# Load the CSV file into a pandas DataFrame
+df = pd.read_csv('C:\\Users\\jainnbr\\TNTR_trade_SystemX_MAS_FromGoLive.csv')
 
-# Convert all date columns to datetime objects
-date_columns = ['date_col1', 'date_col2', 'date_col3']
-df[date_columns] = df[date_columns].apply(pd.to_datetime)
+# Convert all specified date columns to datetime objects
+date_columns = ['nonReportableData.maturityDate', 'nonReportableData.startDate', 'reportableData.expirationDate', 'reportableData.settlementDate', 'reportableData.terminationDate']
 
-# Create a new DataFrame to store relationships
-relationship_df = pd.DataFrame(index=df.index)
+for col in date_columns:
+    df[col] = pd.to_datetime(df[col])
 
-# Iterate over all pairs of columns
-for i in range(len(date_columns)):
-    for j in range(i + 1, len(date_columns)):
-        col1, col2 = date_columns[i], date_columns[j]
-        relationship_df[f'{col1}_vs_{col2}'] = np.sign((df[col1] - df[col2]).dt.total_seconds())
-
-# Concatenate the relationship DataFrame with the original DataFrame
-df = pd.concat([df, relationship_df], axis=1)
-
-print(df)
+# Create new columns for all permutations of date column comparisons
+for col1, col2 in combinations(date_columns, 2):
+    new_col_name = f'{col1}_vs_{col2}'
+    df[new_col_name] = np.select(
+        [df[col1] > df[col2], df[col1] < df[col2]],
+        [f'greater', f'lesser'],
+        default=f'same'
+    )
 
 
-#1 if date1 is greater than date2, -1 if date1 is less than date2, and 0 if they are equal
+# Save the updated DataFrame to a new CSV file
+df.to_csv('C:\\Users\\jainnbr\\output_file.csv', index=False)
+print("File saved successfully")
