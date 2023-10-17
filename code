@@ -1,69 +1,31 @@
 import pandas as pd
 import numpy as np
 
-def date_comparison(df, column_list, new_column_name_prefix):
-
-    compared_pairs = set()  # Set to store already compared pairs
-
-    for i, col1 in enumerate(column_list):
-        for j, col2 in enumerate(column_list):
-            if i != j and (col1, col2) not in compared_pairs and (col2, col1) not in compared_pairs:
-                
-                df[col1] = pd.to_datetime(df[col1])
-                df[col2] = pd.to_datetime(df[col2])
-
-                df[f'year_{col1}'] = df[col1].dt.year
-                df[f'month_{col1}'] = df[col1].dt.month
-                df[f'day_{col1}'] = df[col1].dt.day
-                df[f'year_{col2}'] = df[col2].dt.year
-                df[f'month_{col2}'] = df[col2].dt.month
-                df[f'day_{col2}'] = df[col2].dt.day
-
-                # Calculate sine and cosine values for year, month, and day
-                df[f'sin_year_{col1}'] = np.sin(2 * np.pi * df[f'year_{col1}'] / max(df[f'year_{col1}']))
-                df[f'cos_year_{col1}'] = np.cos(2 * np.pi * df[f'year_{col1}'] / max(df[f'year_{col1}']))
-                df[f'sin_month_{col1}'] = np.sin(2 * np.pi * df[f'month_{col1}'] / 12)
-                df[f'cos_month_{col1}'] = np.cos(2 * np.pi * df[f'month_{col1}'] / 12)
-                df[f'sin_day_{col1}'] = np.sin(2 * np.pi * df[f'day_{col1}'] / 31)
-                df[f'cos_day_{col1}'] = np.cos(2 * np.pi * df[f'day_{col1}'] / 31)
-
-                df[f'sin_year_{col2}'] = np.sin(2 * np.pi * df[f'year_{col2}'] / max(df[f'year_{col2}']))
-                df[f'cos_year_{col2}'] = np.cos(2 * np.pi * df[f'year_{col2}'] / max(df[f'year_{col2}']))
-                df[f'sin_month_{col2}'] = np.sin(2 * np.pi * df[f'month_{col2}'] / 12)
-                df[f'cos_month_{col2}'] = np.cos(2 * np.pi * df[f'month_{col2}'] / 12)
-                df[f'sin_day_{col2}'] = np.sin(2 * np.pi * df[f'day_{col2}'] / 31)
-                df[f'cos_day_{col2}'] = np.cos(2 * np.pi * df[f'day_{col2}'] / 31)
-
-                # Check if dates are in the past before performing the comparison
-                conditions = (df[col1] == df[col2]) | \
-                              ((df[col1] < df[col2]) & \
-                              ((df[f'sin_year_{col1}'] > df[f'sin_year_{col2}']) | \
-                               ((df[f'sin_year_{col1}'] == df[f'sin_year_{col2}']) & (df[f'cos_year_{col1}'] > df[f'cos_year_{col2}'])) | \
-                               (df[f'sin_month_{col1}'] > df[f'sin_month_{col2}']) | \
-                               ((df[f'sin_month_{col1}'] == df[f'sin_month_{col2}']) & (df[f'cos_month_{col1}'] > df[f'cos_month_{col2}'])) | \
-                               (df[f'sin_day_{col1}'] > df[f'sin_day_{col2}']) | \
-                               ((df[f'sin_day_{col1}'] == df[f'sin_day_{col2}']) & (df[f'cos_day_{col1}'] > df[f'cos_day_{col2}']))))
-
-                new_col_name = f'{new_column_name_prefix}_{col1}_vs_{col2}'
-                df[new_col_name] = np.where(conditions, 0, np.where((df[col1] < df[col2]) , -1, 1))
-
-                #Check to avoid redundant comparisons
-                compared_pairs.add((col1, col2))
-
-    #Deleting year and month column as not needed for our requirement, only keeping days
-    df = df.drop(columns=[f'year_{col}' for col in column_list] +
-                       [f'month_{col}' for col in column_list])
-
-    return df
-data = {'date1': ['2023-01-15'],
-        'date2': ['2022-01-15'],
-        'date3': ['2024-01-15']}
-
+# Sample DataFrame
+data = {
+    'date_col1': ['2023-01-01', '2023-02-15', '2023-03-20'],
+    'date_col2': ['2023-01-15', '2023-02-01', '2023-03-20'],
+    'date_col3': ['2023-05-01', '2023-04-01', '2023-03-20'],
+}
 df = pd.DataFrame(data)
 
-# Define columns and perform comparison
-columns = ['date1', 'date2', 'date3']
-new_column_prefix = 'comparison'
-df = date_comparison(df, columns, new_column_prefix)
+# Convert all date columns to datetime objects
+date_columns = ['date_col1', 'date_col2', 'date_col3']
+df[date_columns] = df[date_columns].apply(pd.to_datetime)
+
+# Create a new DataFrame to store relationships
+relationship_df = pd.DataFrame(index=df.index)
+
+# Iterate over all pairs of columns
+for i in range(len(date_columns)):
+    for j in range(i + 1, len(date_columns)):
+        col1, col2 = date_columns[i], date_columns[j]
+        relationship_df[f'{col1}_vs_{col2}'] = np.sign((df[col1] - df[col2]).dt.total_seconds())
+
+# Concatenate the relationship DataFrame with the original DataFrame
+df = pd.concat([df, relationship_df], axis=1)
 
 print(df)
+
+
+#1 if date1 is greater than date2, -1 if date1 is less than date2, and 0 if they are equal
