@@ -1,26 +1,29 @@
 import pandas as pd
-import numpy as np
-from itertools import combinations
+import matplotlib.pyplot as plt
 
-# Load the CSV file into a pandas DataFrame
-df = pd.read_csv('C:\\Users\\jainnbr\\TNTR_trade_SystemX_MAS_FromGoLive.csv')
+# Load the Excel file into a pandas DataFrame
+df = pd.read_excel('C:\\Users\\jainnbr\\Latest_SIT_CASe_Mapping.xlsx')
 
-# Convert all specified date columns to datetime objects
-date_columns = ['nonReportableData.maturityDate', 'nonReportableData.startDate', 'reportableData.expirationDate', 'reportableData.settlementDate', 'reportableData.terminationDate']
+# Bar 1: Total 'No' count for 'descoped'
+bar1_data = df['Descoped'].value_counts().get('No', 0)
 
-for col in date_columns:
-    df[col] = pd.to_datetime(df[col])
+# Bar 2: 'Golden input' is 'Yes' when 'descoped' is 'No'
+bar2_data = df[df['Descoped'] == 'No']['Found In Golden Input'].value_counts().get('Yes', 0)
 
-# Create new columns for all permutations of date column comparisons
-for col1, col2 in combinations(date_columns, 2):
-    new_col_name = f'{col1}_vs_{col2}'
-    df[new_col_name] = np.select(
-        [df[col1] > df[col2], df[col1] < df[col2]],
-        [f'greater', f'lesser'],
-        default=f'same'
-    )
+# Bar 3: 'Augmented' is 'Yes' when both 'descoped' and 'golden input' are 'No'
+bar3_data = df[(df['Descoped'] == 'No') & (df['Found In Golden Input'] == 'No')]['Augmented'].value_counts().get('Yes', 0)
 
+# Bar 4: Total of Bar 2 and Bar 3
+bar4_data = bar2_data + bar3_data
 
-# Save the updated DataFrame to a new CSV file
-df.to_csv('C:\\Users\\jainnbr\\output_file.csv', index=False)
-print("File saved successfully")
+# Bar 5: Percentage of 'descoped' (Bar 1) compared to total (Bar 4)
+bar5_data = (bar1_data / bar4_data) * 100 if bar4_data > 0 else 0
+
+# Plotting the bar chart
+bars = ['Total SIT', 'Found In Golden Input Data', 'Total augmented cases in SIT  file', 'Total covered Scenario', 'Total Coverage in Percentage']
+values = [bar1_data, bar2_data, bar3_data, bar4_data, bar5_data]
+
+plt.bar(bars, values)
+plt.title('Bar Chart Based on Conditions')
+plt.ylabel('Count or Percentage')
+plt.show()
