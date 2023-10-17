@@ -1,22 +1,38 @@
-from src.finsemble_component_discoverer import *
-from common.driver_setup import *
-from mi_blotter.mi_blotter import *
-from daily_mi_blotter.daily_mi_blotter import *
-from recon_break_manager.recon import *
-from exception_manager.exception_manager import *
-import time
+threshold = len(df) * 0.15
 
-# The `FinsembleComponentDiscoverer` helps to find specific components by looking by their URL.
-print("Preparing to discover Finsemble components with Selenium...")
-time.sleep(36)
-component_discoverer = FinsembleComponentDiscoverer(driver)
-time.sleep(5)
+countryCpty_counts = df['reportableData.tradeParty2CountryOfOtherCpty'].value_counts()
+less_frequent_CountryCpty = countryCpty_counts[countryCpty_counts < threshold].index
+def group_countryCpty(countryCpty):
+    return countryCpty if countryCpty not in less_frequent_CountryCpty else 'Other'
+df['reportableData.tradeParty2CountryOfOtherCpty'] = df['reportableData.tradeParty2CountryOfOtherCpty'].apply(group_countryCpty)
 
-# Finsemble's Toolbar has access to the `FSBL` API, so executing JavaScript in order to interact directly with Finsemble's API.
-print("Locating the Finsemble Toolbar with Selenium...")
-toolbar_handle = component_discoverer.get_selenium_handle_of_page_containing_url('/toolbar/toolbar.html')
-driver.switch_to.window(toolbar_handle)
-time.sleep(3)
 
-# Executing Blotter TNTR - MI
-# MiBlotter(driver)
+premium_currency_counts = df['reportableData.premiumCurrency'].value_counts()
+less_frequent_premium = premium_currency_counts[premium_currency_counts < threshold].index
+def group_currency_premium(currency):
+    return currency if currency not in less_frequent_premium else 'Other'
+df['reportableData.premiumCurrency'] = df['reportableData.premiumCurrency'].apply(group_currency_premium)
+
+notional_currency_counts = df['reportableData.leg1NotionalCurrency'].value_counts()
+less_frequent_notional = notional_currency_counts[notional_currency_counts < threshold].index
+def group_currency_notional(currency):
+    return currency if currency not in less_frequent_notional else 'Other'
+df['reportableData.leg1NotionalCurrency'] = df['reportableData.leg1NotionalCurrency'].apply(group_currency_notional)
+
+notional2_currency_counts = df['reportableData.leg2NotionalCurrency'].value_counts()
+less_frequent_notional2 = notional2_currency_counts[notional2_currency_counts < threshold].index
+def group_currency_notional2(currency):
+    return currency if currency not in less_frequent_notional2 else 'Other'
+df['reportableData.leg2NotionalCurrency'] = df['reportableData.leg2NotionalCurrency'].apply(group_currency_notional2)
+
+leg1_currency_counts = df['reportableData.leg1ExchangeRateBasisCurrency'].value_counts()
+less_frequent_leg1 = leg1_currency_counts[leg1_currency_counts < threshold].index
+def group_currency_leg1(currency):
+    return currency if currency not in less_frequent_leg1 else 'Other'
+df['reportableData.leg1ExchangeRateBasisCurrency'] = df['reportableData.leg1ExchangeRateBasisCurrency'].apply(group_currency_leg1)
+
+leg2_currency_counts = df['reportableData.leg2ExchangeRateBasisCurrency'].value_counts()
+less_frequent_leg2 = leg2_currency_counts[leg2_currency_counts < threshold].index
+def group_currency_leg2(currency):
+    return currency if currency not in less_frequent_leg2 else 'Other'
+df['reportableData.leg2ExchangeRateBasisCurrency'] = df['reportableData.leg2ExchangeRateBasisCurrency'].apply(group_currency_leg2)
