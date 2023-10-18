@@ -1,29 +1,67 @@
-import pandas as pd
 import matplotlib.pyplot as plt
+import pandas as pd
 
-# Load the Excel file into a pandas DataFrame
-df = pd.read_excel('C:\\Users\\jainnbr\\Latest_SIT_CASe_Mapping.xlsx')
+# Original DataFrame
+original_df = df.copy()
 
-# Bar 1: Total 'No' count for 'descoped'
-bar1_data = df['Descoped'].value_counts().get('No', 0)
+# Function to create pie chart
+def create_pie_chart(data, column_name):
+    counts = data[column_name].value_counts()
+    plt.figure(figsize=(4, 4))
+    plt.pie(counts, labels=counts.index, autopct='%1.1f%%', startangle=140)
+    plt.title(f'Distribution of {column_name}')
+    plt.show()
 
-# Bar 2: 'Golden input' is 'Yes' when 'descoped' is 'No'
-bar2_data = df[df['Descoped'] == 'No']['Found In Golden Input'].value_counts().get('Yes', 0)
+# Create pie charts for each categorical variable before grouping
+create_pie_chart(df, 'reportableData.tradeParty2CountryOfOtherCpty')
+create_pie_chart(df, 'reportableData.premiumCurrency')
+create_pie_chart(df, 'reportableData.leg1NotionalCurrency')
+create_pie_chart(df, 'reportableData.leg2NotionalCurrency')
+create_pie_chart(df, 'reportableData.leg1ExchangeRateBasisCurrency')
+create_pie_chart(df, 'reportableData.leg2ExchangeRateBasisCurrency')
 
-# Bar 3: 'Augmented' is 'Yes' when both 'descoped' and 'golden input' are 'No'
-bar3_data = df[(df['Descoped'] == 'No') & (df['Found In Golden Input'] == 'No')]['Augmented'].value_counts().get('Yes', 0)
+threshold = len(df) * 0.10
 
-# Bar 4: Total of Bar 2 and Bar 3
-bar4_data = bar2_data + bar3_data
+countryCpty_counts = df['reportableData.tradeParty2CountryOfOtherCpty'].value_counts()
+less_frequent_CountryCpty = countryCpty_counts[countryCpty_counts < threshold].index
+def group_countryCpty(countryCpty):
+    return countryCpty if countryCpty not in less_frequent_CountryCpty else 'Other'
+df['reportableData.tradeParty2CountryOfOtherCpty'] = df['reportableData.tradeParty2CountryOfOtherCpty'].apply(group_countryCpty)
 
-# Bar 5: Percentage of 'descoped' (Bar 1) compared to total (Bar 4)
-bar5_data = (bar1_data / bar4_data) * 100 if bar4_data > 0 else 0
+premium_currency_counts = df['reportableData.premiumCurrency'].value_counts()
+less_frequent_premium = premium_currency_counts[premium_currency_counts < threshold].index
+def group_currency_premium(currency):
+    return currency if currency not in less_frequent_premium else 'Other'
+df['reportableData.premiumCurrency'] = df['reportableData.premiumCurrency'].apply(group_currency_premium)
 
-# Plotting the bar chart
-bars = ['Total SIT', 'Found In Golden Input Data', 'Total augmented cases in SIT  file', 'Total covered Scenario', 'Total Coverage in Percentage']
-values = [bar1_data, bar2_data, bar3_data, bar4_data, bar5_data]
+notional_currency_counts = df['reportableData.leg1NotionalCurrency'].value_counts()
+less_frequent_notional = notional_currency_counts[notional_currency_counts < threshold].index
+def group_currency_notional(currency):
+    return currency if currency not in less_frequent_notional else 'Other'
+df['reportableData.leg1NotionalCurrency'] = df['reportableData.leg1NotionalCurrency'].apply(group_currency_notional)
 
-plt.bar(bars, values)
-plt.title('Bar Chart Based on Conditions')
-plt.ylabel('Count or Percentage')
-plt.show()
+notional2_currency_counts = df['reportableData.leg2NotionalCurrency'].value_counts()
+less_frequent_notional2 = notional2_currency_counts[notional2_currency_counts < threshold].index
+def group_currency_notional2(currency):
+    return currency if currency not in less_frequent_notional2 else 'Other'
+df['reportableData.leg2NotionalCurrency'] = df['reportableData.leg2NotionalCurrency'].apply(group_currency_notional2)
+
+leg1_currency_counts = df['reportableData.leg1ExchangeRateBasisCurrency'].value_counts()
+less_frequent_leg1 = leg1_currency_counts[leg1_currency_counts < threshold].index
+def group_currency_leg1(currency):
+    return currency if currency not in less_frequent_leg1 else 'Other'
+df['reportableData.leg1ExchangeRateBasisCurrency'] = df['reportableData.leg1ExchangeRateBasisCurrency'].apply(group_currency_leg1)
+
+leg2_currency_counts = df['reportableData.leg2ExchangeRateBasisCurrency'].value_counts()
+less_frequent_leg2 = leg2_currency_counts[leg2_currency_counts < threshold].index
+def group_currency_leg2(currency):
+    return currency if currency not in less_frequent_leg2 else 'Other'
+df['reportableData.leg2ExchangeRateBasisCurrency'] = df['reportableData.leg2ExchangeRateBasisCurrency'].apply(group_currency_leg2)
+
+# Create pie charts for each categorical variable after grouping
+create_pie_chart(df, 'reportableData.tradeParty2CountryOfOtherCpty')
+create_pie_chart(df, 'reportableData.premiumCurrency')
+create_pie_chart(df, 'reportableData.leg1NotionalCurrency')
+create_pie_chart(df, 'reportableData.leg2NotionalCurrency')
+create_pie_chart(df, 'reportableData.leg1ExchangeRateBasisCurrency')
+create_pie_chart(df, 'reportableData.leg2ExchangeRateBasisCurrency')
