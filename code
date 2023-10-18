@@ -1,67 +1,17 @@
-import matplotlib.pyplot as plt
-import pandas as pd
+import re
 
-# Original DataFrame
-original_df = df.copy()
+def transform_record(record):
+    new_record = re.sub(r'(\d{3}-\d{3}-\d{4})', r'+1-\1', record)
+    return new_record
 
-# Function to create pie chart
-def create_pie_chart(data, column_name):
-    counts = data[column_name].value_counts()
-    plt.figure(figsize=(4, 4))
-    plt.pie(counts, labels=counts.index, autopct='%1.1f%%', startangle=140)
-    plt.title(f'Distribution of {column_name}')
-    plt.show()
+print(transform_record("Sabrina Green,802-867-5309,System Administrator")) 
+# Sabrina Green,+1-802-867-5309,System Administrator
 
-# Create pie charts for each categorical variable before grouping
-create_pie_chart(df, 'reportableData.tradeParty2CountryOfOtherCpty')
-create_pie_chart(df, 'reportableData.premiumCurrency')
-create_pie_chart(df, 'reportableData.leg1NotionalCurrency')
-create_pie_chart(df, 'reportableData.leg2NotionalCurrency')
-create_pie_chart(df, 'reportableData.leg1ExchangeRateBasisCurrency')
-create_pie_chart(df, 'reportableData.leg2ExchangeRateBasisCurrency')
+print(transform_record("Eli Jones,684-3481127,IT specialist")) 
+# Eli Jones,+1-684-3481127,IT specialist
 
-threshold = len(df) * 0.10
+print(transform_record("Melody Daniels,846-687-7436,Programmer")) 
+# Melody Daniels,+1-846-687-7436,Programmer
 
-countryCpty_counts = df['reportableData.tradeParty2CountryOfOtherCpty'].value_counts()
-less_frequent_CountryCpty = countryCpty_counts[countryCpty_counts < threshold].index
-def group_countryCpty(countryCpty):
-    return countryCpty if countryCpty not in less_frequent_CountryCpty else 'Other'
-df['reportableData.tradeParty2CountryOfOtherCpty'] = df['reportableData.tradeParty2CountryOfOtherCpty'].apply(group_countryCpty)
-
-premium_currency_counts = df['reportableData.premiumCurrency'].value_counts()
-less_frequent_premium = premium_currency_counts[premium_currency_counts < threshold].index
-def group_currency_premium(currency):
-    return currency if currency not in less_frequent_premium else 'Other'
-df['reportableData.premiumCurrency'] = df['reportableData.premiumCurrency'].apply(group_currency_premium)
-
-notional_currency_counts = df['reportableData.leg1NotionalCurrency'].value_counts()
-less_frequent_notional = notional_currency_counts[notional_currency_counts < threshold].index
-def group_currency_notional(currency):
-    return currency if currency not in less_frequent_notional else 'Other'
-df['reportableData.leg1NotionalCurrency'] = df['reportableData.leg1NotionalCurrency'].apply(group_currency_notional)
-
-notional2_currency_counts = df['reportableData.leg2NotionalCurrency'].value_counts()
-less_frequent_notional2 = notional2_currency_counts[notional2_currency_counts < threshold].index
-def group_currency_notional2(currency):
-    return currency if currency not in less_frequent_notional2 else 'Other'
-df['reportableData.leg2NotionalCurrency'] = df['reportableData.leg2NotionalCurrency'].apply(group_currency_notional2)
-
-leg1_currency_counts = df['reportableData.leg1ExchangeRateBasisCurrency'].value_counts()
-less_frequent_leg1 = leg1_currency_counts[leg1_currency_counts < threshold].index
-def group_currency_leg1(currency):
-    return currency if currency not in less_frequent_leg1 else 'Other'
-df['reportableData.leg1ExchangeRateBasisCurrency'] = df['reportableData.leg1ExchangeRateBasisCurrency'].apply(group_currency_leg1)
-
-leg2_currency_counts = df['reportableData.leg2ExchangeRateBasisCurrency'].value_counts()
-less_frequent_leg2 = leg2_currency_counts[leg2_currency_counts < threshold].index
-def group_currency_leg2(currency):
-    return currency if currency not in less_frequent_leg2 else 'Other'
-df['reportableData.leg2ExchangeRateBasisCurrency'] = df['reportableData.leg2ExchangeRateBasisCurrency'].apply(group_currency_leg2)
-
-# Create pie charts for each categorical variable after grouping
-create_pie_chart(df, 'reportableData.tradeParty2CountryOfOtherCpty')
-create_pie_chart(df, 'reportableData.premiumCurrency')
-create_pie_chart(df, 'reportableData.leg1NotionalCurrency')
-create_pie_chart(df, 'reportableData.leg2NotionalCurrency')
-create_pie_chart(df, 'reportableData.leg1ExchangeRateBasisCurrency')
-create_pie_chart(df, 'reportableData.leg2ExchangeRateBasisCurrency')
+print(transform_record("Charlie Rivera,698-746-3357,Web Developer")) 
+# Charlie Rivera,+1-698-746-3357,Web Developer
