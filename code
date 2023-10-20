@@ -1,17 +1,23 @@
-import re
+# Validating the refresh request with approval action
+def test_exception_manager_requestRefresh_withApproval(driver):
+    
+    # Taking the assign to self action
+    exception_manager_assignToSelf(driver)
+    
+    re_trade_version_before = request_refresh_approve_refresh(driver)
+    
+    reload_data(driver)
+    approvalStatus = store_approval_status(driver)
+    re_trade_version_after = store_re_tradeVersion(driver)
+    print(re_trade_version_before)
+    print(re_trade_version_after)
+    print(approvalStatus)
 
-def transform_comments(line_of_code):
-    result = re.sub(r'###\s', r'// ', line_of_code)
-    return result
-
-print(transform_comments("### Start of program")) 
-# Should be "// Start of program"
-
-print(transform_comments("  number = 0   ## Initialize the variable")) 
-# Should be "  number = 0   // Initialize the variable"
-
-print(transform_comments("  number += 1   # Increment the variable")) 
-# Should be "  number += 1   // Increment the variable"
-
-print(transform_comments("  return(number)")) 
-# Should be "  return(number)"
+    # Validating the refresh request with approval action
+    try:
+        assert re_trade_version_before + 1 == re_trade_version_after
+        assert "Refresh Approved" == approvalStatus
+        exception_manager_automation_results.append(("Request Refresh With Approval", "Validating request refresh approval action on trade", "Passed"))
+    except:
+        exception_manager_automation_results.append(("Request Refresh With Approval", "Validating request refresh approval action on trade", "Failed"))
+    
