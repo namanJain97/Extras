@@ -1,23 +1,11 @@
-# Validating the refresh request with approval action
-def test_exception_manager_requestRefresh_withApproval(driver):
-    
-    # Taking the assign to self action
-    exception_manager_assignToSelf(driver)
-    
-    re_trade_version_before = request_refresh_approve_refresh(driver)
-    
-    reload_data(driver)
-    approvalStatus = store_approval_status(driver)
-    re_trade_version_after = store_re_tradeVersion(driver)
-    print(re_trade_version_before)
-    print(re_trade_version_after)
-    print(approvalStatus)
+import requests
 
-    # Validating the refresh request with approval action
-    try:
-        assert re_trade_version_before + 1 == re_trade_version_after
-        assert "Refresh Approved" == approvalStatus
-        exception_manager_automation_results.append(("Request Refresh With Approval", "Validating request refresh approval action on trade", "Passed"))
-    except:
-        exception_manager_automation_results.append(("Request Refresh With Approval", "Validating request refresh approval action on trade", "Failed"))
-    
+eureka_url = "http://ignite-eureka-uat:21011/eureka/apps/IGNITE.LDN.UAT4.ITR2/"
+response = requests.get(eureka_url)
+
+if response.status_code == 200:
+    raw_data = response.text
+    print("Raw Response Data:")
+    print(raw_data)
+else:
+    print(f"Failed to retrieve data from Eureka. Status code: {response.status_code}")
