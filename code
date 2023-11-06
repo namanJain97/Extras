@@ -1,25 +1,85 @@
-import tabula
+import csv
 
-# Specify the PDF file and page(s) where the table is located
-file_path = 'template.pdf'
+data_dict1 = {}
+data_dict2 = {}
+unique_trade_id_in_preFile = set()
+unique_trade_id_in_postFile = set()
 
-# Extract the tables
-tables = tabula.read_pdf(file_path, pages='all')
+#read and process the pre csv file, skipping the 1st two rows
+with open(r'C:\Users\Chauaku\Documents\Test_files\EMIR_GFX_non_cleared_NOT_DONE\PRE_Valuations_GFX_NonCleared_newone.csv', 'r') as file1:
+    csv_reader = csv.DictReader(file1)
+    row_count_for_pre_file = 0
+    for row in csv_reader:
+        row_count_for_pre_file += 1
+        trade_id = row['Trade Party 1 - Transaction ID']
+        unique_trade_id_in_preFile.add(trade_id)
+        data_dict1.setdefault(trade_id, []).append((row['Trade Party 1 - Valuation Amount'], row['Trade Party 1 - Valuation Currency'],
+                                row['Trade Party 1 - Valuation Datetime'], row['Trade Party 1 - Valuation Type'],
+                                row['Trade Party 2 - Valuation Amount'], row['Trade Party 2 - Valuation Currency'],
+                                row['Trade Party 2 - Valuation Datetime']))
+        
+        
+        
+with open(r'C:\Users\Chauaku\Documents\Test_files\EMIR_GFX_non_cleared_NOT_DONE\POST_Valuations_GFX_NonCleared_newone.csv', 'r') as file2:
+    csv_reader = csv.DictReader(file2)
+    row_count_for_post_file = 0
+    for row in csv_reader:
+        row_count_for_post_file += 1
+        trade_id = row['Trade Party 1 - Transaction ID']
+        unique_trade_id_in_postFile.add(trade_id)
+        data_dict2.setdefault(trade_id, []).append((row['Trade Party 1 - Valuation Amount'], row['Trade Party 1 - Valuation Currency'],
+                                row['Trade Party 1 - Valuation Datetime'], row['Trade Party 1 - Valuation Type'],
+                                row['Trade Party 2 - Valuation Amount'], row['Trade Party 2 - Valuation Currency'],
+                                row['Trade Party 2 - Valuation Datetime']))
+        
+        
+#create a list for discrepancy data
+discrepancy_data = []
+        
+#compare the two two dictionaries to identify discrepancies
+for trade_id, data_list1 in data_dict1.items():
+    if trade_id in data_dict2:
+        data_list2 = data_dict2[trade_id]
 
-# Process the tables as needed
-for table in tables:
-    table = table
-    
-table1 = tables[0]
-table2 = tables[1]
-table3 = tables[2]
-table4 = tables[3]
+        #check aif none of the version in file1 matches with file2 or vice versa
+        if all(all(data1 != data2 for data2 in data_list2) for data1 in data_list1):
+            for data1 in data_list1:
+                for data2 in data_list2:
+                    discrepancy_now = [trade_id] + list(data1) + list(data2)
+                    discrepancy_data.append(discrepancy_now)
 
-# Access specific values based on field names or column names
-field1_values = table1["Banks In S'pore"]
-field2_values = table1["Banks Outside S'pore"]
+#Define the columns name dor the new csv
+columns_name = ['Trade Party 1 - Transaction ID', 'Pre_Trade Party 1 - Valuation Amount', 'Pre_Trade Party 1 - Valuation Currency',
+                'Pre_Trade Party 1 - Valuation Datetime', 
+                'Pre_Trade Party 1 - Valuation Type', 'Pre_Trade Party 2 - Valuation Amount', 'Pre_Trade Party 2 - Valuation Currency',
+                'Pre_Trade Party 2 - Valuation Datetime', 'Post_Trade Party 1 - Valuation Amount',
+                'Post_Trade Party 1 - Valuation Currency',
+                'Post_Trade Party 1 - Valuation Datetime', 'Post_Trade Party 1 - Valuation Type', 
+                'Post_Trade Party 2 - Valuation Amount', 'Post_Trade Party 2 - Valuation Currency',
+                'Post_Trade Party 2 - Valuation Datetime']
 
-field1 = field1_values[1]
+with open(r'C:\Users\Chauaku\Documents\Test_files\EMIR_GFX_non_cleared_NOT_DONE\discrepancies.csv', 'w', newline='') as csvfile:
+    writer = csv.writer(csvfile)
+    writer.writerow(columns_name)
+    writer.writerows(discrepancy_data)
 
-print(field1)
-print(field2_values)
+#check if the number of recors in pre & post file are same or not
+if row_count_for_pre_file == row_count_for_post_file:
+    print("The number of records in pre & post file are same")
+else:
+    print("The number of records in pre & post file are not same")
+
+#Find the unique tradeIds in PreFile that are not in the PostFile
+unique_trade_ids_not_in_postFile = unique_trade_id_in_preFile - unique_trade_id_in_postFile
+
+#Find the unique tradeIds in PostFile that are not in the PreFile
+unique_trade_ids_not_in_preFile = unique_trade_id_in_postFile - unique_trade_id_in_preFile
+
+trade_id_columns_names = ['tradeIds_from_pre_file', 'tradeIds_from_post_file']
+
+with open(r'C:\Users\Chauaku\Documents\Test_files\EMIR_GFX_non_cleared_NOT_DONE\unique_tradeids.csv', 'w', newline='') as csvfile2:
+    writer = csv.writer(csvfile2)
+    writer.writerow(trade_id_columns_names)
+    writer.writerows(zip(unique_trade_ids_not_in_postFile, unique_trade_ids_not_in_preFile))
+
+print('hello')
