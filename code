@@ -1,11 +1,25 @@
-import requests
+import tabula
 
-eureka_url = "http://ignite-eureka-uat:21011/eureka/apps/IGNITE.LDN.UAT4.ITR2/"
-response = requests.get(eureka_url)
+# Specify the PDF file and page(s) where the table is located
+file_path = 'template.pdf'
 
-if response.status_code == 200:
-    raw_data = response.text
-    print("Raw Response Data:")
-    print(raw_data)
-else:
-    print(f"Failed to retrieve data from Eureka. Status code: {response.status_code}")
+# Extract the tables
+tables = tabula.read_pdf(file_path, pages='all')
+
+# Process the tables as needed
+for table in tables:
+    table = table
+    
+table1 = tables[0]
+table2 = tables[1]
+table3 = tables[2]
+table4 = tables[3]
+
+# Access specific values based on field names or column names
+field1_values = table1["Banks In S'pore"]
+field2_values = table1["Banks Outside S'pore"]
+
+field1 = field1_values[1]
+
+print(field1)
+print(field2_values)
