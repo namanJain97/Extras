@@ -1,7 +1,10 @@
 Traceback (most recent call last):
-  File "c:\Users\jainnbr\eureka\eureka.py", line 7, in <module>
-    data = response.json()
-           ^^^^^^^^^^^^^^^
-  File "C:\ProgramData\anaconda3\Lib\site-packages\requests\models.py", line 968, in json
-    raise RequestsJSONDecodeError(e.msg, e.doc, e.pos)
-requests.exceptions.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+  File "f:\file_comparison_tool\test.py", line 52, in <module>    
+    discrepancy_data = compare_data(data_dict1, data_dict2)       
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^       
+  File "f:\file_comparison_tool\test.py", line 34, in compare_data
+    if rows1 != rows2:
+       ^^^^^^^^^^^^^^
+  File "C:\ProgramData\anaconda3\Lib\site-packages\pandas\core\generic.py", line 1527, in __nonzero__
+    raise ValueError(
+ValueError: The truth value of a Series is ambiguous. Use a.empty, a.bool(), a.item(), a.any() or a.all().
