@@ -1,85 +1,97 @@
-import csv
+import requests
+import json
+from urllib.parse import quote
 
-data_dict1 = {}
-data_dict2 = {}
-unique_trade_id_in_preFile = set()
-unique_trade_id_in_postFile = set()
+def flatten_json(data, prefix=''):
+    flattened_data = {}
+    if isinstance(data, dict):
+        for key, value in data.items():
+            new_key = f"{prefix}.{key}" if prefix else key
+            flattened_data.update(flatten_json(value, new_key))
+    elif isinstance(data, list):
+        for index, item in enumerate(data):
+            new_key = f"{prefix}.{index}" if prefix else str(index)
+            flattened_data.update(flatten_json(item, new_key))
+    else:
+        flattened_data[prefix] = data
+    return flattened_data
 
-#read and process the pre csv file, skipping the 1st two rows
-with open(r'C:\Users\Chauaku\Documents\Test_files\EMIR_GFX_non_cleared_NOT_DONE\PRE_Valuations_GFX_NonCleared_newone.csv', 'r') as file1:
-    csv_reader = csv.DictReader(file1)
-    row_count_for_pre_file = 0
-    for row in csv_reader:
-        row_count_for_pre_file += 1
-        trade_id = row['Trade Party 1 - Transaction ID']
-        unique_trade_id_in_preFile.add(trade_id)
-        data_dict1.setdefault(trade_id, []).append((row['Trade Party 1 - Valuation Amount'], row['Trade Party 1 - Valuation Currency'],
-                                row['Trade Party 1 - Valuation Datetime'], row['Trade Party 1 - Valuation Type'],
-                                row['Trade Party 2 - Valuation Amount'], row['Trade Party 2 - Valuation Currency'],
-                                row['Trade Party 2 - Valuation Datetime']))
+def build_json_response(flattened_data):
+    json_response = {}
+    for key, value in flattened_data.items():
+        nested_keys = key.split('.')
+        current_dict = json_response
+        for nested_key in nested_keys[:-1]:
+            if nested_key not in current_dict:
+                current_dict[nested_key] = {}
+            current_dict = current_dict[nested_key]
         
+        if nested_keys[-1] == "contents":
+            value = json.loads(value)
         
-        
-with open(r'C:\Users\Chauaku\Documents\Test_files\EMIR_GFX_non_cleared_NOT_DONE\POST_Valuations_GFX_NonCleared_newone.csv', 'r') as file2:
-    csv_reader = csv.DictReader(file2)
-    row_count_for_post_file = 0
-    for row in csv_reader:
-        row_count_for_post_file += 1
-        trade_id = row['Trade Party 1 - Transaction ID']
-        unique_trade_id_in_postFile.add(trade_id)
-        data_dict2.setdefault(trade_id, []).append((row['Trade Party 1 - Valuation Amount'], row['Trade Party 1 - Valuation Currency'],
-                                row['Trade Party 1 - Valuation Datetime'], row['Trade Party 1 - Valuation Type'],
-                                row['Trade Party 2 - Valuation Amount'], row['Trade Party 2 - Valuation Currency'],
-                                row['Trade Party 2 - Valuation Datetime']))
-        
-        
-#create a list for discrepancy data
-discrepancy_data = []
-        
-#compare the two two dictionaries to identify discrepancies
-for trade_id, data_list1 in data_dict1.items():
-    if trade_id in data_dict2:
-        data_list2 = data_dict2[trade_id]
+        current_dict[nested_keys[-1]] = value
+    return json_response
 
-        #check aif none of the version in file1 matches with file2 or vice versa
-        if all(all(data1 != data2 for data2 in data_list2) for data1 in data_list1):
-            for data1 in data_list1:
-                for data2 in data_list2:
-                    discrepancy_now = [trade_id] + list(data1) + list(data2)
-                    discrepancy_data.append(discrepancy_now)
+def extract_field_values(data, field_names):
+    extracted_values = {}
+    for key, value in data.items():
+        if isinstance(value, dict):
+            extracted_values.update(extract_field_values(value, field_names))
+        elif not field_names or key in field_names:
+            extracted_values[key] = value
+    return extracted_values
 
-#Define the columns name dor the new csv
-columns_name = ['Trade Party 1 - Transaction ID', 'Pre_Trade Party 1 - Valuation Amount', 'Pre_Trade Party 1 - Valuation Currency',
-                'Pre_Trade Party 1 - Valuation Datetime', 
-                'Pre_Trade Party 1 - Valuation Type', 'Pre_Trade Party 2 - Valuation Amount', 'Pre_Trade Party 2 - Valuation Currency',
-                'Pre_Trade Party 2 - Valuation Datetime', 'Post_Trade Party 1 - Valuation Amount',
-                'Post_Trade Party 1 - Valuation Currency',
-                'Post_Trade Party 1 - Valuation Datetime', 'Post_Trade Party 1 - Valuation Type', 
-                'Post_Trade Party 2 - Valuation Amount', 'Post_Trade Party 2 - Valuation Currency',
-                'Post_Trade Party 2 - Valuation Datetime']
+def get_user_data():
+    response = requests.get("http://localhost:56006/api/sso/uat/token/TNTR-User")
+    if response.status_code == 200:
+        print("successfully fetched the data with parameters provided")
+        return response.json()['TokenString']
+    else:
+        print(f"Hello person, there's a {response.status_code} error with your request")
 
-with open(r'C:\Users\Chauaku\Documents\Test_files\EMIR_GFX_non_cleared_NOT_DONE\discrepancies.csv', 'w', newline='') as csvfile:
-    writer = csv.writer(csvfile)
-    writer.writerow(columns_name)
-    writer.writerows(discrepancy_data)
 
-#check if the number of recors in pre & post file are same or not
-if row_count_for_pre_file == row_count_for_post_file:
-    print("The number of records in pre & post file are same")
-else:
-    print("The number of records in pre & post file are not same")
+def call_api_with_bearer_token(access_token, sso_token, where_conditions, field_names):
+    api_url = "http://datafabric-tst:40003/datafabric/Tntr/TNTR-trade-uat"
 
-#Find the unique tradeIds in PreFile that are not in the PostFile
-unique_trade_ids_not_in_postFile = unique_trade_id_in_preFile - unique_trade_id_in_postFile
+    headers = {
+        'Authorization': f'Bearer {sso_token}',
+        'Content-Type': 'application/json'
+    }
 
-#Find the unique tradeIds in PostFile that are not in the PreFile
-unique_trade_ids_not_in_preFile = unique_trade_id_in_postFile - unique_trade_id_in_preFile
+    data = {
+        'where': where_conditions,
+        'accessToken': access_token
+    }
 
-trade_id_columns_names = ['tradeIds_from_pre_file', 'tradeIds_from_post_file']
+    response = requests.get(api_url, params=data, headers=headers)
 
-with open(r'C:\Users\Chauaku\Documents\Test_files\EMIR_GFX_non_cleared_NOT_DONE\unique_tradeids.csv', 'w', newline='') as csvfile2:
-    writer = csv.writer(csvfile2)
-    writer.writerow(trade_id_columns_names)
-    writer.writerows(zip(unique_trade_ids_not_in_postFile, unique_trade_ids_not_in_preFile))
+    try:
+        response.raise_for_status()
+        json_data = response.json()
+        flattened_data = flatten_json(json_data)
+        json_response = build_json_response(flattened_data)
 
-print('hello')
+        for record in json_response.values():
+            field_values = extract_field_values(record, field_names)
+            if field_values:
+                for field, value in field_values.items():
+                    print(f"{field}: {value}")
+                print("---")
+    except requests.exceptions.HTTPError as e:
+        print(f"HTTP error occurred: {e}")
+    except json.decoder.JSONDecodeError as e:
+        print(f"Error decoding JSON response: {e}")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+
+where_conditions = (
+    f"subjectIdentifier.sourceSystem = 'SystemX' "
+    f"and subjectIdentifier.regulatoryRegimeIdentifier.name = 'The Monetary Authority Of Singapore 755' "
+)
+
+access_token = "b0013b54-b771-43f7-b2e0-a86b51fd92aa"
+sso_token = get_user_data()
+field_names = []  # Add the field names you want to extract, or leave it empty for all fields
+
+call_api_with_bearer_token(access_token, sso_token, where_conditions, field_names)
