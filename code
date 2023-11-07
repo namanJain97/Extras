@@ -1,15 +1,89 @@
-from mas755_df_data import *
-from extract_values import *
+import requests
+import json
 
-access_token = "b0013b54-b771-43f7-b2e0-a86b51fd92aa"
-sso_token = get_user_data()
-field_names = []  # Add the field names you want to extract, or leave it empty for all fields
-where_conditions = (
-    f"subjectIdentifier.sourceSystem = 'SystemX' "
-    f"and subjectIdentifier.regulatoryRegimeIdentifier.name = 'The Monetary Authority Of Singapore 755' "
-)
+def flatten_json(data, prefix=''):
+    flattened_data = {}
+    if isinstance(data, dict):
+        for key, value in data.items():
+            new_key = f"{prefix}.{key}" if prefix else key
+            flattened_data.update(flatten_json(value, new_key))
+    elif isinstance(data, list):
+        for index, item in enumerate(data):
+            new_key = f"{prefix}.{index}" if prefix else str(index)
+            flattened_data.update(flatten_json(item, new_key))
+    else:
+        flattened_data[prefix] = data
+    return flattened_data
 
-df_data = call_api_with_bearer_token(access_token, sso_token, where_conditions, field_names)
-filtered_trades = [trade for trade in df_data.get('nonReportableData', []) if trade.get('isSectionAEligible') == 'true']
+def build_json_response(flattened_data):
+    json_response = {}
 
-print(filtered_trades)
+    for key, value in flattened_data.items():
+        nested_keys = key.split('.')
+        current_dict = json_response
+
+        for nested_key in nested_keys[:-1]:
+            if nested_key not in current_dict:
+                current_dict[nested_key] = {}
+            current_dict = current_dict[nested_key]
+
+        if nested_keys[-1] == "contents":
+            value = json.loads(value)
+
+        current_dict[nested_keys[-1]] = value
+
+    return json_response
+
+def extract_field_values(data, field_names):
+    extracted_values = {}
+    for key, value in data.items():
+        if isinstance(value, dict):
+            extracted_values.update(extract_field_values(value, field_names))
+        elif not field_names or key in field_names:
+            extracted_values[key] = value
+    return extracted_values
+
+def get_user_data():
+    response = requests.get("http://localhost:56006/api/sso/uat/token/TNTR-User")
+    if response.status_code == 200:
+        print("successfully fetched the data with parameters provided")
+        return response.json()['TokenString']
+    else:
+        print(f"Hello person, there's a {response.status_code} error with your request")
+
+def call_api_with_bearer_token(access_token, sso_token, where_conditions, field_names):
+    api_url = "http://datafabric-tst:40003/datafabric/Tntr/TNTR-trade-uat"
+
+    headers = {
+        'Authorization': f'Bearer {sso_token}',
+        'Content-Type': 'application/json'
+    }
+
+    data = {
+        'where': where_conditions,
+        'accessToken': access_token
+    }
+
+    response = requests.get(api_url, params=data, headers=headers)
+
+    try:
+        response.raise_for_status()
+        json_data = response.json()
+        flattened_data = flatten_json(json_data)
+        json_response = build_json_response(flattened_data)
+
+        df_data = []
+        for record in json_response.values():
+            field_values = extract_field_values(record, field_names)
+            if field_values:
+                for field, value in field_values.items():
+                    df_data.append(f"{field}: {value}")
+                
+        return df_data
+            
+    except requests.exceptions.HTTPError as e:
+        print(f"HTTP error occurred: {e}")
+    except json.decoder.JSONDecodeError as e:
+        print(f"Error decoding JSON response: {e}")
+    except Exception as e:
+        print(f"An error occurred: {e}")
