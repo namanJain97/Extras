@@ -1,38 +1,113 @@
-Raw Response Data:
-<application>
-  <name>IGNITE.LDN.UAT4.ITR2</name>
-  <instance>
-    <instanceId>lonrs14598.fm.rbsgrp.net:ignite.ldn.uat4.itr2:36848</instanceId>
-    <hostName>lonrs14598.fm.rbsgrp.net</hostName>
-    <app>IGNITE.LDN.UAT4.ITR2</app>
-    <ipAddr>11.161.33.179</ipAddr>
-    <status>UP</status>
-    <overriddenstatus>UNKNOWN</overriddenstatus>
-    <port enabled="true">36848</port>
-    <securePort enabled="false">443</securePort>
-    <countryId>1</countryId>
-    <dataCenterInfo class="com.netflix.appinfo.InstanceInfo$DefaultDataCenterInfo">
-      <name>MyOwn</name>
-    </dataCenterInfo>
-    <leaseInfo>
-      <renewalIntervalInSecs>10</renewalIntervalInSecs>
-      <durationInSecs>90</durationInSecs>
-      <registrationTimestamp>1698906509462</registrationTimestamp>
-      <lastRenewalTimestamp>1699020006307</lastRenewalTimestamp>
-      <evictionTimestamp>0</evictionTimestamp>
-      <serviceUpTimestamp>1698906509462</serviceUpTimestamp>
-    </leaseInfo>
-    <metadata>
-      <management.port>36848</management.port>
-    </metadata>
-    <homePageUrl>http://lonrs14598.fm.rbsgrp.net:36848/</homePageUrl>
-    <statusPageUrl>http://lonrs14598.fm.rbsgrp.net:36848/ignite/trade</statusPageUrl>
-    <healthCheckUrl>http://lonrs14598.fm.rbsgrp.net:36848/actuator/health</healthCheckUrl>
-    <vipAddress>ignite.ldn.uat4.itr2</vipAddress>
-    <secureVipAddress>ignite.ldn.uat4.itr2</secureVipAddress>
-    <isCoordinatingDiscoveryServer>false</isCoordinatingDiscoveryServer>
-    <lastUpdatedTimestamp>1698906509462</lastUpdatedTimestamp>
-    <lastDirtyTimestamp>1698906509212</lastDirtyTimestamp>
-    <actionType>ADDED</actionType>
-  </instance>
-</application>
+{
+  "subjectIdentifier": {
+    "transactionId": "L231106A077EB",
+    "sourceSystem": "GlobalFX GBLO",
+    "version": 1,
+    "regulatoryRegimeIdentifier": {
+      "name": "The Monetary Authority Of Singapore 755",
+      "regulatoryAuthority": "The Monetary Authority of Singapore 755"
+    },
+    "regimeImpactType": "Transaction Reporting",
+    "reportTriggerType": "Transaction Lifecycle",
+    "reportSubmissionType": "Snapshot"
+  },
+  "exceptionManagement": {},
+  "transactionReportingStatus": {
+    "sourceSystemIdentifier": "TnTR",
+    "transactionStateValue": "Submitted",
+    "stateTransitionDateTime": "2023-11-07T08:59:31.324Z",
+    "stateTransitionEffectiveDateTime": "2023-11-07T08:59:31.324Z",
+    "commentary": "Trade Submission",
+    "reportSubmissionRepository": "DTCC",
+    "reportSubmissionIssues": []
+  },
+  "reportableData": {
+    "action": "New",
+    "assetClass": "ForeignExchange",
+    "buyer": "party2",
+    "clearingStatus": "false",
+    "exchangeRate": 1.11,
+    "expirationDate": "2023-11-07T00:00:00.000Z",
+    "implementationVersion": "CA3.0FX5.0",
+    "leg1EffectiveDate": "2023-11-06T00:00:00.000Z",
+    "leg1ExchangeRateBasisCurrency": "USD",
+    "leg1NotionalAmount": 100000000,
+    "leg1NotionalCurrency": "USD",
+    "leg1ScheduledTerminationDate": "2023-11-07T00:00:00.000Z",
+    "leg2ExchangeRateBasisCurrency": "SGD",
+    "leg2NotionalAmount": 111000000,
+    "leg2NotionalCurrency": "SGD",
+    "lifecycleEvent": "Trade",
+    "messageId": "L231106A077EB_1_1699347529455mas_uat",
+    "messageType": "Snapshot",
+    "premiumPaymentDateUnadjusted": "2023-11-06T00:00:00.000Z",
+    "productClassification": "JFTXFP",
+    "productId": "ForeignExchange:Spot",
+    "productIdType": "ISDA",
+    "reportingTimestamp": "2023-11-07T08:58:49.000Z",
+    "seller": "party1",
+    "submittedFor": "party1",
+    "submittingPartyId": "RR3QWICWWIPCS8A4S074",
+    "submittingPartyIdType": "LEI",
+    "terminationDate": "2023-11-06T22:38:57.625Z",
+    "tradeParty1BeneficiaryId": "RR3QWICWWIPCS8A4S074",
+    "tradeParty1BeneficiaryIdType": "LEI",
+    "tradeParty1BranchLocation": "SG",
+    "tradeParty1CptySide": "S",
+    "tradeParty1Id": "RR3QWICWWIPCS8A4S074",
+    "tradeParty1IdType": "LEI",
+    "tradeParty1ReportingDestination": "MAS",
+    "tradeParty1TraderLocation": "GB",
+    "tradeParty1TransactionId": "L231106A077EB",
+    "tradeParty2CountryOfOtherCpty": "AU",
+    "tradeParty2Id": "JHE42UYNWWTJB8YTTU19",
+    "tradeParty2IdType": "LEI",
+    "utiId": "FX120L231106A077EBuat",
+    "utiIdPrefix": "RR3QWICWWIPCS8A4S074"
+  },
+  "nonReportableData": {
+    "party1Ciscode": "BRBOSGB",
+    "party2Ciscode": "BANZBAU",
+    "party2NucId": 49267,
+    "opsBusinessArea": "GlobalCurrenciesMiddleOffice@natwestmarkets.com",
+    "recordType": "House Trade",
+    "tntrReceivedTimestamp": "2023-11-07T08:56:46.598Z",
+    "utiGenerator": "COUNTERPARTY",
+    "tradeParty2Name": "AUSTRALIA AND NEW ZEALAND BANKING GROUP LIMITED",
+    "tradeParty1Name": "NATWEST MARKETS PLC",
+    "businessDate": "2023-11-10T00:00:00.000Z",
+    "tradeVersion": 0,
+    "eventExecutionTimestamp": "2023-11-06T22:38:57.625Z",
+    "recordClassCode": "IV1300",
+    "recordClassName": "Regulatory Risk",
+    "isLatestVersion": true,
+    "maturityDate": "2023-11-07T00:00:00.000Z",
+    "startDate": "2023-11-06T00:00:00.000Z",
+    "processTimeInReporting": "164748",
+    "sourceSystemProductId": "SPT",
+    "pdfFlag": false,
+    "updatedByApplication": "Reporting Engine",
+    "bookId": "TPSGP",
+    "isSectionAEligible": true,
+    "isSectionBEligible": false,
+    "isSectionCEligible": false,
+    "buyAmount": 100000000,
+    "sellAmount": 111000000,
+    "buyCurrency": "USD",
+    "sellCurrency": "SGD",
+    "isIDT": false,
+    "isIET": false,
+    "bankType": "BKOS",
+    "countryOfResidence": "Australia",
+    "rate1ConversionCurrencies": "USDToSGD",
+    "rate1": 1.3514,
+    "rate2ConversionCurrencies": "GBPToUSD",
+    "rate2": 1.2383,
+    "direction": "Purchases",
+    "customerType": "Bank"
+  },
+  "appendix": {},
+  "metadata": {
+    "corpusVersion": "v1.0.5"
+  }
+}
