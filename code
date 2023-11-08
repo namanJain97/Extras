@@ -1,11 +1,1 @@
-from mas755_df_data import *
-from extract_values import *
-
-access_token = "b0013b54-b771-43f7-b2e0-a86b51fd92aa"
-sso_token = get_user_data()
-field_names = ['direction']  # Add the field names you want to extract, or leave it empty for all fields
-where_conditions = (
-    f"subjectIdentifier.regulatoryRegimeIdentifier.name = 'The Monetary Authority Of Singapore 755' "
-)
-
-df_data = call_api_with_bearer_token(access_token, sso_token, where_conditions, field_names)
+leg1_Amount = [trade for trade in field_trade if trade['leg1NotionalCurrency'] == 'SGD'].Select(x: x.leg1NotionalAmount).sum()
