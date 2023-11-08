@@ -1,1 +1,21 @@
-leg1_Amount = [trade for trade in field_trade if trade['leg1NotionalCurrency'] == 'SGD'].Select(x: x.leg1NotionalAmount).sum()
+from extract_pdf_values import *
+from df_values import *
+from mas755_result import *
+
+# A list to store the results
+mas755_pdf_report_results = []
+
+# Checking if only show details action showing for mas755 trades in exception manager
+def test_mas755_exception_manager_actions():
+    
+    if sectionA_purchase_bkis_us == SectionA_Purchase_BKIS_US:
+        mas755_pdf_report_results.append(("SectionA_Purchase_BKIS_US", "Passed"))
+    else:
+        mas755_pdf_report_results.append(("SectionA_Purchase_BKIS_US", "Failed"))
+        
+
+# Loads Automation Results for the Blotter
+def mas755_testResults():
+    
+    display_results_in_table(mas755_pdf_report_results)
+
