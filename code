@@ -1,21 +1,57 @@
-from extract_pdf_values import *
-from df_values import *
-from mas755_result import *
+import tkinter as tk
+from tkinter import ttk
 
-# A list to store the results
-mas755_pdf_report_results = []
-
-# Checking if only show details action showing for mas755 trades in exception manager
-def test_mas755_exception_manager_actions():
+# Display the result on UI in a table-like grid structure
+def display_results_in_table(results):
+    root = tk.Tk()
+    root.title("Automation Results")
+    root.configure(bg="lightgray")
     
-    if sectionA_purchase_bkis_us == SectionA_Purchase_BKIS_US:
-        mas755_pdf_report_results.append(("SectionA_Purchase_BKIS_US", "Passed"))
-    else:
-        mas755_pdf_report_results.append(("SectionA_Purchase_BKIS_US", "Failed"))
-        
+    # Add a label for the title with cool styles
+    title_label = tk.Label(root, text="Mas755 Report Test Execution Result", font=("Arial", 23, "bold"), bg="#FAEBD7", fg="#336699")
+    title_label.pack(pady=(12, 0), fill=tk.X)
 
-# Loads Automation Results for the Blotter
-def mas755_testResults():
+    style = ttk.Style()
+    style.theme_use("default")
+    style.configure("Custom.Treeview.Heading", font=("Arial", 14, "bold"), background="#336699", foreground="black")
+    style.layout("Custom.Treeview.Heading", [('Custom.Treeview.heading.cell', {'sticky': 'nswe', 'children': [('Custom.Treeview.cell.border', {'sticky': 'nswe', 'children': [('Custom.Treeview.padding.cell', {'sticky': 'nswe', 'children': [('Custom.Treeview.text', {'sticky': 'nswe'})]})]})]})])
+
+    style.configure("Custom.Treeview", rowheight=25, borderwidth=2, relief="solid", padding=12)
+
+    # Create a frame for the table and scrollbar
+    table_frame = tk.Frame(root, bg="lightgray")
+    table_frame.pack(pady=12, padx=21)
+
+    # Add header for test results
+    total_tests = len(results)
+    passed_tests = sum(1 for _, _, status in results if status == "Passed")
+    failed_tests = total_tests - passed_tests
+
+    results_frame = tk.Frame(table_frame, bg="steelblue", padx=12, pady=6, borderwidth=2, relief="ridge")
+    results_frame.pack(fill=tk.X, pady=(0, 12))
+
+    results_label = tk.Label(results_frame, text=f"Total Tests: {total_tests} | Passed: {passed_tests} | Failed: {failed_tests}",
+                             font=("Arial", 15, "bold"), bg="steelblue", fg="white")
+    results_label.pack()
+
+    table = ttk.Treeview(table_frame, show="headings", style="Custom.Treeview", height=15)
+    table["columns"] = ("Test", "Status")
+    table.column("#0", width=1, stretch=tk.NO)
+    table.column("Test", anchor=tk.CENTER, width=360)
+    table.column("Status", anchor=tk.CENTER, width=360)
+
+    table.heading("#0", text="", anchor=tk.CENTER)
+    table.heading("Test", text="Test Name", anchor=tk.CENTER)
+    table.heading("Status", text="Status", anchor=tk.CENTER)
+
+    for test, status in results:
+        table.insert("", tk.END, values=(test, status))
+
+    scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=table.yview)
+    table.configure(yscrollcommand=scrollbar.set)
+
+    table.pack(side="left", expand=True)
+    scrollbar.pack(side="right", fill="y", expand=True)
     
-    display_results_in_table(mas755_pdf_report_results)
+    root.mainloop()
 
