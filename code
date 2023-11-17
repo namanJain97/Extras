@@ -1,6 +1,3 @@
-# To add a new cell, type '# %%'
-# To add a new markdown cell, type '# %% [markdown]'
-
 import numpy as np
 import pandas as pd
 from dateutil import parser
@@ -97,7 +94,6 @@ def transformcoltobool(data,col):
     combined_df = pd.concat([data, filtered_df], axis = 1)
     return combined_df
 
-
 def generateColumnsForMissingBool(data):
     bincols = getBinFeatures(data)
     null_cols = data[bincols].columns[data[bincols].isnull().any()]
@@ -116,7 +112,6 @@ def modeImputationforBoolFeatures(data):
     data[bool_cols] = data[bool_cols].fillna(mode)
     return data
 
-    
 def getNominalFeatures(data):
     date_feat = getDateFeatures(data)
     nominal_df = data.select_dtypes(include =['object', 'category'])
@@ -147,7 +142,6 @@ def convertDateTime(datetime_str):
     if pd.isnull(datetime_str):
         return '1900-01-01T00:00:00.000Z'
     else:
-        #datetime_obj = pd.to_datetime(datetime_str, format='%d-%m-%Y %H:%M')
         datetime_obj = pd.to_datetime(datetime_str, format='%Y-%m-%dT%H:%M:%S.%fZ')
         return datetime_obj.strftime('%Y-%m-%dT%H:%M:%S.000Z')
 
@@ -187,7 +181,6 @@ def meanImputationforNumericalFeatures(data):
     mean = data[numeric_cols].mean()
     data[numeric_cols] = data[numeric_cols].fillna(mean)
     return data
-
     
 def getDiscreteFeatures(data):
     nf = getNominalFeatures(data)
@@ -240,7 +233,7 @@ def applyEqualWithBinning(data, column, num_bins):
     if len(unique_values) > 1 and num_bins > 1:
         bin_edges = np.linspace(column_data.min(), column_data.max(), num_bins + 1)
         binned_data = np.digitize(column_data, bin_edges) - 1
-        return pd.cut(column_data, bins=bin_edges, labels=generateBinLabels(bin_edges),                    include_lowest=True)
+        return pd.cut(column_data, bins=bin_edges, labels=generateBinLabels(bin_edges), include_lowest=True)
     return None
 
 def generateBinLabels(bin_edges):
@@ -277,13 +270,7 @@ def dropColumn(data,col):
     data = data.drop(columns=[col])
     return data
 
-    
-
-
-
-
 df= pd.read_csv('TNTR_trade_prodprl_GFX.csv')
-
 
 data=df
 data = generateColumnsForMissingBool(data)
@@ -292,29 +279,15 @@ data = fillMissingNominalNulls(data)
 data = fillMissingOrdinalNulls(data)
 data = fillDateNulls(data)
 data = fillMissingNumericNulls(data)
-#data = generateColumnsForMissingNumerical(data)
-#data = meanImputationforNumericalFeatures(data)
-#data = generateColumnsForMissingContinuous(data)
-#data = medianImputationforContinuousFeatures(data)
 data = data.drop(getZeroVarianceColumns(data, False), axis=1)
-
-
-
 
 data=removeAbsoluteLinear(data)
 
-
-
 df=data
-
-
 
 df=df.drop(columns=['nonReportableData.isLastAcked'])
 df=df.drop(columns=['nonReportableData.isLatestVersion'])
 
-
-
-#Id's
 df['nonReportableData.party2NucId'] = df['nonReportableData.party2NucId'].fillna('Novalue')
 df['nonReportableData.party2NucId'] = df['nonReportableData.party2NucId'].apply(lambda x: 'hasvalue' if x != 'Novalue' else x)
 
@@ -327,75 +300,41 @@ df['nonReportableData.bookId'] = df['nonReportableData.bookId'].apply(lambda x: 
 df['nonReportableData.party1BrokerNucId'] = df['nonReportableData.party1BrokerNucId'].fillna('Novalue')
 df['nonReportableData.party1BrokerNucId'] = df['nonReportableData.party1BrokerNucId'].apply(lambda x: 'hasvalue' if x != 'Novalue' else x)
 
-#System Generated
-#df=df.drop(columns=['subjectIdentifier.version'])
 df=df.drop(columns=['nonReportableData.tradeVersion'])
 
-
-
-
-
-
 df = scaleNumericColumns(df)
-#df =  applyBinninginAllNumCol(df)
 
-
-
-#System Generated
 df=df.drop(columns=['reportableData.messageId'])
-#System Generated
-df=df.drop(columns=['reportableData.tradeParty1TransactionId'])
-#df=df.drop(columns=['subjectIdentifier.transactionId'])
 
-#Name and ID's
+df=df.drop(columns=['reportableData.tradeParty1TransactionId'])
+
 df['reportableData.complexTradeComponentId'] = df['reportableData.complexTradeComponentId'].fillna('Novalue')
 df['reportableData.complexTradeComponentId'] = df['reportableData.complexTradeComponentId'].apply(lambda x: 'hasvalue' if x != 'Novalue' else x)
-
-
 
 cont_feat=getNominalFeatures(df)
 cols=getZeroVarianceColumns(df[cont_feat],False)
 
-
-
 df = df.drop(getZeroVarianceColumns(df[cont_feat], False), axis=1)
 
-
-
-#Name
 df['nonReportableData.tradeParty2Name'] = df['nonReportableData.tradeParty2Name'].fillna('Novalue')
 df['nonReportableData.tradeParty2Name'] = df['nonReportableData.tradeParty2Name'].apply(lambda x: 'hasvalue' if x != 'Novalue' else x)
 
-#Code
 df['nonReportableData.party2Ciscode'] = df['nonReportableData.party2Ciscode'].fillna('Novalue')
 df['nonReportableData.party2Ciscode'] = df['nonReportableData.party2Ciscode'].apply(lambda x: 'hasvalue' if x != 'Novalue' else x)
 
-#Code
 df['nonReportableData.party1Ciscode'] = df['nonReportableData.party1Ciscode'].fillna('Novalue')
 df['nonReportableData.party1Ciscode'] = df['nonReportableData.party1Ciscode'].apply(lambda x: 'hasvalue' if x != 'Novalue' else x)
 
-
-#SystemGenerated
 df['reportableData.utiIdPrefix'] = df['reportableData.utiIdPrefix'].fillna('Novalue')
 df['reportableData.utiIdPrefix'] = df['reportableData.utiIdPrefix'].apply(lambda x: 'hasvalue' if x != 'Novalue' else x)
 
-
-# %%
-#ID
 df['reportableData.tradeParty2Id'] = df['reportableData.tradeParty2Id'].fillna('Novalue')
 df['reportableData.tradeParty2Id'] = df['reportableData.tradeParty2Id'].apply(lambda x: 'hasvalue' if x != 'Novalue' else x)
 
-
-
 df=df.drop(columns=['missing_originalnonReportableData.isLastAcked'])
 
-
-
-#SystemGenerated
 df['reportableData.productClassification'] = df['reportableData.productClassification'].fillna('Novalue')
 df['reportableData.productClassification'] = df['reportableData.productClassification'].apply(lambda x: 'hasvalue' if x != 'Novalue' else x)
-
-
 
 threshold = len(df) * 0.15
 
@@ -404,13 +343,6 @@ less_frequent_CountryCpty = countryCpty_counts[countryCpty_counts < threshold].i
 def group_countryCpty(countryCpty):
     return countryCpty if countryCpty not in less_frequent_CountryCpty else 'Other'
 df['reportableData.tradeParty2CountryOfOtherCpty'] = df['reportableData.tradeParty2CountryOfOtherCpty'].apply(group_countryCpty)
-
-
-# premium_currency_counts = df['reportableData.premiumCurrency'].value_counts()
-# less_frequent_premium = premium_currency_counts[premium_currency_counts < threshold].index
-# def group_currency_premium(currency):
-#     return currency if currency not in less_frequent_premium else 'Other'
-# df['reportableData.premiumCurrency'] = df['reportableData.premiumCurrency'].apply(group_currency_premium)
 
 notional_currency_counts = df['reportableData.leg1NotionalCurrency'].value_counts()
 less_frequent_notional = notional_currency_counts[notional_currency_counts < threshold].index
@@ -436,20 +368,11 @@ def group_currency_leg2(currency):
     return currency if currency not in less_frequent_leg2 else 'Other'
 df['reportableData.leg2ExchangeRateBasisCurrency'] = df['reportableData.leg2ExchangeRateBasisCurrency'].apply(group_currency_leg2)
 
-
-
-#system generated
 df=dropColumn(df,'nonReportableData.tntrReceivedTimestamp')
 df=dropColumn(df,'reportableData.reportingTimestamp')
 df=dropColumn(df,'transactionReportingStatus.stateTransitionDateTime')
 df=dropColumn(df,'transactionReportingStatus.stateTransitionEffectiveDateTime')
 
-
-
-
-
-
-#High variance
 df=transformcoltobool(df,'nonReportableData.eventExecutionTimestamp')
 df=dropColumn(df,'nonReportableData.eventExecutionTimestamp')
 
@@ -459,25 +382,12 @@ df=dropColumn(df,'reportableData.originalExecutionTimestamp')
 df=transformcoltobool(df,'reportableData.terminationDate')
 df=dropColumn(df,'reportableData.terminationDate')
 
-
-
-
-
-
-
-
-
 #binning
 date_feat = getDateFeatures(df)
 df = convertDateToNumeric(df, date_feat)
 df = scaleNumericColumns(df)
-#df =  applyBinninginAllNumCol(df)
-
-
 
 df=df.drop(columns=['reportableData.utiId'])
-
-
 
 threshold = len(df) * 0.1
 
@@ -486,11 +396,6 @@ df['nonReportableData.maturityDate'] = df['nonReportableData.maturityDate'].appl
 
 df['nonReportableData.startDate'] = df['nonReportableData.startDate'].fillna('novalue')
 df['nonReportableData.startDate'] = df['nonReportableData.startDate'].apply(lambda x: 'hasvalue' if x != 'novalue' else x)
-
-# df['reportableData.expirationDate'] = df['reportableData.expirationDate'].fillna('novalue')
-# df['reportableData.expirationDate'] = df['reportableData.expirationDate'].apply(lambda x: 'hasvalue' if x != 'novalue' else x)
-
-
 
 threshold = len(df) * 0.1
 leg2_currency_counts = df['reportableData.exchangeRate'].value_counts()
@@ -507,7 +412,6 @@ def group_currency_leg2(currency):
     return currency if currency not in less_frequent_leg2 else 'Other'
 df['reportableData.leg1NotionalAmount'] = df['reportableData.leg1NotionalAmount'].apply(group_currency_leg2)
 
-
 threshold = len(df) * 0.01
 leg2_currency_counts = df['reportableData.leg2NotionalAmount'].value_counts()
 less_frequent_leg2 = leg2_currency_counts[leg2_currency_counts < threshold].index
@@ -516,26 +420,8 @@ def group_currency_leg2(currency):
 df['reportableData.leg2NotionalAmount'] = df['reportableData.leg2NotionalAmount'].apply(group_currency_leg2)
 
 threshold = len(df) * 0.07
-# leg2_currency_counts = df['reportableData.premiumAmount'].value_counts()
-# less_frequent_leg2 = leg2_currency_counts[leg2_currency_counts < threshold].index
-# def group_currency_leg2(currency):
-#     return currency if currency not in less_frequent_leg2 else 'Other'
-# df['reportableData.premiumAmount'] = df['reportableData.premiumAmount'].apply(group_currency_leg2)
-
-
-
-#####################   reportableData.settlementDate DOESN'T EXIST IN GFX DATA
-# df['reportableData.settlementDate'] = df['reportableData.settlementDate'].fillna('novalue')
-# df['reportableData.settlementDate'] = df['reportableData.settlementDate'].apply(lambda x: 'hasvalue' if x != 'novalue' else x)
-
-
-
-
-
 
 df= df.drop(columns='subjectIdentifier.version')
-
-
 
 df = df.drop(getZeroVarianceColumns(df, False), axis=1)
 
