@@ -1,8 +1,11 @@
-Traceback (most recent call last):
-  File "f:\file_comparison_tool\test.py", line 51, in <module>
-    discrepancy_data = compare_data(data_dict1, data_dict2)
-                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "f:\file_comparison_tool\test.py", line 37, in compare_data
-    discrepancy_now = [trade_id] + list(row1.values()) + list(row2.values())
-                                        ^^^^^^^^^^^^^
-TypeError: 'numpy.ndarray' object is not callable
+ERROR: Cannot install mlflow because these package versions have conflicting dependencies.
+
+The conflict is caused by:
+    docker 4.2.2 depends on pypiwin32==223; sys_platform == "win32" and python_version >= "3.6"
+    docker 4.1.0 depends on pypiwin32==223; sys_platform == "win32" and python_version >= "3.6"
+
+To fix this you could try to:
+1. loosen the range of package versions you've specified
+2. remove package versions to allow pip attempt to solve the dependency conflict
+
+ERROR: ResolutionImpossible: for help visit https://pip.pypa.io/en/latest/topics/dependency-resolution/#dealing-with-dependency-conflicts
