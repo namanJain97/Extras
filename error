@@ -1,11 +1,31 @@
-ERROR: Cannot install mlflow because these package versions have conflicting dependencies.
+from pycaret.datasets import get_data
+from pycaret.classification import *
 
-The conflict is caused by:
-    docker 4.2.2 depends on pypiwin32==223; sys_platform == "win32" and python_version >= "3.6"
-    docker 4.1.0 depends on pypiwin32==223; sys_platform == "win32" and python_version >= "3.6"
-
-To fix this you could try to:
-1. loosen the range of package versions you've specified
-2. remove package versions to allow pip attempt to solve the dependency conflict
-
-ERROR: ResolutionImpossible: for help visit https://pip.pypa.io/en/latest/topics/dependency-resolution/#dealing-with-dependency-conflicts
+Traceback (most recent call last):
+  File "c:\blotter_automation\test_ai\pycaret1.py", line 2, in <module>
+    from pycaret.classification import *
+  File "C:\Program Files\Python311\Lib\site-packages\pycaret\classification\__init__.py", line 1, in <module>
+    from pycaret.classification.functional import (
+  File "C:\Program Files\Python311\Lib\site-packages\pycaret\classification\functional.py", line 8, in <module>
+    from pycaret.classification.oop import ClassificationExperiment
+  File "C:\Program Files\Python311\Lib\site-packages\pycaret\classification\oop.py", line 17, in <module>
+    from pycaret.containers.models.classification import (
+  File "C:\Program Files\Python311\Lib\site-packages\pycaret\containers\models\classification.py", line 19, in <module>
+    from pycaret.containers.models.base_model import (
+  File "C:\Program Files\Python311\Lib\site-packages\pycaret\containers\models\base_model.py", line 9, in <module>
+    from pycaret.internal.pycaret_experiment.pycaret_experiment import _PyCaretExperiment
+  File "C:\Program Files\Python311\Lib\site-packages\pycaret\internal\pycaret_experiment\pycaret_experiment.py", line 11, in <module>
+    import pycaret.internal.patches.yellowbrick
+  File "C:\Program Files\Python311\Lib\site-packages\pycaret\internal\patches\yellowbrick.py", line 1, in <module>
+    from yellowbrick.utils.helpers import get_model_name as get_model_name_original
+  File "C:\Program Files\Python311\Lib\site-packages\yellowbrick\__init__.py", line 23, in <module>
+    import matplotlib as mpl
+  File "C:\Program Files\Python311\Lib\site-packages\matplotlib\__init__.py", line 113, in <module>
+    from . import _api, _version, cbook, _docstring, rcsetup
+  File "C:\Program Files\Python311\Lib\site-packages\matplotlib\rcsetup.py", line 27, in <module>
+    from matplotlib.colors import Colormap, is_color_like
+  File "C:\Program Files\Python311\Lib\site-packages\matplotlib\colors.py", line 51, in <module>
+    from PIL import Image
+  File "C:\Program Files\Python311\Lib\site-packages\PIL\Image.py", line 103, in <module>
+    from . import _imaging as core
+ImportError: DLL load failed while importing _imaging: The specified module could not be found.
