@@ -1,25 +1,34 @@
 import pandas as pd
+
+# Read the Excel files
 sit = pd.read_excel('SITMapping_colored.xlsx')
 golden = pd.read_excel('GoldenInput_mod_COLORED.xlsx')
-count=0
+
+# Iterate through rows in the 'sit' DataFrame
 for index_a, row_a in sit.iterrows():
-    
     trans_id = row_a["subjectIdentifier.transactionId"]
-    trade_version_a = row_a["subjectIdentifier.version"]
-    # last_acked = row_a ["nonReportableData.isLastAcked"]
-    # lat_version = row_a["nonReportableData.isLatestVersion"]
-    
-    count+=1
-    matching_rows_transId = golden[golden["subjectIdentifier.transactionId"]== trans_id]
-    matching_rows_trade_version = matching_rows_transId[matching_rows_transId["subjectIdentifier.version"]==trade_version_a]
-    # matching_rows_acked= matching_rows_trade_version[matching_rows_trade_version["nonReportableData.isLastAcked"]==last_acked]
-    # matching_rows_version= matching_rows_acked[matching_rows_acked["nonReportableData.isLatestVersion"]==lat_version]
-    
-       
-    for index_b,row_b in matching_rows_trade_version.iterrows():
-        golden.at[index_b,"Test Case"] = row_a["TestCase_name"]
+    trade_version = row_a["subjectIdentifier.version"]
+    latest_version = row_a["nonReportableData.isLatestVersion"]
+    report_trigger = row_a["subjectIdentifier.reportTriggerType"]
+
+    # Find matching rows in the 'golden' DataFrame
+    matching_rows = golden[
+        (golden["subjectIdentifier.transactionId"] == trans_id) &
+        (golden["subjectIdentifier.version"] == trade_version) &
+        (golden["nonReportableData.isLatestVersion"] == latest_version) &
+        (golden["subjectIdentifier.reportTriggerType"] == report_trigger)
+    ]
+
+    # Print the number of matching rows found
+    print(f"Row {index_a + 1}: Found {len(matching_rows)} matching rows in 'golden'")
+
+    # Update 'Test Case' and 'JIRA ID' columns in 'golden' DataFrame
+    for index_b, row_b in matching_rows.iterrows():
+        golden.at[index_b, "Test Case"] = row_a["TestCase_name"]
         golden.at[index_b, "JIRA ID"] = row_a["Jira_ID"]
-       
-        
-golden.to_csv('updated_file_golden2.csv',index=False)
-print(count)
+
+# Save the updated 'golden' DataFrame to a CSV file
+golden.to_csv('updated_file_golden2.csv', index=False)
+
+# Print the count of iterations
+print(f"Total iterations: {len(sit)}")
