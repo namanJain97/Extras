@@ -1,89 +1,29 @@
-import tkinter as tk
-from tkinter import ttk
-import plotly.graph_objs as go
-from plotly.offline import plot
-from plotly.subplots import make_subplots
-import webbrowser
+from openpyxl import load_workbook
 
-# Display the result on UI in a table-like grid structure
-def display_results_in_table(results):
-    root = tk.Tk()
-    root.title("Automation Results")
-    root.configure(bg="lightgray")
+def get_cell_color(cell):
+    return cell.fill.start_color.rgb if (cell.fill and cell.fill.start_color) else None
 
-    # Maximize the window
-    root.state('zoomed')
+def count_rows_by_color(excel_file, sheet_name, column_index):
+    # Load the Excel workbook
+    workbook = load_workbook(excel_file)
 
-    # Add a label for the title with cool styles
-    title_label = tk.Label(root, text="Proxima Blotter Test Execution Report", font=("Arial", 23, "bold"), bg="#FAEBD7", fg="#336699")
-    title_label.pack(pady=(12, 0), fill=tk.X)
+    # Select the sheet
+    sheet = workbook[sheet_name]
 
-    style = ttk.Style()
-    style.theme_use("default")
-    style.configure("Custom.Treeview.Heading", font=("Arial", 14, "bold"), background="#336699", foreground="black")
-    style.layout("Custom.Treeview.Heading", [('Custom.Treeview.heading.cell', {'sticky': 'nswe', 'children': [('Custom.Treeview.cell.border', {'sticky': 'nswe', 'children': [('Custom.Treeview.padding.cell', {'sticky': 'nswe', 'children': [('Custom.Treeview.text', {'sticky': 'nswe'})]})]})]})])
+    # Get the background color of each cell and count occurrences
+    color_counts = {}
+    for row_index in range(1, sheet.max_row + 1):
+        cell = sheet.cell(row=row_index, column=column_index)
+        cell_color = get_cell_color(cell)
+        color_key = str(cell_color) if cell_color else "None"
+        color_counts[color_key] = color_counts.get(color_key, 0) + 1
 
-    style.configure("Custom.Treeview", rowheight=25, borderwidth=2, relief="solid", padding=12)
+    return color_counts
 
-    # Create a frame for the table and scrollbar
-    table_frame = tk.Frame(root, bg="lightgray")
-    table_frame.pack(pady=12, padx=21)
+# Example usage
+excel_file_path ='Copy of MAS_E2E_PabFX_TestScript_V0.2 (003)_final.xlsx'
+selected_sheet_name = 'FX FWD'  # Replace with your sheet name
+selected_column_index = 1  # Replace with your column index
 
-    # Add header for test results
-    total_tests = len(results)
-    passed_tests = sum(1 for _, _, status in results if status == "Passed")
-    failed_tests = total_tests - passed_tests
-
-    results_frame = tk.Frame(table_frame, bg="steelblue", padx=12, pady=6, borderwidth=2, relief="ridge")
-    results_frame.pack(fill=tk.X, pady=(0, 12))
-
-    results_label = tk.Label(results_frame, text=f"Total Tests: {total_tests} | Passed: {passed_tests} | Failed: {failed_tests}",
-                             font=("Arial", 15, "bold"), bg="steelblue", fg="white")
-    results_label.pack()
-
-    table = ttk.Treeview(table_frame, show="headings", style="Custom.Treeview", height=15)
-    table["columns"] = ("Step", "Description", "Status")
-    table.column("#0", width=1, stretch=tk.NO)
-    table.column("Step", anchor=tk.CENTER, width=360)
-    table.column("Description", anchor=tk.CENTER, width=360)
-    table.column("Status", anchor=tk.CENTER, width=360)
-
-    table.heading("#0", text="", anchor=tk.CENTER)
-    table.heading("Step", text="Test Name", anchor=tk.CENTER)
-    table.heading("Description", text="Description", anchor=tk.CENTER)
-    table.heading("Status", text="Status", anchor=tk.CENTER)
-
-    for step, description, status in results:
-        table.insert("", tk.END, values=(step, description, status))
-
-    scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=table.yview)
-    table.configure(yscrollcommand=scrollbar.set)
-
-    table.pack(side="left", expand=True)
-    scrollbar.pack(side="right", fill="y", expand=True)
-
-    # Create a line chart using Plotly with separate traces for passed and failed
-    fig = make_subplots(rows=1, cols=1)
-    fig.add_trace(go.Scatter(x=[1, 2], y=[passed_tests, failed_tests], mode='lines+markers', name='Total'))
-    fig.add_trace(go.Scatter(x=[1], y=[passed_tests], mode='lines+markers', name='Passed', line=dict(color='green')))
-    fig.add_trace(go.Scatter(x=[2], y=[failed_tests], mode='lines+markers', name='Failed', line=dict(color='red')))
-    fig.update_layout(
-        title={'text': 'Blotter Test Results', 'x': 0.5, 'y': 0.95, 'xanchor': 'center', 'yanchor': 'top', 'font': {'size': 30, 'color': 'darkblue', 'family': 'Arial'}},
-        template='plotly_white',
-        legend={'x': 1, 'y': 1, 'xanchor': 'right', 'yanchor': 'top', 'bgcolor': 'white', 'bordercolor': 'lightgray'},
-        xaxis=dict(tickvals=[1, 2], ticktext=["Passed", "Failed"], range=[1, 2.5])  # Adjust the range here
-    )
-
-    # Generate the Plotly chart as an HTML file
-    plotly_chart_file = 'plotly_chart.html'
-    plot(fig, filename=plotly_chart_file, auto_open=False)
-
-    # Display the Plotly chart using a web browser
-    def show_plotly_chart():
-        webbrowser.open(plotly_chart_file)
-
-    plotly_button = tk.Button(root, text="Show Test Result Chart", command=show_plotly_chart, bg="#00b200", fg="white", font=("Arial", 14, "bold"), relief="raised", padx=20, cursor="hand2")
-    plotly_button.pack(pady=(10, 21))
-    
-    root.mainloop()
-
+result = count_rows_by_color(excel_file_path, selected_sheet_name, selected_column_index)
+print(result)
