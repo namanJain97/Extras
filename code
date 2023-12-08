@@ -1,17 +1,13 @@
-# Function to create pie chart
-def create_pie_chart(data, column_name, title):
-    counts = data[column_name].value_counts()
-    plt.figure(figsize=(4, 4))
-    plt.pie(counts, labels=counts.index, autopct='%1.1f%%', startangle=140)
-    plt.title(f'{title} - Distribution of {column_name}')
-    plt.savefig('plot5.png')
-    plt.show()
-    
+def plot_count_dict(countDict):
+    categories = list(countDict.keys())
+    values = list(countDict.values())
+    plt.bar(categories, values)
+    plt.xlabel('Features')
+    plt.ylabel('Count')
+    plt.title('MAS System X : Data structure view')
+    plt.xticks(rotation=45)
 
-# Create pie charts for each categorical variable before grouping
-create_pie_chart(df, 'reportableData.tradeParty2CountryOfOtherCpty', 'Before Grouping')
-create_pie_chart(df, 'reportableData.premiumCurrency', 'Before Grouping')
-create_pie_chart(df, 'reportableData.leg1NotionalCurrency', 'Before Grouping')
-create_pie_chart(df, 'reportableData.leg2NotionalCurrency', 'Before Grouping')
-create_pie_chart(df, 'reportableData.leg1ExchangeRateBasisCurrency', 'Before Grouping')
-create_pie_chart(df, 'reportableData.leg2ExchangeRateBasisCurrency', 'Before Grouping')
+    for i,v in enumerate(values):
+        plt.text(i,v, str(v), ha='center', va='bottom', fontweight = 'bold')
+
+    plt.show()
