@@ -1,15 +1,22 @@
-def plot_count_dict(countDict):
-    categories = list(countDict.keys())
-    values = list(countDict.values())
-    plt.bar(categories, values)
-    plt.xlabel('Features')
-    plt.ylabel('Count')
-    plt.title('MAS System X : Data structure view')
-    plt.xticks(rotation=45)
+def AllPie(df1, df2, selected_columns):
 
-    for i,v in enumerate(values):
-        plt.text(i,v, str(v), ha='center', va='bottom', fontweight = 'bold')
-    filename = f'plots/Data structure view_{time.strftime("%Y%m%d_%H%M%S")}.png'
-    plt.tight_layout()
-    plt.savefig(filename)
-    #plt.show()
+    # Get unique value counts for both dataframes for the selected columns
+    unique_counts_df1 = df1[selected_columns].nunique()
+    unique_counts_df2 = df2[selected_columns].nunique()
+
+    # Create a comparison pie chart
+    fig, ax = plt.subplots(1, 2, figsize=(22, 12))
+
+    # Plot the first pie chart
+    ax[0].pie(unique_counts_df1, labels=None, autopct=None, startangle=90)
+    ax[0].set_title('Distribution in Original Nack Data')
+
+    # Plot the second pie chart
+    ax[1].pie(unique_counts_df2, labels=None, autopct=None, startangle=90)
+    ax[1].set_title('Distribution in Sampled Nack Data')
+
+    # Add a legend with count values
+    ax[0].legend(labels=[f'{col}: {count}' for col, count in zip(unique_counts_df1.index, unique_counts_df1)])
+    ax[1].legend(labels=[f'{col}: {count}' for col, count in zip(unique_counts_df2.index, unique_counts_df2)])
+
+    plt.show()
