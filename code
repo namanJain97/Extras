@@ -1,53 +1,34 @@
+import json
 import pytest
-import sys
-import os
-from framework.proxima_ui_automation.src.finsemble_component_discoverer import *
-from framework.proxima_ui_automation.common.driver_setup import *
-from proxima_blotter_automation.mi_blotter.mi_blotter import *
-from proxima_blotter_automation.daily_mi_blotter.daily_mi_blotter import *
-#from recon_break_manager.recon import *
-from proxima_blotter_automation.exception_manager.exception_manager import *
-import time
 
-current_dir  = os.path.dirname(os.path.abspath(__file__))
-parent_dir = (os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))))
-sys.path.append(parent_dir)
+def check_field(expected_json, result_json, field):
+    fields = field.split('.')
+    for f in fields:
+        result_json = result_json.get(f)
+        expected_json = expected_json.get(f)
+        assert result_json is not None, f"Field '{field}' not found in result JSON"
+        assert result_json == expected_json, f"Field '{field}' has different values"
 
-# The `FinsembleComponentDiscoverer` helps to find specific components by looking by their URL.
-print("Preparing to discover Finsemble components with Selenium...")
-time.sleep(36)
-component_discoverer = FinsembleComponentDiscoverer(driver)
-time.sleep(5)
+@pytest.fixture
+def expected_json():
+    # Replace with the actual path to your expected JSON file
+    with open('json1.json', 'r') as file:
+        return json.load(file)
 
-# Finsemble's Toolbar has access to the `FSBL` API, so executing JavaScript in order to interact directly with Finsemble's API.
-print("Locating the Finsemble Toolbar with Selenium...")
-toolbar_handle = component_discoverer.get_selenium_handle_of_page_containing_url('/toolbar/toolbar.html')
-driver.switch_to.window(toolbar_handle)
-time.sleep(3)
+@pytest.fixture
+def result_json():
+    # Replace with the actual path to your result JSON file
+    with open('json2.json', 'r') as file:
+        return json.load(file)
 
-# Executing Blotter TNTR - MI
-MiBlotter(driver)
-time.sleep(3)
+def test_is_delegated(expected_json, result_json):
+    check_field(expected_json, result_json, 'nonReportableData.isDelegated')
 
-# Executing Daily Mi Blotter
-#DailyMiBlotter(driver)
-#time.sleep(3)
+def test_transaction_state_value(expected_json, result_json):
+    check_field(expected_json, result_json, 'transactionReportingStatus.transactionStateValue')
 
-# Executing Reconciliation Break Manager Blotter
-# test_launch_reconBlotter(driver)
-# test_recon_advanceSearch(driver)
-# test_recon_searchFields(driver)
-# test_recon_export(driver) 
-# test_recon_assignToSelf(driver)
-# test_recon_addComment(driver)
-# test_recon_addJira(driver)
-# test_recon_addJiraType(driver)
-# test_recon_addWorkflow(driver)
-# test_recon_assignToOther(driver)
-# recon_testResults()
-# time.sleep(3)
+def test_corpus_version(expected_json, result_json):
+    check_field(expected_json, result_json, 'metadata.corpusVersion')
 
-# Executing TNTR Exception Manager Blotter
-# test_launch_exception_manager_Blotter(driver)
-# exception_manager_testResults()
-# time.sleep(3)
+def test_commentary(expected_json, result_json):
+    check_field(expected_json, result_json, 'transactionReportingStatus.commentary')
