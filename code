@@ -1,34 +1,30 @@
-import json
-import pytest
+def call_api_with_bearer_token(access_token, sso_token, where_conditions, field_names):
+    api_url = "http://datafabric-dev:40003/datafabric/Tntr/TNTR-trade-dev"
 
-def check_field(expected_json, result_json, field):
-    fields = field.split('.')
-    for f in fields:
-        result_json = result_json.get(f)
-        expected_json = expected_json.get(f)
-        assert result_json is not None, f"Field '{field}' not found in result JSON"
-        assert result_json == expected_json, f"Field '{field}' has different values"
+    headers = {
+        'Authorization': f'Bearer {sso_token}',
+        'Content-Type': 'application/json'
+    }
 
-@pytest.fixture
-def expected_json():
-    # Replace with the actual path to your expected JSON file
-    with open('json1.json', 'r') as file:
-        return json.load(file)
+    data = {
+        'where': where_conditions,
+        'accessToken': access_token
+    }
 
-@pytest.fixture
-def result_json():
-    # Replace with the actual path to your result JSON file
-    with open('json2.json', 'r') as file:
-        return json.load(file)
+    response = requests.get(api_url, params=data, headers=headers)
 
-def test_is_delegated(expected_json, result_json):
-    check_field(expected_json, result_json, 'nonReportableData.isDelegated')
-
-def test_transaction_state_value(expected_json, result_json):
-    check_field(expected_json, result_json, 'transactionReportingStatus.transactionStateValue')
-
-def test_corpus_version(expected_json, result_json):
-    check_field(expected_json, result_json, 'metadata.corpusVersion')
-
-def test_commentary(expected_json, result_json):
-    check_field(expected_json, result_json, 'transactionReportingStatus.commentary')
+    try:
+        response.raise_for_status()
+        json_data = response.json()
+       
+        for record in json_data:
+            flattened_data = flatten_json(json.loads(record["document"]["contents"]))
+            all_records.extend([flattened_data])
+        
+       
+    except requests.exceptions.HTTPError as e:
+        print(f"HTTP error occurred: {e}")
+    except json.decoder.JSONDecodeError as e:
+        print(f"Error decoding JSON response: {e}")
+    except Exception as e:
+        print(f"An error occurred: {e}")
