@@ -1,95 +1,17 @@
-import pandas as pd
-import os
-import xml.etree.ElementTree as ET
-import schedule
-import time
-import shutil
-
-# Define the paths to your XML and CSV files
-XML_DIR = r'\\eurfiler16\tntr\tntrdev\tntrddata\test-ai\Data\xml'
-CSV_DIR = r'\\eurfiler16\tntr\tntrdev\tntrddata\test-ai\Data\Naman\Output'
-PROCESSED_DIR = r'\\eurfiler16\tntr\tntrdev\tntrddata\test-ai\Data\Naman\Processed'
-
-import pandas as pd
-import os
-import xml.etree.ElementTree as ET
-import schedule
-import time
-import shutil
-
-XML_DIR = r'\\eurfiler16\tntr\tntrdev\tntrddata\test-ai\Data\xml'
-CSV_DIR = r'\\eurfiler16\tntr\tntrdev\tntrddata\test-ai\Data\Naman\Output'
-PROCESSED_DIR = r'\\eurfiler16\tntr\tntrdev\tntrddata\test-ai\Data\Naman\Processed'
-
-def xml_to_csv(xml_file, csv_file):
-    # Initialize an empty list to store rows
-    rows = []
-
-    # Define your mapping here
-    tag_to_header = {
-        'RptgTp': 'reportingParty',
-        'Pairg': 'test',
-        # Add more mappings as needed
-    }
-
-    # Parse the XML file
-    tree = ET.parse(xml_file)
-    root = tree.getroot()
-
-    # Get the namespace
-    ns = {'ns': 'urn:iso:std:iso:20022:tech:xsd:auth.091.001.02'}
-
-    # Recursive function to extract data from XML elements
-    def extract_data(element, row_data=None):
-        if row_data is None:
-            row_data = {}
-        for child in element:
-            tag = child.tag.split('}')[-1]  # Remove the namespace
-            # Check if the tag is in the dictionary
-            if tag in tag_to_header:
-                # If it is, replace the tag with the corresponding header
-                tag = tag_to_header[tag]
-            if child.text:
-                row_data[tag] = child.text.strip()  # Remove leading/trailing spaces
-            else:
-                row_data[tag] = None
-            extract_data(child, row_data)  # Recurse into child elements
-        if element.tag == '{' + ns['ns'] + '}Document':  # Check if the current element is a Document
-            rows.append(row_data)
-
-    # Start extraction from the root element
-    extract_data(root)
-
-    # Extract unique fieldnames from all rows
-    fieldnames = set()
-    for row in rows:
-        fieldnames.update(row.keys())
-
-    # Convert fieldnames set to a list
-    fieldnames_list = list(fieldnames)
-
-    # Create a DataFrame from the rows
-    df = pd.DataFrame(rows, columns=fieldnames_list)
-
-    # Save the DataFrame to a CSV file
-    df.to_csv(csv_file, index=False)
-
-    print(f"CSV data saved to {csv_file}")
-
-def job():
-    for file in os.listdir(XML_DIR):
-        if file.endswith(".xml"):
-            xml_file = os.path.join(XML_DIR, file)
-            csv_file = os.path.join(CSV_DIR, file.replace('.xml', '.csv'))
-            xml_to_csv(xml_file, csv_file)
-            shutil.move(xml_file, PROCESSED_DIR)
-
-# Run the job once immediately
-job()
-
-# Then schedule it to run every hour
-schedule.every().hour.do(job)
-
-while True:
-    schedule.run_pending()
-    time.sleep(1)
+def extract_data(element, row_data=None, parent_path=""):
+    if row_data is None:
+        row_data = {}
+    for child in element:
+        tag = child.tag.split('}')[-1]  # Remove the namespace
+        full_tag_path = f"{parent_path}.{tag}" if parent_path else tag
+        # Check if the tag is in the dictionary
+        if full_tag_path in tag_to_header:
+            # If it is, replace the tag with the corresponding header
+            tag = tag_to_header[full_tag_path]
+        if child.text:
+            row_data[tag] = child.text.strip()  # Remove leading/trailing spaces
+        else:
+            row_data[tag] = None
+        extract_data(child, row_data, full_tag_path)  # Recurse into child elements
+    if element.tag == '{' + ns['ns'] + '}Document':  # Check if the current element is a Document
+        rows.append(row_data)
