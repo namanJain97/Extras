@@ -1,7 +1,86 @@
-def increments(start, end):
-    return [ ___ ] # Create the required list comprehension.
+In Python i m using the list to store some data in tabular form which have 3 columns or feilds: step, description, status:
+# A list to store the results
+exception_manager_automation_results = []
 
+The list get appended each time i add the data like below:
+def test_launch_exception_manager_Blotter(driver):
+    
+    # Blotter
+    try:
+        LaunchingBlotter(driver, url, blotter_name)
+        exception_manager_automation_results.append(("Blotter | TNTR Exception Manager", "Checking whether Blotter has been launched", "Passed"))
+    except WebDriverException as e:
+        exception_manager_automation_results.append(("Blotter | TNTR Exception Manager", f"Checking whether Blotter has been launched \n Error: {e.msg}", "Failed"))
+        display_results_in_table(exception_manager_automation_results, environment, regulationName, flowName, assetClass)
+        assert False
+        
+    execute_test_result()
 
-print(increments(2, 3)) # Should print [4, 5]
-print(increments(1, 5)) # Should print [3, 4, 5, 6, 7]
-print(increments(0, 10)) # Should print [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 1
+    # Kortex
+    try:
+        ResetBlotter(driver)
+        exception_manager_automation_results.append(("Kortex service", "Checking if Kortex service is running", "Passed"))
+        
+    except WebDriverException as e:
+        step, description, status = ("Kortex service", f"Kortex service is not running \n Error: {e.msg}", "Failed")
+        exception_manager_automation_results.append((step, description, status))
+        # exception_manager_automation_results.append(("Advance Search", "Advance Search Query for blotter", "Not run"))
+        display_results_in_table(exception_manager_automation_results, environment, regulationName, flowName, assetClass)
+        assert False
+        
+    execute_test_result()
+
+Now this list i have assigned to result_data:
+
+def exception_manager_data():
+    
+    result_data = [exception_manager_automation_results, environment, flowName, regulationName, assetClass]
+    
+    return result_data
+
+Further in another python file i have created one method or function to use and access this list. Can u help in that if i ask u something specific ?
+
+Now further, i have created one more below method to assign the value to this exception_manager_automation_results to results variable:
+
+def common_method(data_list_func):
+    result_data = data_list_func()
+    results = result_data[0]
+    environment = result_data[1]
+    flowName = result_data[2]
+    regulationName = result_data[3]
+    assetClass = result_data[4]
+    return results, environment, regulationName
+
+And then i m using this in below method:
+
+def execute_test_result():
+    
+    from test_cases.proxima_blotter_automation.exception_manager.exception_manager import exception_manager_data
+    
+    results, environment, regulationName = common_method(exception_manager_data)
+  
+    for result in results:
+        print(type(result))
+        step = result[0]
+        description = result[1]
+        status = result[2]
+            
+    test_suite_result = (TestSuiteResultBuilder()
+        
+                                     .set_test_case_name(step)
+                                     .set_description(description)
+                                     .set_execution_datetime(test_suite_status_identifier.business_date)
+                                     .set_regime(regulationName)
+                                     .set_result(status)
+                                     .set_comments(comments).build())
+
+    push_to_df('test-automation-results', test_suite_result)
+
+This same method def execute_test_result() i was also calling after appending the list if u can see in my previous code which i provided. 
+
+However using this is giving me below error:
+ execute_test_result()
+  File "c:\tntr_automation\test_automation\blotter_framework\common_operations\save_to_df.py", line 77, in execute_test_result   
+    .set_test_case_name(step)
+                        ^^^^
+UnboundLocalError: cannot access local variable 'step' where it is not associated with a value
