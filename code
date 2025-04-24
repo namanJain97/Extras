@@ -1,25 +1,123 @@
-package com.rbs.tntr.business.taggingService.mgmt;
+package com.rbs.tntr.business.taggingService.transformer;
 
-import java.util.Set;
+import java.util.ArrayList;
+import java.util.EnumMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
 
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.actuate.endpoint.HealthEndpoint;
-import org.springframework.boot.actuate.health.Health;
-import org.springframework.boot.actuate.health.Status;
-import org.springframework.context.ApplicationListener;
-import org.springframework.context.event.ContextRefreshedEvent;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
-import com.rbs.ignite.foundation.mgmt.FoundationServiceCreationListener;
+
+import com.nwm.tntr.commons.domain.JiraReference;
+import com.nwm.tntr.commons.domain.WorkflowType;
+import com.nwm.tntr.commons.enums.ApiQueryFilter;
+import com.nwm.tntr.commons.enums.TntrCallerService;
+import com.nwm.tntr.commons.enums.TntrFieldsReadUpdateEnum;
+import com.nwm.tntr.commons.repository.domain.ReportingTemplate;
+import com.nwm.tntr.commons.repository.domain.RepositoryAction;
+import com.nwm.tntr.commons.repository.domain.TntrRepositoryReadCommandContext;
+import com.nwm.tntr.commons.repository.domain.TntrRepositoryReadCommandResult;
+import com.nwm.tntr.commons.repository.domain.TntrRepositoryUpdateCommandContext;
+import com.nwm.tntr.commons.repository.domain.TntrRepositoryUpdateCommandResult;
+import com.nwm.tntr.commons.repository.util.TntrTdxNodeBuilderUtil;
+import com.rbs.tntr.api.taggingService.service.jiraAssignement.TntrTradeTransformer;
+import com.rbs.tntr.business.taggingService.service.common.DateTimeService;
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.JiraTaggingDetail;
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.enums.FlowType;
 
 /**
- * Hooks into the 'container created' lifecycle event to invoke any service health checks configured for this service. Can be 
- * extended to run whatever else a given service needs 'on startup'.
+ * Created by matbina on 21/05/2020.
  */
 @Component
-public class ServiceCreationListener extends FoundationServiceCreationListener {
+public class TntrTradeTransformerImpl implements TntrTradeTransformer {
+    private static final Logger LOGGER = LoggerFactory.getLogger(TntrTradeTransformerImpl.class);
 
-  @Autowired
-  public ServiceCreationListener(HealthEndpoint healthEndpoint) {
-    super(healthEndpoint);
-  }
-}     
+    private final static String TAGGING_SERVICE= "tagging-service";
+
+    @Override
+    public int getRecords(String whereExpression, FlowType workflowType, String indexHint, JiraReference jiraReference){
+        EnumMap<ApiQueryFilter, Object> apiQueryFilterMap = new EnumMap<>(ApiQueryFilter.class);
+        apiQueryFilterMap.put(ApiQueryFilter.WHERE, whereExpression);
+        apiQueryFilterMap.put(ApiQueryFilter.HISTORY, false);
+        apiQueryFilterMap.put(ApiQueryFilter.INDEX_HINT, indexHint);
+
+        ReportingTemplate reportingTemplate;
+        List<TntrFieldsReadUpdateEnum> attributes = new ArrayList<>();
+
+        if(workflowType.getValue().equalsIgnoreCase(FlowType.AGGREGATED_COLLATERAL.getValue())) {
+            reportingTemplate = ReportingTemplate.COLLATERAL;
+            attributes.add(TntrFieldsReadUpdateEnum.COLLATERAL_REPORTING_GRP);
+            attributes.add(TntrFieldsReadUpdateEnum.SUPPLEMENTARY_INFORMATION);
+        } else {
+            reportingTemplate = ReportingTemplate.TRADE;
+            attributes.add(TntrFieldsReadUpdateEnum.TRANSACTION_ID);
+            attributes.add(TntrFieldsReadUpdateEnum.SUPPLEMENTARY_INFORMATION);
+        }
+
+        TntrRepositoryReadCommandContext tntrTradeRepositoryReadCommandContext = new TntrRepositoryReadCommandContext(apiQueryFilterMap, attributes);
+        tntrTradeRepositoryReadCommandContext.setTntrCallerService(TntrCallerService.TAGGING_SERVICE);
+        if(workflowType.getValue().equalsIgnoreCase(FlowType.COLLATERAL.getValue())
+                || workflowType.getValue().equalsIgnoreCase(FlowType.VALUATION.getValue())) {
+
+            tntrTradeRepositoryReadCommandContext.setWorkflowType(WorkflowType.VALUATIONS);
+        }
+
+        TntrRepositoryReadCommandResult result = (TntrRepositoryReadCommandResult) reportingTemplate
+                .getRepositoryCommandFactory()
+                .getCommand(RepositoryAction.READ_ALL)
+                .execute(tntrTradeRepositoryReadCommandContext);
+
+        if(result.getTradeList().size() > 0){
+            return getRecordCount(result, jiraReference);
+        }
+        return 0;
+    }
+
+    private int getRecordCount(TntrRepositoryReadCommandResult result, JiraReference jiraReference){
+        int count = 0;
+        List<Map<TntrFieldsReadUpdateEnum, Object>> tradeList = result.getTradeList();
+        for(Map<TntrFieldsReadUpdateEnum, Object> map : tradeList){
+            Map<String, Object> suppMap = (Map<String, Object>) map.get(TntrFieldsReadUpdateEnum.SUPPLEMENTARY_INFORMATION);
+            boolean isPresent = TntrTdxNodeBuilderUtil.isJiraIdPresentInUserWorkflow(
+                    suppMap,
+                    TntrFieldsReadUpdateEnum.JIRA_REFERENCES.getValue(),
+                    jiraReference);
+            if(!isPresent){
+                count++;
+            }
+        }
+        return count;
+    }
+
+    @Override
+    public TntrRepositoryUpdateCommandResult executeUpdateTrades(String whereExpression, JiraReference jiraReference, JiraTaggingDetail jiraTaggingDetail, FlowType workflowType) {
+        Properties propToUpdate= new Properties();
+        propToUpdate.put(TntrFieldsReadUpdateEnum.JIRA_REFERENCES.getValue(), jiraReference);
+        propToUpdate.put(TntrFieldsReadUpdateEnum.JIRA_TAGGING_DETAILS.getValue(), jiraTaggingDetail);
+        propToUpdate.put(TntrFieldsReadUpdateEnum.MODIFIED_BY.getValue(), TAGGING_SERVICE);
+		propToUpdate.put(TntrFieldsReadUpdateEnum.MODIFIED_ON.getValue(), DateTimeService.getCurrentDateTime());
+
+        TntrRepositoryUpdateCommandContext tntrTradeRepositoryUpdateCommandContext = new TntrRepositoryUpdateCommandContext(whereExpression, propToUpdate, TntrCallerService.TAGGING_SERVICE);
+        if(workflowType.getValue().equalsIgnoreCase(FlowType.COLLATERAL.getValue()) || workflowType.getValue().equalsIgnoreCase(FlowType.VALUATION.getValue())) {
+            tntrTradeRepositoryUpdateCommandContext.setWorkflowType(WorkflowType.VALUATIONS);
+        }else if(workflowType.getValue().equalsIgnoreCase(FlowType.TRADE.getValue())){
+            tntrTradeRepositoryUpdateCommandContext.setWorkflowType(WorkflowType.TRADE);
+        }
+
+        ReportingTemplate reportingTemplate;
+        if(workflowType.getValue().equalsIgnoreCase(FlowType.AGGREGATED_COLLATERAL.getValue())) {
+            reportingTemplate = ReportingTemplate.COLLATERAL;
+        } else {
+            reportingTemplate = ReportingTemplate.TRADE;
+        }
+
+        TntrRepositoryUpdateCommandResult result = (TntrRepositoryUpdateCommandResult) reportingTemplate
+                .getRepositoryCommandFactory()
+                .getCommand(RepositoryAction.UPDATE)
+                .execute(tntrTradeRepositoryUpdateCommandContext);
+
+        return result;
+    }
+}
