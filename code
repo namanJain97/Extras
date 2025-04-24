@@ -1,183 +1,25 @@
-```java
-package com.rbs.tntr.business.taggingService.repository;
+package com.rbs.tntr.business.taggingService.mgmt;
 
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.JsonToken;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.nwm.tntr.commons.domain.persistence.constant.AssetClass;
-import com.nwm.tntr.commons.repository.df.DfConnectionManager;
-import com.nwm.tntr.configuration.ItrConfiguration;
-import com.nwm.tntr.itr.IQuery;
-import com.nwm.tntr.itr.Itr2ParameterisedQuery;
-import com.rbs.datafabric.agile.commons.lang.StartableException;
-import com.rbs.datafabric.api.ScanResult;
-import com.rbs.datafabric.api.exception.OptimisticLockException;
-import com.rbs.datafabric.api.exception.ScanException;
-import com.rbs.datafabric.api.exception.UpsertException;
-import com.rbs.datafabric.client.DataFabricClient;
-import com.rbs.datafabric.domain.Document;
-import com.rbs.datafabric.domain.JsonDocument;
-import com.rbs.datafabric.domain.Record;
-import com.rbs.datafabric.domain.RecordId;
-import com.rbs.datafabric.domain.client.builder.ScanRequestBuilder;
-import com.rbs.datafabric.domain.client.builder.UpsertRequestBuilder;
-import com.rbs.tntr.business.taggingService.service.common.DateTimeService;
-import com.rbs.tntr.business.taggingService.service.common.ItrClient;
-import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.Itr2Query;
-import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.exceptions.TaggingServiceRunTimeException;
-import com.rbs.tntr.domain.taggingService.miAnalytics.dashboard.common.DFQueryMetaData;
-import com.rbs.tntr.domain.taggingService.miAnalytics.dashboard.common.FrontOfficeMIDashboardAnalytics;
-import com.rbs.tntr.domain.taggingService.miAnalytics.dashboard.common.FrontOfficeMIAalyticsState;
-import com.rbs.tntr.domain.taggingService.miAnalytics.dashboard.common.FrontOfficeSubjectIdentifier;
-import com.rbs.tntr.domain.taggingService.miAnalytics.dashboard.common.MIDashboardAnalytics;
-import com.rbs.tntr.domain.taggingService.miAnalytics.dashboard.common.SubjectIdentifier;
-import org.joda.time.DateTime;
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.powermock.api.mockito.PowerMockito;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
+import java.util.Set;
 
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.util.*;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.actuate.endpoint.HealthEndpoint;
+import org.springframework.boot.actuate.health.Health;
+import org.springframework.boot.actuate.health.Status;
+import org.springframework.context.ApplicationListener;
+import org.springframework.context.event.ContextRefreshedEvent;
+import org.springframework.stereotype.Component;
+import com.rbs.ignite.foundation.mgmt.FoundationServiceCreationListener;
 
-import static com.rbs.tntr.domain.taggingService.miAnalytics.dashboard.common.MIConstants.*;
-import static org.junit.Assert.*;
-import static org.mockito.Mockito.*;
+/**
+ * Hooks into the 'container created' lifecycle event to invoke any service health checks configured for this service. Can be 
+ * extended to run whatever else a given service needs 'on startup'.
+ */
+@Component
+public class ServiceCreationListener extends FoundationServiceCreationListener {
 
-@RunWith(PowerMockRunner.class)
-@PrepareForTest({DateTimeService.class, MIAnalyticsDashboardRepositoryImpl.class})
-public class MIAnalyticsDashboardRepositoryImplTest {
-
-    @Mock
-    private DfConnectionManager dfConnectionManager;
-
-    @Mock
-    private ItrConfiguration itrConfiguration;
-
-    @Mock
-    private ItrClient itrClient;
-
-    @Mock
-    private DataFabricClient dfClient;
-
-    @Mock
-    private ObjectMapper objectMapper;
-
-    @Mock
-    private ScanExpressionUtility scanExpressionUtility;
-
-    @InjectMocks
-    private MIAnalyticsDashboardRepositoryImpl repository;
-
-    private static final String DATABASE_NAME = "tntr_db";
-    private static final String MI_COLLECTION = "mi_analytics";
-    private static final String FO_MI_COLLECTION = "fo_mi_analytics";
-    private static final int READ_TIMEOUT = 30;
-
-    @Before
-    public void setUp() throws Exception {
-        // Set @Value fields via reflection
-        setField("databaseName", DATABASE_NAME);
-        setField("miCollection", MI_COLLECTION);
-        setField("foMiCollection", FO_MI_COLLECTION);
-        setField("readTimeOut", READ_TIMEOUT);
-        setField("foEmirUrl", "emir_endpoint");
-        setField("foEmirParameterisedUrl", "emir_param_endpoint");
-        setField("foMasUrl", "mas_endpoint");
-        setField("foMasParameterisedUrl", "mas_param_endpoint");
-        setField("foBoiUrl", "boi_endpoint");
-        setField("foMifidUrl", "mifid_endpoint");
-        setField("foSftrUrl", "sftr_endpoint");
-        setField("foSftrAldopUrl", "sftr_aldop_endpoint");
-        setField("foCftcUrl", "cftc_endpoint");
-
-        // Mock ScanExpressionUtility methods
-        when(scanExpressionUtility.getDfClient(dfConnectionManager)).thenReturn(dfClient);
-        repository = spy(new MIAnalyticsDashboardRepositoryImpl(dfConnectionManager, itrConfiguration, itrClient));
-    }
-
-    private void setField(String fieldName, Object value) throws Exception {
-        Field field = MIAnalyticsDashboardRepositoryImpl.class.getDeclaredField(fieldName);
-        field.setAccessible(true);
-        field.set(repository, value);
-    }
-
-    private Method getPrivateMethod(String methodName, Class<?>... parameterTypes) throws Exception {
-        Method method = MIAnalyticsDashboardRepositoryImpl.class.getDeclaredMethod(methodName, parameterTypes);
-        method.setAccessible(true);
-        return method;
-    }
-
-    @Test
-    public void testCreateDfClientConnection_Success() throws StartableException {
-        // Execute
-        repository.createDfClientConnection();
-
-        // Verify
-        verify(dfConnectionManager).getDfClient();
-        verifyNoMoreInteractions(dfClient);
-    }
-
-    @Test
-    public void testCreateDfClientConnection_StartableException() throws StartableException {
-        // Prepare
-        StartableException exception = new StartableException("Connection error");
-        when(scanExpressionUtility.getDfClient(dfConnectionManager)).thenThrow(exception);
-
-        // Execute
-        repository.createDfClientConnection();
-
-        // Verify
-        verify(dfConnectionManager).getDfClient();
-        verifyNoMoreInteractions(dfClient);
-    }
-
-    @Test
-    public void testUpsertMiSnapshot_Success() throws JsonProcessingException {
-        // Prepare
-        MIDashboardAnalytics stats = new MIDashboardAnalytics();
-        SubjectIdentifier subjectIdentifier = new SubjectIdentifier();
-        subjectIdentifier.setBusinessDate(new Date());
-        subjectIdentifier.setLei("LEI123");
-        subjectIdentifier.setAssetClass("FX");
-        subjectIdentifier.setEntity("NWM");
-        subjectIdentifier.setFlow("Trade");
-        subjectIdentifier.setRegulation("EMIR");
-        subjectIdentifier.setMessageType("New");
-        stats.setSubjectIdentifier(subjectIdentifier);
-
-        JsonDocument document = new JsonDocument();
-        document.withContents("{\"key\":\"value\"}");
-        RecordId recordId = new RecordId("record123");
-
-        when(objectMapper.writeValueAsString(stats)).thenReturn("{\"key\":\"value\"}");
-        when(dfClient.upsert(any(UpsertRequestBuilder.class))).thenReturn(recordId);
-
-        // Execute
-        RecordId result = repository.upsertMiSnapshot(stats);
-
-        // Verify
-        assertEquals(recordId, result);
-        ArgumentCaptor<UpsertRequestBuilder> captor = ArgumentCaptor.forClass(UpsertRequestBuilder.class);
-        verify(dfClient).upsert(captor.capture());
-        UpsertRequestBuilder builder = captor.getValue();
-        assertEquals(DATABASE_NAME, builder.getDatabaseName());
-        assertEquals(MI_COLLECTION, builder.getCollectionName());
-        assertNotNull(builder.getDocument());
-    }
-
-    @Test(expected = TaggingServiceRunTimeException.class)
-    public void testUpsertMiSnapshot_JsonProcessingException() throws JsonProcessingException {
-        // Prepare
-        MIDashboardAnalytics stats = new MIDashboardAnalytics();
-        when(objectMapper.writeValueAsString(stats)).thenThrow(new JsonProcessingException("Serialization error") {});
+  @Autowired
+  public ServiceCreationListener(HealthEndpoint healthEndpoint) {
+    super(healthEndpoint);
+  }
+}     
