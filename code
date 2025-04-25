@@ -1,16 +1,15 @@
 package com.rbs.tntr.business.taggingService.transformer;
 
 import com.nwm.tntr.commons.domain.JiraReference;
-import com.nwm.tntr.commons.domain.WorkflowType;
 import com.nwm.tntr.commons.enums.TntrFieldsReadUpdateEnum;
 import com.nwm.tntr.commons.repository.domain.*;
+import com.nwm.tntr.commons.repository.service.RepositoryCommandFactory;
 import com.nwm.tntr.commons.repository.util.TntrTdxNodeBuilderUtil;
+import com.rbs.tntr.business.taggingService.service.common.DateTimeService;
 import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.JiraTaggingDetail;
 import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.enums.FlowType;
 import org.junit.Before;
 import org.junit.Test;
-import org.mockito.MockedStatic;
-import org.mockito.Mockito;
 
 import java.util.*;
 
@@ -50,7 +49,7 @@ public class TntrTradeTransformerImplTest {
 
             mockedTemplate.when(() -> ReportingTemplate.TRADE.getRepositoryCommandFactory()).thenReturn(mockFactory);
             mockedUtil.when(() -> TntrTdxNodeBuilderUtil.isJiraIdPresentInUserWorkflow(any(), any(), any()))
-                      .thenReturn(false);
+                    .thenReturn(false);
 
             int result = transformer.getRecords(whereExpression, workflowType, indexHint, jiraReference);
             assertEquals(1, result);
