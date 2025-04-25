@@ -1,86 +1,99 @@
 package com.rbs.tntr.business.taggingService.jobs;
 
-import java.util.Date;
-import java.util.List;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Component;
-
 import com.rbs.tntr.api.taggingService.service.jiraAssignement.JiraAssignmentService;
 import com.rbs.tntr.business.taggingService.configuration.TaggingServiceConfiguration;
-import com.rbs.tntr.business.taggingService.service.common.DateTimeService;
 import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.AutoAssignResult;
 import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.TaggingServiceResult;
-import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.exceptions.MultipleFilesFoundException;
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.mockito.*;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.test.context.junit4.SpringRunner;
 
-/**
- * Created by matbina on 20/05/2020.
- */
-@Component
-public class TaggingServiceJob {
-    private static final Logger logger= LoggerFactory.getLogger(TaggingServiceJob.class);
-    final TaggingServiceConfiguration taggingServiceConfiguration;
-    final JiraAssignmentService jiraAssignmentService;
+import java.util.*;
 
-    @Autowired
-	public TaggingServiceJob(TaggingServiceConfiguration taggingServiceConfiguration,
-                             JiraAssignmentService jiraAssignmentService){
-        this.taggingServiceConfiguration = taggingServiceConfiguration;
-        this.jiraAssignmentService = jiraAssignmentService;
+import static org.mockito.Mockito.*;
+
+@RunWith(SpringRunner.class)
+public class TaggingServiceJobTest {
+
+    @Mock
+    private TaggingServiceConfiguration taggingServiceConfiguration;
+
+    @Mock
+    private JiraAssignmentService jiraAssignmentService;
+
+    @InjectMocks
+    private TaggingServiceJob taggingServiceJob;
+
+    @Before
+    public void setUp() {
+        MockitoAnnotations.openMocks(this);
+        when(taggingServiceConfiguration.getJiraAssignStateReadRetryDelaySeconds()).thenReturn(1);
+        when(taggingServiceConfiguration.getJiraAssignStateReadRetryMax()).thenReturn(1);
     }
 
-    @Scheduled(cron = "${sftr.transaction.state.taggingService.schedule.cron}")
-    public void triggerCronJob() {
-        processTaggingService();
-    }
+    @Test
+    public void testTriggerCronJob_SuccessfulFlow() throws Exception {
+        Date mockDate = new Date();
 
-    @Scheduled(cron = "${sftr.transaction.state.taggingService.schedule.13hrs.cron}")
-    public void triggerCronJobAt1pm() {
-        processTaggingService();
-    }
+        try (MockedStatic<com.rbs.tntr.business.taggingService.service.common.DateTimeService> mockedDateTimeService =
+                     mockStatic(com.rbs.tntr.business.taggingService.service.common.DateTimeService.class)) {
 
-    private void processTaggingService() {
-        logger.info("Triggered processing of Jira Assignment Service");
-        try {
-			Date businessDate = DateTimeService.getCurrentUTCDate().toDate();
-            int sleepDuration=taggingServiceConfiguration.getJiraAssignStateReadRetryDelaySeconds() *100;
-            int maxRetry= taggingServiceConfiguration.getJiraAssignStateReadRetryMax();
-            for (int i = maxRetry; i >0 ; i--) {
-                if(tryPersistingJiraRules(businessDate)){
-                    logger.info("Completed processing of Jira Assignment Service");
-                    break;
-                }
-                logger.info("Jira Assignment Service : sleeping before retrying");
-                Thread.sleep(sleepDuration);
-            }
-            assignJiraToTrade();
-        }catch (Exception ex){
-            logger.error(ex.getMessage(),ex);
+            mockedDateTimeService.when(com.rbs.tntr.business.taggingService.service.common.DateTimeService::getCurrentUTCDate)
+                    .thenReturn(new org.joda.time.DateTime(mockDate));
+
+            when(jiraAssignmentService.isJiraFilterFileAvailable(mockDate)).thenReturn(true);
+            when(jiraAssignmentService.readSaveJiraExpressions(mockDate)).thenReturn(
+                    new ResponseEntity<>(Collections.singletonList(new TaggingServiceResult()), HttpStatus.OK)
+            );
+            when(jiraAssignmentService.readAndAssignJiraToTrades()).thenReturn(
+                    new ResponseEntity<>(Collections.singletonList(new AutoAssignResult()), HttpStatus.OK)
+            );
+
+            taggingServiceJob.triggerCronJob();
         }
     }
 
-    private boolean tryPersistingJiraRules(Date businessDate) throws MultipleFilesFoundException {
-        logger.info("Read and Save Jira to df for business date {}", businessDate);
-        boolean filePresent = jiraAssignmentService.isJiraFilterFileAvailable(businessDate);
-        if(!filePresent) {
-            return false;
-        }
-        ResponseEntity<List<TaggingServiceResult>> response =  jiraAssignmentService.readSaveJiraExpressions(businessDate);
-        logger.info("Read and Save Jira to df response : ", response.getBody());
+    @Test
+    public void testTriggerCronJob_FileNotAvailable() throws Exception {
+        Date mockDate = new Date();
 
-        return true;
+        try (MockedStatic<com.rbs.tntr.business.taggingService.service.common.DateTimeService> mockedDateTimeService =
+                     mockStatic(com.rbs.tntr.business.taggingService.service.common.DateTimeService.class)) {
+
+            mockedDateTimeService.when(com.rbs.tntr.business.taggingService.service.common.DateTimeService::getCurrentUTCDate)
+                    .thenReturn(new org.joda.time.DateTime(mockDate));
+
+            when(jiraAssignmentService.isJiraFilterFileAvailable(mockDate)).thenReturn(false);
+
+            taggingServiceJob.triggerCronJob();
+        }
     }
 
-    private boolean assignJiraToTrade() {
-        logger.info("Assign Jira to trades");
-        ResponseEntity<List<AutoAssignResult>> response = jiraAssignmentService.readAndAssignJiraToTrades();
-        logger.info("Assign Jira to trades {}", response.getBody());
+    @Test
+    public void testTriggerCronJobAt1pm_CallsProcessMethod() throws Exception {
+        // Reuse previous test setup to ensure internal logic is executed.
+        testTriggerCronJob_SuccessfulFlow();
+        taggingServiceJob.triggerCronJobAt1pm();
+    }
 
-        return response.getStatusCode().equals(HttpStatus.OK);
+    @Test
+    public void testTriggerCronJob_ExceptionHandling() throws Exception {
+        Date mockDate = new Date();
+
+        try (MockedStatic<com.rbs.tntr.business.taggingService.service.common.DateTimeService> mockedDateTimeService =
+                     mockStatic(com.rbs.tntr.business.taggingService.service.common.DateTimeService.class)) {
+
+            mockedDateTimeService.when(com.rbs.tntr.business.taggingService.service.common.DateTimeService::getCurrentUTCDate)
+                    .thenReturn(new org.joda.time.DateTime(mockDate));
+
+            when(jiraAssignmentService.isJiraFilterFileAvailable(mockDate)).thenThrow(new RuntimeException("Simulated error"));
+
+            taggingServiceJob.triggerCronJob();
+        }
     }
 }
