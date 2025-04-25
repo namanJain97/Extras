@@ -1,5 +1,4 @@
-Cannot resolve symbol 'RepositoryCommand'
-Cannot resolve method 'execute(T)'
-Cannot resolve method 'thenReturn(RepositoryCommand)'
 Cannot resolve symbol 'MockedStatic'
+Cannot resolve method 'mockStatic' in 'TntrTradeTransformerImplTest'
 Cannot resolve method 'when(<lambda expression>)'
+
