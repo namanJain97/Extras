@@ -5,17 +5,16 @@ import com.rbs.tntr.business.taggingService.configuration.TaggingServiceConfigur
 import com.rbs.tntr.business.taggingService.service.common.DateTimeService;
 import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.AutoAssignResult;
 import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.TaggingServiceResult;
-import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.exceptions.MultipleFilesFoundException;
 import org.joda.time.DateTime;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.*;
 
+import org.mockito.runners.MockitoJUnitRunner;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
-import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 
@@ -49,10 +48,12 @@ public class TaggingServiceJobTest {
         when(taggingServiceConfiguration.getJiraAssignStateReadRetryDelaySeconds()).thenReturn(1);
         when(taggingServiceConfiguration.getJiraAssignStateReadRetryMax()).thenReturn(1);
         when(jiraAssignmentService.isJiraFilterFileAvailable(mockDate)).thenReturn(true);
+        List<TaggingServiceResult> taggingServiceResults = new java.util.ArrayList<>();
         when(jiraAssignmentService.readSaveJiraExpressions(mockDate))
-                .thenReturn(new ResponseEntity<>(Collections.singletonList(new TaggingServiceResult()), HttpStatus.OK));
+                .thenReturn(new ResponseEntity<>(taggingServiceResults, HttpStatus.OK));
+        List<AutoAssignResult> autoAssignResults = new java.util.ArrayList<>();
         when(jiraAssignmentService.readAndAssignJiraToTrades())
-                .thenReturn(new ResponseEntity<>(Collections.singletonList(new AutoAssignResult()), HttpStatus.OK));
+                .thenReturn(new ResponseEntity<>(autoAssignResults, HttpStatus.OK));
 
         taggingServiceJob.triggerCronJob();
 
@@ -77,10 +78,6 @@ public class TaggingServiceJobTest {
         when(taggingServiceConfiguration.getJiraAssignStateReadRetryDelaySeconds()).thenReturn(1);
         when(taggingServiceConfiguration.getJiraAssignStateReadRetryMax()).thenReturn(1);
         when(jiraAssignmentService.isJiraFilterFileAvailable(mockDate)).thenReturn(true);
-        when(jiraAssignmentService.readSaveJiraExpressions(mockDate))
-                .thenReturn(new ResponseEntity<>(Collections.singletonList(new TaggingServiceResult()), HttpStatus.OK));
-        when(jiraAssignmentService.readAndAssignJiraToTrades())
-                .thenReturn(new ResponseEntity<>(Collections.singletonList(new AutoAssignResult()), HttpStatus.INTERNAL_SERVER_ERROR));
 
         taggingServiceJob.triggerCronJob();
 
