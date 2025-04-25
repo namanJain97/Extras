@@ -1,7 +1,5 @@
 package com.rbs.tntr.business.taggingService.df;
 
-import com.google.common.base.Stopwatch;
-import com.google.common.collect.Lists;
 import com.nwm.tntr.commons.domain.persistence.entity.recon.ReconReport;
 import com.nwm.tntr.commons.domain.persistence.entity.recon.ReconReportDocument;
 import com.nwm.tntr.commons.domain.persistence.request.QueryParams;
@@ -9,65 +7,102 @@ import com.nwm.tntr.commons.repository.regreporting.WriteResult;
 import com.nwm.tntr.commons.repository.regreporting.recon.ReconReportDocumentRepository;
 import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.exceptions.TaggingServiceRunTimeException;
 import org.apache.commons.lang3.tuple.Pair;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.mockito.*;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.junit4.SpringRunner;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.TimeUnit;
+import java.util.*;
 
-public class DfReconciliationPersistManager {
-    ReconReportDocumentRepository reconReportDocumentRepository;
-    int dfPersistBatchSize;
-    private static final Logger logger = LoggerFactory.getLogger(DfReconciliationPersistManager.class);
+import static org.junit.Assert.*;
+import static org.mockito.Mockito.*;
 
-    /**
-     * Constructor for DfPersistManager
-     * @param reconReportDocumentRepository - new DF api trade data
-     */
-    public DfReconciliationPersistManager(ReconReportDocumentRepository reconReportDocumentRepository, int dfPersistBatchSize){
-        this.reconReportDocumentRepository = reconReportDocumentRepository;
-        this.dfPersistBatchSize = dfPersistBatchSize;
+@RunWith(SpringRunner.class)
+@SpringBootTest
+public class DfReconciliationPersistManagerTest {
+
+    @Mock
+    private ReconReportDocumentRepository repository;
+
+    private DfReconciliationPersistManager manager;
+
+    private final int batchSize = 2;
+
+    @Before
+    public void setUp() {
+        MockitoAnnotations.initMocks(this);
+        manager = new DfReconciliationPersistManager(repository, batchSize);
     }
 
+    @Test
+    public void testGetAllRecords_Success() {
+        QueryParams params = new QueryParams();
+        List<ReconReportDocument> mockList = Arrays.asList(new ReconReportDocument(), new ReconReportDocument());
 
-    public List<ReconReportDocument> getAllRecords(QueryParams queryParams) throws TaggingServiceRunTimeException {
-        try {
-            return reconReportDocumentRepository.findAllByQuery(queryParams);
-        } catch (Exception e) {
-            logger.error("Error occured while reading records from df. ", e);
-            throw new TaggingServiceRunTimeException("Error occured while reading records from df. ", e);
-        }
+        when(repository.findAllByQuery(params)).thenReturn(mockList);
+
+        List<ReconReportDocument> result = manager.getAllRecords(params);
+
+        assertEquals(2, result.size());
+        verify(repository, times(1)).findAllByQuery(params);
     }
 
-    public List<WriteResult<ReconReport>> saveAllRecords(List<Pair<ReconReport, Long>> reportsWithExpectedBaseVersions) throws TaggingServiceRunTimeException {
-        try {
-            List<WriteResult<ReconReport>> writeResults = new ArrayList<>();
-            List<List<Pair<ReconReport, Long>>> smallerLists = Lists.partition(reportsWithExpectedBaseVersions, dfPersistBatchSize);
-            Stopwatch stopwatchPersist = Stopwatch.createStarted();
-            for(List<Pair<ReconReport, Long>> reports : smallerLists) {
-                writeResults.addAll(reconReportDocumentRepository.compareAndUpdateAll(reports));
-            }
-            logger.info("Time taken in inserting [{}] records = [{}]ms.",writeResults.size(), stopwatchPersist.elapsed(TimeUnit.MILLISECONDS));
-            logger.info("Total Trade record : [{}], Successfully updated : [{}], Failed to update in df : [{}] ", writeResults.size(),
-                    writeResults.stream().filter(result -> result.isSuccess()).count(), writeResults.stream().filter(result -> result.isFailure()).count());
+    @Test(expected = TaggingServiceRunTimeException.class)
+    public void testGetAllRecords_Exception() {
+        QueryParams params = new QueryParams();
 
-            logErrorReasonForInsertion(writeResults);
-            return writeResults;
-        } catch (Exception e) {
-            logger.error("Error occured while writing records to df. ", e);
-            throw new TaggingServiceRunTimeException("Error occured while reading records to df. ", e);
-        }
+        when(repository.findAllByQuery(params)).thenThrow(new RuntimeException("DB Error"));
+
+        manager.getAllRecords(params);
     }
 
-    private void logErrorReasonForInsertion(List<WriteResult<ReconReport>> writeResults) {
-        writeResults.stream().forEach(result -> {
-            if (!result.isSuccess()) {
-                String error = result.getErrorDetail().getCause() != null
-                        ? result.getErrorDetail().getDescription() + ". " + result.getErrorDetail().getCause().getMessage()
-                        : result.getErrorDetail().getDescription();
-                logger.error("Error occurred in persisting recon  : [{}]", error);
-            }
-        });
+    @Test
+    public void testSaveAllRecords_Success() {
+        Pair<ReconReport, Long> pair1 = Pair.of(new ReconReport(), 1L);
+        Pair<ReconReport, Long> pair2 = Pair.of(new ReconReport(), 1L);
+        List<Pair<ReconReport, Long>> input = Arrays.asList(pair1, pair2);
+
+        WriteResult<ReconReport> successResult = mock(WriteResult.class);
+        when(successResult.isSuccess()).thenReturn(true);
+        when(successResult.isFailure()).thenReturn(false);
+
+        when(repository.compareAndUpdateAll(anyList())).thenReturn(Arrays.asList(successResult, successResult));
+
+        List<WriteResult<ReconReport>> result = manager.saveAllRecords(input);
+
+        assertEquals(2, result.size());
+        verify(repository, times(1)).compareAndUpdateAll(anyList());
+    }
+
+    @Test(expected = TaggingServiceRunTimeException.class)
+    public void testSaveAllRecords_Exception() {
+        Pair<ReconReport, Long> pair = Pair.of(new ReconReport(), 1L);
+        List<Pair<ReconReport, Long>> input = Collections.singletonList(pair);
+
+        when(repository.compareAndUpdateAll(anyList())).thenThrow(new RuntimeException("Update Error"));
+
+        manager.saveAllRecords(input);
+    }
+
+    @Test
+    public void testSaveAllRecords_FailureLogging() {
+        Pair<ReconReport, Long> pair = Pair.of(new ReconReport(), 1L);
+        List<Pair<ReconReport, Long>> input = Collections.singletonList(pair);
+
+        WriteResult<ReconReport> failedResult = mock(WriteResult.class);
+        when(failedResult.isSuccess()).thenReturn(false);
+        when(failedResult.isFailure()).thenReturn(true);
+
+        WriteResult.ErrorDetail errorDetail = new WriteResult.ErrorDetail("Failure", new RuntimeException("Cause"));
+        when(failedResult.getErrorDetail()).thenReturn(errorDetail);
+
+        when(repository.compareAndUpdateAll(anyList())).thenReturn(Collections.singletonList(failedResult));
+
+        List<WriteResult<ReconReport>> result = manager.saveAllRecords(input);
+
+        assertEquals(1, result.size());
+        verify(repository, times(1)).compareAndUpdateAll(anyList());
     }
 }
