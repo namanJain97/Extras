@@ -2,22 +2,26 @@ package com.rbs.tntr.business.taggingService.jobs;
 
 import com.rbs.tntr.api.taggingService.service.jiraAssignement.JiraAssignmentService;
 import com.rbs.tntr.business.taggingService.configuration.TaggingServiceConfiguration;
+import com.rbs.tntr.business.taggingService.service.common.DateTimeService;
 import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.AutoAssignResult;
 import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.TaggingServiceResult;
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.exceptions.MultipleFilesFoundException;
+import org.joda.time.DateTime;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.*;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.test.util.ReflectionTestUtils;
-import org.springframework.test.context.junit4.SpringRunner;
 
-import java.util.*;
+import java.util.Collections;
+import java.util.Date;
+import java.util.List;
 
 import static org.mockito.Mockito.*;
 
-@RunWith(SpringRunner.class)
+@RunWith(MockitoJUnitRunner.class)
 public class TaggingServiceJobTest {
 
     @Mock
@@ -26,74 +30,73 @@ public class TaggingServiceJobTest {
     @Mock
     private JiraAssignmentService jiraAssignmentService;
 
+    @Mock
+    private DateTimeService dateTimeService;
+
     @InjectMocks
     private TaggingServiceJob taggingServiceJob;
 
+    private Date mockDate;
+
     @Before
     public void setUp() {
-        MockitoAnnotations.openMocks(this);
-        when(taggingServiceConfiguration.getJiraAssignStateReadRetryDelaySeconds()).thenReturn(1);
-        when(taggingServiceConfiguration.getJiraAssignStateReadRetryMax()).thenReturn(1);
+        mockDate = new Date();
+        when(dateTimeService.getCurrentUTCDate()).thenReturn(new DateTime(mockDate));
     }
 
     @Test
     public void testTriggerCronJob_SuccessfulFlow() throws Exception {
-        Date mockDate = new Date();
+        when(taggingServiceConfiguration.getJiraAssignStateReadRetryDelaySeconds()).thenReturn(1);
+        when(taggingServiceConfiguration.getJiraAssignStateReadRetryMax()).thenReturn(1);
+        when(jiraAssignmentService.isJiraFilterFileAvailable(mockDate)).thenReturn(true);
+        when(jiraAssignmentService.readSaveJiraExpressions(mockDate))
+                .thenReturn(new ResponseEntity<>(Collections.singletonList(new TaggingServiceResult()), HttpStatus.OK));
+        when(jiraAssignmentService.readAndAssignJiraToTrades())
+                .thenReturn(new ResponseEntity<>(Collections.singletonList(new AutoAssignResult()), HttpStatus.OK));
 
-        try (MockedStatic<com.rbs.tntr.business.taggingService.service.common.DateTimeService> mockedDateTimeService =
-                     mockStatic(com.rbs.tntr.business.taggingService.service.common.DateTimeService.class)) {
+        taggingServiceJob.triggerCronJob();
 
-            mockedDateTimeService.when(com.rbs.tntr.business.taggingService.service.common.DateTimeService::getCurrentUTCDate)
-                    .thenReturn(new org.joda.time.DateTime(mockDate));
-
-            when(jiraAssignmentService.isJiraFilterFileAvailable(mockDate)).thenReturn(true);
-            when(jiraAssignmentService.readSaveJiraExpressions(mockDate)).thenReturn(
-                    new ResponseEntity<>(Collections.singletonList(new TaggingServiceResult()), HttpStatus.OK)
-            );
-            when(jiraAssignmentService.readAndAssignJiraToTrades()).thenReturn(
-                    new ResponseEntity<>(Collections.singletonList(new AutoAssignResult()), HttpStatus.OK)
-            );
-
-            taggingServiceJob.triggerCronJob();
-        }
+        verify(jiraAssignmentService).readSaveJiraExpressions(mockDate);
+        verify(jiraAssignmentService).readAndAssignJiraToTrades();
     }
 
     @Test
     public void testTriggerCronJob_FileNotAvailable() throws Exception {
-        Date mockDate = new Date();
+        when(taggingServiceConfiguration.getJiraAssignStateReadRetryDelaySeconds()).thenReturn(1);
+        when(taggingServiceConfiguration.getJiraAssignStateReadRetryMax()).thenReturn(1);
+        when(jiraAssignmentService.isJiraFilterFileAvailable(mockDate)).thenReturn(false);
 
-        try (MockedStatic<com.rbs.tntr.business.taggingService.service.common.DateTimeService> mockedDateTimeService =
-                     mockStatic(com.rbs.tntr.business.taggingService.service.common.DateTimeService.class)) {
+        taggingServiceJob.triggerCronJob();
 
-            mockedDateTimeService.when(com.rbs.tntr.business.taggingService.service.common.DateTimeService::getCurrentUTCDate)
-                    .thenReturn(new org.joda.time.DateTime(mockDate));
-
-            when(jiraAssignmentService.isJiraFilterFileAvailable(mockDate)).thenReturn(false);
-
-            taggingServiceJob.triggerCronJob();
-        }
+        verify(jiraAssignmentService, never()).readSaveJiraExpressions(mockDate);
+        verify(jiraAssignmentService).isJiraFilterFileAvailable(mockDate);
     }
 
     @Test
-    public void testTriggerCronJobAt1pm_CallsProcessMethod() throws Exception {
-        // Reuse previous test setup to ensure internal logic is executed.
-        testTriggerCronJob_SuccessfulFlow();
-        taggingServiceJob.triggerCronJobAt1pm();
+    public void testTriggerCronJob_AssignFails() throws Exception {
+        when(taggingServiceConfiguration.getJiraAssignStateReadRetryDelaySeconds()).thenReturn(1);
+        when(taggingServiceConfiguration.getJiraAssignStateReadRetryMax()).thenReturn(1);
+        when(jiraAssignmentService.isJiraFilterFileAvailable(mockDate)).thenReturn(true);
+        when(jiraAssignmentService.readSaveJiraExpressions(mockDate))
+                .thenReturn(new ResponseEntity<>(Collections.singletonList(new TaggingServiceResult()), HttpStatus.OK));
+        when(jiraAssignmentService.readAndAssignJiraToTrades())
+                .thenReturn(new ResponseEntity<>(Collections.singletonList(new AutoAssignResult()), HttpStatus.INTERNAL_SERVER_ERROR));
+
+        taggingServiceJob.triggerCronJob();
+
+        verify(jiraAssignmentService).readSaveJiraExpressions(mockDate);
+        verify(jiraAssignmentService).readAndAssignJiraToTrades();
     }
 
     @Test
-    public void testTriggerCronJob_ExceptionHandling() throws Exception {
-        Date mockDate = new Date();
+    public void testTriggerCronJob_ExceptionHandledGracefully() throws Exception {
+        when(taggingServiceConfiguration.getJiraAssignStateReadRetryDelaySeconds()).thenReturn(1);
+        when(taggingServiceConfiguration.getJiraAssignStateReadRetryMax()).thenReturn(1);
+        when(jiraAssignmentService.isJiraFilterFileAvailable(mockDate)).thenThrow(new RuntimeException("Boom"));
 
-        try (MockedStatic<com.rbs.tntr.business.taggingService.service.common.DateTimeService> mockedDateTimeService =
-                     mockStatic(com.rbs.tntr.business.taggingService.service.common.DateTimeService.class)) {
+        taggingServiceJob.triggerCronJob();
 
-            mockedDateTimeService.when(com.rbs.tntr.business.taggingService.service.common.DateTimeService::getCurrentUTCDate)
-                    .thenReturn(new org.joda.time.DateTime(mockDate));
-
-            when(jiraAssignmentService.isJiraFilterFileAvailable(mockDate)).thenThrow(new RuntimeException("Simulated error"));
-
-            taggingServiceJob.triggerCronJob();
-        }
+        verify(jiraAssignmentService).isJiraFilterFileAvailable(mockDate);
+        // The exception should be caught and not crash the job
     }
 }
