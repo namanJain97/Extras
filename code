@@ -1,132 +1,86 @@
-package com.rbs.tntr.business.taggingService.transformer;
+package com.rbs.tntr.business.taggingService.jobs;
 
-import com.nwm.tntr.commons.domain.JiraReference;
-import com.nwm.tntr.commons.enums.TntrFieldsReadUpdateEnum;
-import com.nwm.tntr.commons.repository.domain.*;
-import com.nwm.tntr.commons.repository.service.RepositoryCommandFactory;
-import com.nwm.tntr.commons.repository.service.Command;
-import com.nwm.tntr.commons.repository.util.TntrTdxNodeBuilderUtil;
+import java.util.Date;
+import java.util.List;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
+
+import com.rbs.tntr.api.taggingService.service.jiraAssignement.JiraAssignmentService;
+import com.rbs.tntr.business.taggingService.configuration.TaggingServiceConfiguration;
 import com.rbs.tntr.business.taggingService.service.common.DateTimeService;
-import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.JiraTaggingDetail;
-import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.enums.FlowType;
-import org.junit.Before;
-import org.junit.Test;
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.AutoAssignResult;
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.TaggingServiceResult;
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.exceptions.MultipleFilesFoundException;
 
-import java.util.*;
+/**
+ * Created by matbina on 20/05/2020.
+ */
+@Component
+public class TaggingServiceJob {
+    private static final Logger logger= LoggerFactory.getLogger(TaggingServiceJob.class);
+    final TaggingServiceConfiguration taggingServiceConfiguration;
+    final JiraAssignmentService jiraAssignmentService;
 
-import static org.junit.Assert.*;
-import static org.mockito.Mockito.*;
-
-public class TntrTradeTransformerImplTest {
-
-    private TntrTradeTransformerImpl transformer;
-
-    @Before
-    public void setUp() {
-        transformer = new TntrTradeTransformerImpl();
+    @Autowired
+	public TaggingServiceJob(TaggingServiceConfiguration taggingServiceConfiguration,
+                             JiraAssignmentService jiraAssignmentService){
+        this.taggingServiceConfiguration = taggingServiceConfiguration;
+        this.jiraAssignmentService = jiraAssignmentService;
     }
 
-    @Test
-    public void testGetRecords_WithNewRecords() {
-        String whereExpression = "status = 'active'";
-        FlowType workflowType = FlowType.TRADE;
-        String indexHint = "idx_test";
-        JiraReference jiraReference = new JiraReference();
+    @Scheduled(cron = "${sftr.transaction.state.taggingService.schedule.cron}")
+    public void triggerCronJob() {
+        processTaggingService();
+    }
 
-        TntrRepositoryReadCommandContext mockContext = mock(TntrRepositoryReadCommandContext.class);
-        Command mockCommand = mock(Command.class);
-        RepositoryCommandFactory mockFactory = mock(RepositoryCommandFactory.class);
-        TntrRepositoryReadCommandResult mockResult = mock(TntrRepositoryReadCommandResult.class);
-        Map<TntrFieldsReadUpdateEnum, Object> tradeMap = new HashMap<>();
-        tradeMap.put(TntrFieldsReadUpdateEnum.SUPPLEMENTARY_INFORMATION, new HashMap<String, Object>());
-        List<Map<TntrFieldsReadUpdateEnum, Object>> tradeList = Collections.singletonList(tradeMap);
+    @Scheduled(cron = "${sftr.transaction.state.taggingService.schedule.13hrs.cron}")
+    public void triggerCronJobAt1pm() {
+        processTaggingService();
+    }
 
-        when(mockResult.getTradeList()).thenReturn(tradeList);
-        when(mockCommand.execute(any())).thenReturn(mockResult);
-        when(mockFactory.getCommand(RepositoryAction.READ_ALL)).thenReturn(mockCommand);
-
-        try (MockedStatic<ReportingTemplate> mockedTemplate = mockStatic(ReportingTemplate.class);
-             MockedStatic<TntrTdxNodeBuilderUtil> mockedUtil = mockStatic(TntrTdxNodeBuilderUtil.class)) {
-
-            mockedTemplate.when(() -> ReportingTemplate.TRADE.getRepositoryCommandFactory()).thenReturn(mockFactory);
-            mockedUtil.when(() -> TntrTdxNodeBuilderUtil.isJiraIdPresentInUserWorkflow(any(), any(), any()))
-                    .thenReturn(false);
-
-            int result = transformer.getRecords(whereExpression, workflowType, indexHint, jiraReference);
-            assertEquals(1, result);
+    private void processTaggingService() {
+        logger.info("Triggered processing of Jira Assignment Service");
+        try {
+			Date businessDate = DateTimeService.getCurrentUTCDate().toDate();
+            int sleepDuration=taggingServiceConfiguration.getJiraAssignStateReadRetryDelaySeconds() *100;
+            int maxRetry= taggingServiceConfiguration.getJiraAssignStateReadRetryMax();
+            for (int i = maxRetry; i >0 ; i--) {
+                if(tryPersistingJiraRules(businessDate)){
+                    logger.info("Completed processing of Jira Assignment Service");
+                    break;
+                }
+                logger.info("Jira Assignment Service : sleeping before retrying");
+                Thread.sleep(sleepDuration);
+            }
+            assignJiraToTrade();
+        }catch (Exception ex){
+            logger.error(ex.getMessage(),ex);
         }
     }
 
-    @Test
-    public void testGetRecords_NoNewRecords() {
-        String whereExpression = "status = 'inactive'";
-        FlowType workflowType = FlowType.TRADE;
-        String indexHint = "idx_test";
-        JiraReference jiraReference = new JiraReference();
-
-        Command mockCommand = mock(Command.class);
-        RepositoryCommandFactory mockFactory = mock(RepositoryCommandFactory.class);
-        TntrRepositoryReadCommandResult mockResult = mock(TntrRepositoryReadCommandResult.class);
-
-        when(mockResult.getTradeList()).thenReturn(Collections.emptyList());
-        when(mockCommand.execute(any())).thenReturn(mockResult);
-        when(mockFactory.getCommand(RepositoryAction.READ_ALL)).thenReturn(mockCommand);
-
-        try (MockedStatic<ReportingTemplate> mockedTemplate = mockStatic(ReportingTemplate.class)) {
-            mockedTemplate.when(() -> ReportingTemplate.TRADE.getRepositoryCommandFactory()).thenReturn(mockFactory);
-
-            int result = transformer.getRecords(whereExpression, workflowType, indexHint, jiraReference);
-            assertEquals(0, result);
+    private boolean tryPersistingJiraRules(Date businessDate) throws MultipleFilesFoundException {
+        logger.info("Read and Save Jira to df for business date {}", businessDate);
+        boolean filePresent = jiraAssignmentService.isJiraFilterFileAvailable(businessDate);
+        if(!filePresent) {
+            return false;
         }
+        ResponseEntity<List<TaggingServiceResult>> response =  jiraAssignmentService.readSaveJiraExpressions(businessDate);
+        logger.info("Read and Save Jira to df response : ", response.getBody());
+
+        return true;
     }
 
-    @Test
-    public void testExecuteUpdateTrades_TradeFlow() {
-        String where = "trade_id = 'T123'";
-        JiraReference jiraReference = new JiraReference();
-        JiraTaggingDetail taggingDetail = new JiraTaggingDetail();
-        FlowType workflowType = FlowType.TRADE;
+    private boolean assignJiraToTrade() {
+        logger.info("Assign Jira to trades");
+        ResponseEntity<List<AutoAssignResult>> response = jiraAssignmentService.readAndAssignJiraToTrades();
+        logger.info("Assign Jira to trades {}", response.getBody());
 
-        TntrRepositoryUpdateCommandResult mockResult = mock(TntrRepositoryUpdateCommandResult.class);
-        Command mockCommand = mock(Command.class);
-        RepositoryCommandFactory mockFactory = mock(RepositoryCommandFactory.class);
-
-        when(mockCommand.execute(any())).thenReturn(mockResult);
-        when(mockFactory.getCommand(RepositoryAction.UPDATE)).thenReturn(mockCommand);
-
-        try (MockedStatic<ReportingTemplate> mockedTemplate = mockStatic(ReportingTemplate.class);
-             MockedStatic<DateTimeService> mockedDateTime = mockStatic(DateTimeService.class)) {
-
-            mockedTemplate.when(() -> ReportingTemplate.TRADE.getRepositoryCommandFactory()).thenReturn(mockFactory);
-            mockedDateTime.when(DateTimeService::getCurrentDateTime).thenReturn(new Date());
-
-            TntrRepositoryUpdateCommandResult result = transformer.executeUpdateTrades(where, jiraReference, taggingDetail, workflowType);
-            assertEquals(mockResult, result);
-        }
-    }
-
-    @Test
-    public void testExecuteUpdateTrades_CollateralFlow() {
-        String where = "collateral_id = 'C456'";
-        JiraReference jiraReference = new JiraReference();
-        JiraTaggingDetail taggingDetail = new JiraTaggingDetail();
-        FlowType workflowType = FlowType.AGGREGATED_COLLATERAL;
-
-        TntrRepositoryUpdateCommandResult mockResult = mock(TntrRepositoryUpdateCommandResult.class);
-        Command mockCommand = mock(Command.class);
-        RepositoryCommandFactory mockFactory = mock(RepositoryCommandFactory.class);
-
-        when(mockCommand.execute(any())).thenReturn(mockResult);
-        when(mockFactory.getCommand(RepositoryAction.UPDATE)).thenReturn(mockCommand);
-
-        try (MockedStatic<ReportingTemplate> mockedTemplate = mockStatic(ReportingTemplate.class);
-             MockedStatic<DateTimeService> mockedDateTime = mockStatic(DateTimeService.class)) {
-
-            mockedTemplate.when(() -> ReportingTemplate.COLLATERAL.getRepositoryCommandFactory()).thenReturn(mockFactory);
-            mockedDateTime.when(DateTimeService::getCurrentDateTime).thenReturn(new Date());
-
-            TntrRepositoryUpdateCommandResult result = transformer.executeUpdateTrades(where, jiraReference, taggingDetail, workflowType);
-            assertEquals(mockResult, result);
-        }
+        return response.getStatusCode().equals(HttpStatus.OK);
     }
 }
