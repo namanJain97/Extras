@@ -1,123 +1,132 @@
 package com.rbs.tntr.business.taggingService.transformer;
 
-import java.util.ArrayList;
-import java.util.EnumMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Component;
-
 import com.nwm.tntr.commons.domain.JiraReference;
 import com.nwm.tntr.commons.domain.WorkflowType;
-import com.nwm.tntr.commons.enums.ApiQueryFilter;
-import com.nwm.tntr.commons.enums.TntrCallerService;
 import com.nwm.tntr.commons.enums.TntrFieldsReadUpdateEnum;
-import com.nwm.tntr.commons.repository.domain.ReportingTemplate;
-import com.nwm.tntr.commons.repository.domain.RepositoryAction;
-import com.nwm.tntr.commons.repository.domain.TntrRepositoryReadCommandContext;
-import com.nwm.tntr.commons.repository.domain.TntrRepositoryReadCommandResult;
-import com.nwm.tntr.commons.repository.domain.TntrRepositoryUpdateCommandContext;
-import com.nwm.tntr.commons.repository.domain.TntrRepositoryUpdateCommandResult;
+import com.nwm.tntr.commons.repository.domain.*;
 import com.nwm.tntr.commons.repository.util.TntrTdxNodeBuilderUtil;
-import com.rbs.tntr.api.taggingService.service.jiraAssignement.TntrTradeTransformer;
-import com.rbs.tntr.business.taggingService.service.common.DateTimeService;
 import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.JiraTaggingDetail;
 import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.enums.FlowType;
+import org.junit.Before;
+import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
-/**
- * Created by matbina on 21/05/2020.
- */
-@Component
-public class TntrTradeTransformerImpl implements TntrTradeTransformer {
-    private static final Logger LOGGER = LoggerFactory.getLogger(TntrTradeTransformerImpl.class);
+import java.util.*;
 
-    private final static String TAGGING_SERVICE= "tagging-service";
+import static org.junit.Assert.*;
+import static org.mockito.Mockito.*;
 
-    @Override
-    public int getRecords(String whereExpression, FlowType workflowType, String indexHint, JiraReference jiraReference){
-        EnumMap<ApiQueryFilter, Object> apiQueryFilterMap = new EnumMap<>(ApiQueryFilter.class);
-        apiQueryFilterMap.put(ApiQueryFilter.WHERE, whereExpression);
-        apiQueryFilterMap.put(ApiQueryFilter.HISTORY, false);
-        apiQueryFilterMap.put(ApiQueryFilter.INDEX_HINT, indexHint);
+public class TntrTradeTransformerImplTest {
 
-        ReportingTemplate reportingTemplate;
-        List<TntrFieldsReadUpdateEnum> attributes = new ArrayList<>();
+    private TntrTradeTransformerImpl transformer;
 
-        if(workflowType.getValue().equalsIgnoreCase(FlowType.AGGREGATED_COLLATERAL.getValue())) {
-            reportingTemplate = ReportingTemplate.COLLATERAL;
-            attributes.add(TntrFieldsReadUpdateEnum.COLLATERAL_REPORTING_GRP);
-            attributes.add(TntrFieldsReadUpdateEnum.SUPPLEMENTARY_INFORMATION);
-        } else {
-            reportingTemplate = ReportingTemplate.TRADE;
-            attributes.add(TntrFieldsReadUpdateEnum.TRANSACTION_ID);
-            attributes.add(TntrFieldsReadUpdateEnum.SUPPLEMENTARY_INFORMATION);
-        }
-
-        TntrRepositoryReadCommandContext tntrTradeRepositoryReadCommandContext = new TntrRepositoryReadCommandContext(apiQueryFilterMap, attributes);
-        tntrTradeRepositoryReadCommandContext.setTntrCallerService(TntrCallerService.TAGGING_SERVICE);
-        if(workflowType.getValue().equalsIgnoreCase(FlowType.COLLATERAL.getValue())
-                || workflowType.getValue().equalsIgnoreCase(FlowType.VALUATION.getValue())) {
-
-            tntrTradeRepositoryReadCommandContext.setWorkflowType(WorkflowType.VALUATIONS);
-        }
-
-        TntrRepositoryReadCommandResult result = (TntrRepositoryReadCommandResult) reportingTemplate
-                .getRepositoryCommandFactory()
-                .getCommand(RepositoryAction.READ_ALL)
-                .execute(tntrTradeRepositoryReadCommandContext);
-
-        if(result.getTradeList().size() > 0){
-            return getRecordCount(result, jiraReference);
-        }
-        return 0;
+    @Before
+    public void setUp() {
+        transformer = new TntrTradeTransformerImpl();
     }
 
-    private int getRecordCount(TntrRepositoryReadCommandResult result, JiraReference jiraReference){
-        int count = 0;
-        List<Map<TntrFieldsReadUpdateEnum, Object>> tradeList = result.getTradeList();
-        for(Map<TntrFieldsReadUpdateEnum, Object> map : tradeList){
-            Map<String, Object> suppMap = (Map<String, Object>) map.get(TntrFieldsReadUpdateEnum.SUPPLEMENTARY_INFORMATION);
-            boolean isPresent = TntrTdxNodeBuilderUtil.isJiraIdPresentInUserWorkflow(
-                    suppMap,
-                    TntrFieldsReadUpdateEnum.JIRA_REFERENCES.getValue(),
-                    jiraReference);
-            if(!isPresent){
-                count++;
-            }
+    @Test
+    public void testGetRecords_WithNewRecords() {
+        String whereExpression = "status = 'active'";
+        FlowType workflowType = FlowType.TRADE;
+        String indexHint = "idx_test";
+        JiraReference jiraReference = new JiraReference();
+
+        TntrRepositoryReadCommandContext mockContext = mock(TntrRepositoryReadCommandContext.class);
+        RepositoryCommand mockCommand = mock(RepositoryCommand.class);
+        RepositoryCommandFactory mockFactory = mock(RepositoryCommandFactory.class);
+        TntrRepositoryReadCommandResult mockResult = mock(TntrRepositoryReadCommandResult.class);
+        Map<TntrFieldsReadUpdateEnum, Object> tradeMap = new HashMap<>();
+        tradeMap.put(TntrFieldsReadUpdateEnum.SUPPLEMENTARY_INFORMATION, new HashMap<String, Object>());
+        List<Map<TntrFieldsReadUpdateEnum, Object>> tradeList = Collections.singletonList(tradeMap);
+
+        when(mockResult.getTradeList()).thenReturn(tradeList);
+        when(mockCommand.execute(any())).thenReturn(mockResult);
+        when(mockFactory.getCommand(RepositoryAction.READ_ALL)).thenReturn(mockCommand);
+
+        try (MockedStatic<ReportingTemplate> mockedTemplate = mockStatic(ReportingTemplate.class);
+             MockedStatic<TntrTdxNodeBuilderUtil> mockedUtil = mockStatic(TntrTdxNodeBuilderUtil.class)) {
+
+            mockedTemplate.when(() -> ReportingTemplate.TRADE.getRepositoryCommandFactory()).thenReturn(mockFactory);
+            mockedUtil.when(() -> TntrTdxNodeBuilderUtil.isJiraIdPresentInUserWorkflow(any(), any(), any()))
+                      .thenReturn(false);
+
+            int result = transformer.getRecords(whereExpression, workflowType, indexHint, jiraReference);
+            assertEquals(1, result);
         }
-        return count;
     }
 
-    @Override
-    public TntrRepositoryUpdateCommandResult executeUpdateTrades(String whereExpression, JiraReference jiraReference, JiraTaggingDetail jiraTaggingDetail, FlowType workflowType) {
-        Properties propToUpdate= new Properties();
-        propToUpdate.put(TntrFieldsReadUpdateEnum.JIRA_REFERENCES.getValue(), jiraReference);
-        propToUpdate.put(TntrFieldsReadUpdateEnum.JIRA_TAGGING_DETAILS.getValue(), jiraTaggingDetail);
-        propToUpdate.put(TntrFieldsReadUpdateEnum.MODIFIED_BY.getValue(), TAGGING_SERVICE);
-		propToUpdate.put(TntrFieldsReadUpdateEnum.MODIFIED_ON.getValue(), DateTimeService.getCurrentDateTime());
+    @Test
+    public void testGetRecords_NoNewRecords() {
+        String whereExpression = "status = 'inactive'";
+        FlowType workflowType = FlowType.TRADE;
+        String indexHint = "idx_test";
+        JiraReference jiraReference = new JiraReference();
 
-        TntrRepositoryUpdateCommandContext tntrTradeRepositoryUpdateCommandContext = new TntrRepositoryUpdateCommandContext(whereExpression, propToUpdate, TntrCallerService.TAGGING_SERVICE);
-        if(workflowType.getValue().equalsIgnoreCase(FlowType.COLLATERAL.getValue()) || workflowType.getValue().equalsIgnoreCase(FlowType.VALUATION.getValue())) {
-            tntrTradeRepositoryUpdateCommandContext.setWorkflowType(WorkflowType.VALUATIONS);
-        }else if(workflowType.getValue().equalsIgnoreCase(FlowType.TRADE.getValue())){
-            tntrTradeRepositoryUpdateCommandContext.setWorkflowType(WorkflowType.TRADE);
+        RepositoryCommand mockCommand = mock(RepositoryCommand.class);
+        RepositoryCommandFactory mockFactory = mock(RepositoryCommandFactory.class);
+        TntrRepositoryReadCommandResult mockResult = mock(TntrRepositoryReadCommandResult.class);
+
+        when(mockResult.getTradeList()).thenReturn(Collections.emptyList());
+        when(mockCommand.execute(any())).thenReturn(mockResult);
+        when(mockFactory.getCommand(RepositoryAction.READ_ALL)).thenReturn(mockCommand);
+
+        try (MockedStatic<ReportingTemplate> mockedTemplate = mockStatic(ReportingTemplate.class)) {
+            mockedTemplate.when(() -> ReportingTemplate.TRADE.getRepositoryCommandFactory()).thenReturn(mockFactory);
+
+            int result = transformer.getRecords(whereExpression, workflowType, indexHint, jiraReference);
+            assertEquals(0, result);
         }
+    }
 
-        ReportingTemplate reportingTemplate;
-        if(workflowType.getValue().equalsIgnoreCase(FlowType.AGGREGATED_COLLATERAL.getValue())) {
-            reportingTemplate = ReportingTemplate.COLLATERAL;
-        } else {
-            reportingTemplate = ReportingTemplate.TRADE;
+    @Test
+    public void testExecuteUpdateTrades_TradeFlow() {
+        String where = "trade_id = 'T123'";
+        JiraReference jiraReference = new JiraReference();
+        JiraTaggingDetail taggingDetail = new JiraTaggingDetail();
+        FlowType workflowType = FlowType.TRADE;
+
+        TntrRepositoryUpdateCommandResult mockResult = mock(TntrRepositoryUpdateCommandResult.class);
+        RepositoryCommand mockCommand = mock(RepositoryCommand.class);
+        RepositoryCommandFactory mockFactory = mock(RepositoryCommandFactory.class);
+
+        when(mockCommand.execute(any())).thenReturn(mockResult);
+        when(mockFactory.getCommand(RepositoryAction.UPDATE)).thenReturn(mockCommand);
+
+        try (MockedStatic<ReportingTemplate> mockedTemplate = mockStatic(ReportingTemplate.class);
+             MockedStatic<DateTimeService> mockedDateTime = mockStatic(DateTimeService.class)) {
+
+            mockedTemplate.when(() -> ReportingTemplate.TRADE.getRepositoryCommandFactory()).thenReturn(mockFactory);
+            mockedDateTime.when(DateTimeService::getCurrentDateTime).thenReturn(new Date());
+
+            TntrRepositoryUpdateCommandResult result = transformer.executeUpdateTrades(where, jiraReference, taggingDetail, workflowType);
+            assertEquals(mockResult, result);
         }
+    }
 
-        TntrRepositoryUpdateCommandResult result = (TntrRepositoryUpdateCommandResult) reportingTemplate
-                .getRepositoryCommandFactory()
-                .getCommand(RepositoryAction.UPDATE)
-                .execute(tntrTradeRepositoryUpdateCommandContext);
+    @Test
+    public void testExecuteUpdateTrades_CollateralFlow() {
+        String where = "collateral_id = 'C456'";
+        JiraReference jiraReference = new JiraReference();
+        JiraTaggingDetail taggingDetail = new JiraTaggingDetail();
+        FlowType workflowType = FlowType.AGGREGATED_COLLATERAL;
 
-        return result;
+        TntrRepositoryUpdateCommandResult mockResult = mock(TntrRepositoryUpdateCommandResult.class);
+        RepositoryCommand mockCommand = mock(RepositoryCommand.class);
+        RepositoryCommandFactory mockFactory = mock(RepositoryCommandFactory.class);
+
+        when(mockCommand.execute(any())).thenReturn(mockResult);
+        when(mockFactory.getCommand(RepositoryAction.UPDATE)).thenReturn(mockCommand);
+
+        try (MockedStatic<ReportingTemplate> mockedTemplate = mockStatic(ReportingTemplate.class);
+             MockedStatic<DateTimeService> mockedDateTime = mockStatic(DateTimeService.class)) {
+
+            mockedTemplate.when(() -> ReportingTemplate.COLLATERAL.getRepositoryCommandFactory()).thenReturn(mockFactory);
+            mockedDateTime.when(DateTimeService::getCurrentDateTime).thenReturn(new Date());
+
+            TntrRepositoryUpdateCommandResult result = transformer.executeUpdateTrades(where, jiraReference, taggingDetail, workflowType);
+            assertEquals(mockResult, result);
+        }
     }
 }
