@@ -1,116 +1,123 @@
-package com.rbs.tntr.business.taggingService.df;
+package com.rbs.tntr.business.taggingService.transformer;
 
-import com.nwm.tntr.commons.domain.persistence.entity.recon.ReconReport;
-import com.nwm.tntr.commons.domain.persistence.entity.recon.ReconReportDocument;
-import com.nwm.tntr.commons.domain.persistence.request.QueryParams;
-import com.nwm.tntr.commons.repository.regreporting.WriteResult;
-import com.nwm.tntr.commons.repository.regreporting.recon.ReconReportDocumentRepository;
-import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.exceptions.TaggingServiceRunTimeException;
-import org.apache.commons.lang3.tuple.Pair;
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.mockito.*;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.junit4.SpringRunner;
+import java.util.ArrayList;
+import java.util.EnumMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
 
-import java.util.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
 
-import static org.junit.Assert.*;
-import static org.mockito.Mockito.*;
+import com.nwm.tntr.commons.domain.JiraReference;
+import com.nwm.tntr.commons.domain.WorkflowType;
+import com.nwm.tntr.commons.enums.ApiQueryFilter;
+import com.nwm.tntr.commons.enums.TntrCallerService;
+import com.nwm.tntr.commons.enums.TntrFieldsReadUpdateEnum;
+import com.nwm.tntr.commons.repository.domain.ReportingTemplate;
+import com.nwm.tntr.commons.repository.domain.RepositoryAction;
+import com.nwm.tntr.commons.repository.domain.TntrRepositoryReadCommandContext;
+import com.nwm.tntr.commons.repository.domain.TntrRepositoryReadCommandResult;
+import com.nwm.tntr.commons.repository.domain.TntrRepositoryUpdateCommandContext;
+import com.nwm.tntr.commons.repository.domain.TntrRepositoryUpdateCommandResult;
+import com.nwm.tntr.commons.repository.util.TntrTdxNodeBuilderUtil;
+import com.rbs.tntr.api.taggingService.service.jiraAssignement.TntrTradeTransformer;
+import com.rbs.tntr.business.taggingService.service.common.DateTimeService;
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.JiraTaggingDetail;
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.enums.FlowType;
 
-@RunWith(SpringRunner.class)
-@SpringBootTest
-public class DfReconciliationPersistManagerTest {
+/**
+ * Created by matbina on 21/05/2020.
+ */
+@Component
+public class TntrTradeTransformerImpl implements TntrTradeTransformer {
+    private static final Logger LOGGER = LoggerFactory.getLogger(TntrTradeTransformerImpl.class);
 
-    @Mock
-    private ReconReportDocumentRepository repository;
+    private final static String TAGGING_SERVICE= "tagging-service";
 
-    @Mock
-    private QueryParams mockQueryParams;
+    @Override
+    public int getRecords(String whereExpression, FlowType workflowType, String indexHint, JiraReference jiraReference){
+        EnumMap<ApiQueryFilter, Object> apiQueryFilterMap = new EnumMap<>(ApiQueryFilter.class);
+        apiQueryFilterMap.put(ApiQueryFilter.WHERE, whereExpression);
+        apiQueryFilterMap.put(ApiQueryFilter.HISTORY, false);
+        apiQueryFilterMap.put(ApiQueryFilter.INDEX_HINT, indexHint);
 
-    @Mock
-    private ReconReportDocument mockDocument;
+        ReportingTemplate reportingTemplate;
+        List<TntrFieldsReadUpdateEnum> attributes = new ArrayList<>();
 
-    @Mock
-    private ReconReport mockReport;
+        if(workflowType.getValue().equalsIgnoreCase(FlowType.AGGREGATED_COLLATERAL.getValue())) {
+            reportingTemplate = ReportingTemplate.COLLATERAL;
+            attributes.add(TntrFieldsReadUpdateEnum.COLLATERAL_REPORTING_GRP);
+            attributes.add(TntrFieldsReadUpdateEnum.SUPPLEMENTARY_INFORMATION);
+        } else {
+            reportingTemplate = ReportingTemplate.TRADE;
+            attributes.add(TntrFieldsReadUpdateEnum.TRANSACTION_ID);
+            attributes.add(TntrFieldsReadUpdateEnum.SUPPLEMENTARY_INFORMATION);
+        }
 
-    private DfReconciliationPersistManager manager;
+        TntrRepositoryReadCommandContext tntrTradeRepositoryReadCommandContext = new TntrRepositoryReadCommandContext(apiQueryFilterMap, attributes);
+        tntrTradeRepositoryReadCommandContext.setTntrCallerService(TntrCallerService.TAGGING_SERVICE);
+        if(workflowType.getValue().equalsIgnoreCase(FlowType.COLLATERAL.getValue())
+                || workflowType.getValue().equalsIgnoreCase(FlowType.VALUATION.getValue())) {
 
-    private final int batchSize = 2;
+            tntrTradeRepositoryReadCommandContext.setWorkflowType(WorkflowType.VALUATIONS);
+        }
 
-    @Before
-    public void setUp() {
-        MockitoAnnotations.initMocks(this);
-        manager = new DfReconciliationPersistManager(repository, batchSize);
+        TntrRepositoryReadCommandResult result = (TntrRepositoryReadCommandResult) reportingTemplate
+                .getRepositoryCommandFactory()
+                .getCommand(RepositoryAction.READ_ALL)
+                .execute(tntrTradeRepositoryReadCommandContext);
+
+        if(result.getTradeList().size() > 0){
+            return getRecordCount(result, jiraReference);
+        }
+        return 0;
     }
 
-    @Test
-    public void testGetAllRecords_Success() {
-        List<ReconReportDocument> mockList = Arrays.asList(mockDocument, mockDocument);
-
-        when(repository.findAllByQuery(mockQueryParams)).thenReturn(mockList);
-
-        List<ReconReportDocument> result = manager.getAllRecords(mockQueryParams);
-
-        assertEquals(2, result.size());
-        verify(repository, times(1)).findAllByQuery(mockQueryParams);
+    private int getRecordCount(TntrRepositoryReadCommandResult result, JiraReference jiraReference){
+        int count = 0;
+        List<Map<TntrFieldsReadUpdateEnum, Object>> tradeList = result.getTradeList();
+        for(Map<TntrFieldsReadUpdateEnum, Object> map : tradeList){
+            Map<String, Object> suppMap = (Map<String, Object>) map.get(TntrFieldsReadUpdateEnum.SUPPLEMENTARY_INFORMATION);
+            boolean isPresent = TntrTdxNodeBuilderUtil.isJiraIdPresentInUserWorkflow(
+                    suppMap,
+                    TntrFieldsReadUpdateEnum.JIRA_REFERENCES.getValue(),
+                    jiraReference);
+            if(!isPresent){
+                count++;
+            }
+        }
+        return count;
     }
 
-    @Test(expected = TaggingServiceRunTimeException.class)
-    public void testGetAllRecords_Exception() {
-        when(repository.findAllByQuery(mockQueryParams)).thenThrow(new RuntimeException("DB Error"));
+    @Override
+    public TntrRepositoryUpdateCommandResult executeUpdateTrades(String whereExpression, JiraReference jiraReference, JiraTaggingDetail jiraTaggingDetail, FlowType workflowType) {
+        Properties propToUpdate= new Properties();
+        propToUpdate.put(TntrFieldsReadUpdateEnum.JIRA_REFERENCES.getValue(), jiraReference);
+        propToUpdate.put(TntrFieldsReadUpdateEnum.JIRA_TAGGING_DETAILS.getValue(), jiraTaggingDetail);
+        propToUpdate.put(TntrFieldsReadUpdateEnum.MODIFIED_BY.getValue(), TAGGING_SERVICE);
+		propToUpdate.put(TntrFieldsReadUpdateEnum.MODIFIED_ON.getValue(), DateTimeService.getCurrentDateTime());
 
-        manager.getAllRecords(mockQueryParams);
-    }
+        TntrRepositoryUpdateCommandContext tntrTradeRepositoryUpdateCommandContext = new TntrRepositoryUpdateCommandContext(whereExpression, propToUpdate, TntrCallerService.TAGGING_SERVICE);
+        if(workflowType.getValue().equalsIgnoreCase(FlowType.COLLATERAL.getValue()) || workflowType.getValue().equalsIgnoreCase(FlowType.VALUATION.getValue())) {
+            tntrTradeRepositoryUpdateCommandContext.setWorkflowType(WorkflowType.VALUATIONS);
+        }else if(workflowType.getValue().equalsIgnoreCase(FlowType.TRADE.getValue())){
+            tntrTradeRepositoryUpdateCommandContext.setWorkflowType(WorkflowType.TRADE);
+        }
 
-    @Test
-    public void testSaveAllRecords_Success() {
-        Pair<ReconReport, Long> pair1 = Pair.of(mockReport, 1L);
-        Pair<ReconReport, Long> pair2 = Pair.of(mockReport, 1L);
-        List<Pair<ReconReport, Long>> input = Arrays.asList(pair1, pair2);
+        ReportingTemplate reportingTemplate;
+        if(workflowType.getValue().equalsIgnoreCase(FlowType.AGGREGATED_COLLATERAL.getValue())) {
+            reportingTemplate = ReportingTemplate.COLLATERAL;
+        } else {
+            reportingTemplate = ReportingTemplate.TRADE;
+        }
 
-        WriteResult<ReconReport> successResult = mock(WriteResult.class);
-        when(successResult.isSuccess()).thenReturn(true);
-        when(successResult.isFailure()).thenReturn(false);
+        TntrRepositoryUpdateCommandResult result = (TntrRepositoryUpdateCommandResult) reportingTemplate
+                .getRepositoryCommandFactory()
+                .getCommand(RepositoryAction.UPDATE)
+                .execute(tntrTradeRepositoryUpdateCommandContext);
 
-        when(repository.compareAndUpdateAll(anyList())).thenReturn(Arrays.asList(successResult, successResult));
-
-        List<WriteResult<ReconReport>> result = manager.saveAllRecords(input);
-
-        assertEquals(2, result.size());
-        verify(repository, times(1)).compareAndUpdateAll(anyList());
-    }
-
-    @Test(expected = TaggingServiceRunTimeException.class)
-    public void testSaveAllRecords_Exception() {
-        Pair<ReconReport, Long> pair = Pair.of(mockReport, 1L);
-        List<Pair<ReconReport, Long>> input = Collections.singletonList(pair);
-
-        when(repository.compareAndUpdateAll(anyList())).thenThrow(new RuntimeException("Update Error"));
-
-        manager.saveAllRecords(input);
-    }
-
-    @Test
-    public void testSaveAllRecords_FailureLogging() {
-        Pair<ReconReport, Long> pair = Pair.of(mockReport, 1L);
-        List<Pair<ReconReport, Long>> input = Collections.singletonList(pair);
-
-        WriteResult<ReconReport> failedResult = mock(WriteResult.class);
-        when(failedResult.isSuccess()).thenReturn(false);
-        when(failedResult.isFailure()).thenReturn(true);
-
-        WriteResult.ErrorDetail errorDetail = mock(WriteResult.ErrorDetail.class);
-        when(errorDetail.getDescription()).thenReturn("Failure Description");
-        when(errorDetail.getCause()).thenReturn(new RuntimeException("Failure Cause"));
-
-        when(failedResult.getErrorDetail()).thenReturn(errorDetail);
-        when(repository.compareAndUpdateAll(anyList())).thenReturn(Collections.singletonList(failedResult));
-
-        List<WriteResult<ReconReport>> result = manager.saveAllRecords(input);
-
-        assertEquals(1, result.size());
-        verify(repository, times(1)).compareAndUpdateAll(anyList());
+        return result;
     }
 }
