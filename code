@@ -1,3 +1,21 @@
+package com.rbs.tntr.business.taggingService.repository;
+
+import java.util.*;
+
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.runners.MockitoJUnitRunner;
+import com.nwm.tntr.commons.repository.df.DfConnectionManager;
+import com.nwm.tntr.configuration.ItrConfiguration;
+import com.rbs.datafabric.domain.Document;
+import com.rbs.tntr.business.taggingService.service.common.ItrClient;
+
+import static javafx.beans.binding.Bindings.when;
+import static org.eclipse.persistence.expressions.ExpressionOperator.any;
+import static org.junit.Assert.assertEquals;
+
 @RunWith(MockitoJUnitRunner.class)
 public class MIAnalyticsDashboardRepositoryImplTest {
 
