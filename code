@@ -1,20 +1,26 @@
 package com.rbs.tntr.business.taggingService.repository;
 
+import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.*;
+
+import com.nwm.tntr.commons.repository.df.DfStoreService;
+import com.rbs.tntr.business.taggingService.entity.MIAnalyticsEntity;
+import com.rbs.tntr.business.taggingService.helper.OffsetPaginationHelper;
+import com.rbs.tntr.business.taggingService.service.common.ItrClient;
+import com.nwm.tntr.commons.repository.df.DfConnectionManager;
+import com.nwm.tntr.configuration.ItrConfiguration;
+import com.rbs.datafabric.domain.Document;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
-import org.mockito.runners.MockitoJUnitRunner;
-import com.nwm.tntr.commons.repository.df.DfConnectionManager;
-import com.nwm.tntr.configuration.ItrConfiguration;
-import com.rbs.datafabric.domain.Document;
-import com.rbs.tntr.business.taggingService.service.common.ItrClient;
 
-import static javafx.beans.binding.Bindings.when;
-import static org.eclipse.persistence.expressions.ExpressionOperator.any;
-import static org.junit.Assert.assertEquals;
+import org.mockito.junit.MockitoJUnitRunner;
+
+import static org.mockito.Mockito.*;
+import static org.junit.Assert.*;
 
 @RunWith(MockitoJUnitRunner.class)
 public class MIAnalyticsDashboardRepositoryImplTest {
@@ -70,11 +76,11 @@ public class MIAnalyticsDashboardRepositoryImplTest {
     public void testGetMIAnalyticsListFromItrClientWithOffsetPagination() {
         String tag = "testTag";
         Document doc = new Document();
-        doc.set("client", "testClient");
-        doc.set("totalCount", BigDecimal.TEN);
-        doc.set("createdOn", Instant.now());
-        doc.set("updatedOn", Instant.now());
-        doc.set("tag", tag);
+        doc.put("client", "testClient");
+        doc.put("totalCount", BigDecimal.TEN);
+        doc.put("createdOn", Instant.now());
+        doc.put("updatedOn", Instant.now());
+        doc.put("tag", tag);
 
         List<Document> docs = Collections.singletonList(doc);
         when(offsetPaginationHelper.getPaginatedList(any(), any(), any())).thenReturn(docs);
@@ -102,11 +108,11 @@ public class MIAnalyticsDashboardRepositoryImplTest {
     @Test
     public void testConvertDocumentToMIAnalyticsEntity() {
         Document doc = new Document();
-        doc.set("client", "testClient");
-        doc.set("totalCount", BigDecimal.ONE);
-        doc.set("createdOn", Instant.now());
-        doc.set("updatedOn", Instant.now());
-        doc.set("tag", "tag");
+        doc.put("client", "testClient");
+        doc.put("totalCount", BigDecimal.ONE);
+        doc.put("createdOn", Instant.now());
+        doc.put("updatedOn", Instant.now());
+        doc.put("tag", "tag");
 
         MIAnalyticsEntity entity = repository.convertDocumentToMIAnalyticsEntity(doc);
 
