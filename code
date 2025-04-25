@@ -26,6 +26,15 @@ public class DfReconciliationPersistManagerTest {
     @Mock
     private ReconReportDocumentRepository repository;
 
+    @Mock
+    private QueryParams mockQueryParams;
+
+    @Mock
+    private ReconReportDocument mockDocument;
+
+    @Mock
+    private ReconReport mockReport;
+
     private DfReconciliationPersistManager manager;
 
     private final int batchSize = 2;
@@ -38,30 +47,27 @@ public class DfReconciliationPersistManagerTest {
 
     @Test
     public void testGetAllRecords_Success() {
-        QueryParams params = new QueryParams();
-        List<ReconReportDocument> mockList = Arrays.asList(new ReconReportDocument(), new ReconReportDocument());
+        List<ReconReportDocument> mockList = Arrays.asList(mockDocument, mockDocument);
 
-        when(repository.findAllByQuery(params)).thenReturn(mockList);
+        when(repository.findAllByQuery(mockQueryParams)).thenReturn(mockList);
 
-        List<ReconReportDocument> result = manager.getAllRecords(params);
+        List<ReconReportDocument> result = manager.getAllRecords(mockQueryParams);
 
         assertEquals(2, result.size());
-        verify(repository, times(1)).findAllByQuery(params);
+        verify(repository, times(1)).findAllByQuery(mockQueryParams);
     }
 
     @Test(expected = TaggingServiceRunTimeException.class)
     public void testGetAllRecords_Exception() {
-        QueryParams params = new QueryParams();
+        when(repository.findAllByQuery(mockQueryParams)).thenThrow(new RuntimeException("DB Error"));
 
-        when(repository.findAllByQuery(params)).thenThrow(new RuntimeException("DB Error"));
-
-        manager.getAllRecords(params);
+        manager.getAllRecords(mockQueryParams);
     }
 
     @Test
     public void testSaveAllRecords_Success() {
-        Pair<ReconReport, Long> pair1 = Pair.of(new ReconReport(), 1L);
-        Pair<ReconReport, Long> pair2 = Pair.of(new ReconReport(), 1L);
+        Pair<ReconReport, Long> pair1 = Pair.of(mockReport, 1L);
+        Pair<ReconReport, Long> pair2 = Pair.of(mockReport, 1L);
         List<Pair<ReconReport, Long>> input = Arrays.asList(pair1, pair2);
 
         WriteResult<ReconReport> successResult = mock(WriteResult.class);
@@ -78,7 +84,7 @@ public class DfReconciliationPersistManagerTest {
 
     @Test(expected = TaggingServiceRunTimeException.class)
     public void testSaveAllRecords_Exception() {
-        Pair<ReconReport, Long> pair = Pair.of(new ReconReport(), 1L);
+        Pair<ReconReport, Long> pair = Pair.of(mockReport, 1L);
         List<Pair<ReconReport, Long>> input = Collections.singletonList(pair);
 
         when(repository.compareAndUpdateAll(anyList())).thenThrow(new RuntimeException("Update Error"));
@@ -88,16 +94,18 @@ public class DfReconciliationPersistManagerTest {
 
     @Test
     public void testSaveAllRecords_FailureLogging() {
-        Pair<ReconReport, Long> pair = Pair.of(new ReconReport(), 1L);
+        Pair<ReconReport, Long> pair = Pair.of(mockReport, 1L);
         List<Pair<ReconReport, Long>> input = Collections.singletonList(pair);
 
         WriteResult<ReconReport> failedResult = mock(WriteResult.class);
         when(failedResult.isSuccess()).thenReturn(false);
         when(failedResult.isFailure()).thenReturn(true);
 
-        WriteResult.ErrorDetail errorDetail = new WriteResult.ErrorDetail("Failure", new RuntimeException("Cause"));
-        when(failedResult.getErrorDetail()).thenReturn(errorDetail);
+        WriteResult.ErrorDetail errorDetail = mock(WriteResult.ErrorDetail.class);
+        when(errorDetail.getDescription()).thenReturn("Failure Description");
+        when(errorDetail.getCause()).thenReturn(new RuntimeException("Failure Cause"));
 
+        when(failedResult.getErrorDetail()).thenReturn(errorDetail);
         when(repository.compareAndUpdateAll(anyList())).thenReturn(Collections.singletonList(failedResult));
 
         List<WriteResult<ReconReport>> result = manager.saveAllRecords(input);
