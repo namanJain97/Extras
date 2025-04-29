@@ -1,53 +1,160 @@
 package com.rbs.tntr.business.taggingService.configuration;
 
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
-
 import com.rbs.ignite.security.auth.AuthenticationService;
 import com.rbs.ignite.security.domain.TokenInfo;
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.MockitoJUnitRunner;
 
-@Component
-public class TaggingAuthenticationService implements AuthenticationService {
+import static org.junit.Assert.*;
+import static org.mockito.Mockito.*;
 
-    final SsoConfiguration ssoConfiguration;
-    final  AuthenticationService authenticationService;
+@RunWith(MockitoJUnitRunner.class)
+public class TaggingAuthenticationServiceTest {
 
-    @Autowired
-    public TaggingAuthenticationService(
-            SsoConfiguration ssoConfiguration,
-            AuthenticationService authenticationService1) {
-        this.ssoConfiguration = ssoConfiguration;
-        this.authenticationService = authenticationService1;
+    @Mock
+    private SsoConfiguration ssoConfiguration;
+
+    @Mock
+    private AuthenticationService delegateAuthenticationService;
+
+    @InjectMocks
+    private TaggingAuthenticationService taggingAuthenticationService;
+
+    private static final String TEST_USERNAME = "testUser";
+    private static final String TEST_PASSWORD = "testPassword";
+    private static final String TEST_PERMISSION = "testPermission";
+    private static final String TEST_TOKEN = "testToken";
+    private static final String TEST_APP_NAME = "testApp";
+    private static final String TEST_SSO_TOKEN = "ssoToken";
+
+    @Before
+    public void setUp() {
+        // Common stub configurations
+        when(ssoConfiguration.getAppUserSsoLogin()).thenReturn(TEST_USERNAME);
+        when(ssoConfiguration.getAppUserSsoPwd()).thenReturn(TEST_PASSWORD);
+        when(ssoConfiguration.getApplicationName()).thenReturn(TEST_APP_NAME);
     }
 
-    @Override
-    public String authenticate(String userName, String password, String permission) {
-        return  authenticationService.authenticate(userName,password,permission);
+    @Test
+    public void testAuthenticate() {
+        // Setup
+        when(delegateAuthenticationService.authenticate(TEST_USERNAME, TEST_PASSWORD, TEST_PERMISSION))
+            .thenReturn(TEST_TOKEN);
+
+        // Execute
+        String result = taggingAuthenticationService.authenticate(TEST_USERNAME, TEST_PASSWORD, TEST_PERMISSION);
+
+        // Verify
+        assertEquals(TEST_TOKEN, result);
+        verify(delegateAuthenticationService).authenticate(TEST_USERNAME, TEST_PASSWORD, TEST_PERMISSION);
     }
 
-    @Override
-    public boolean isTokenValid(String token, String permission) {
-        return authenticationService.isTokenValid(token,permission);
+    @Test
+    public void testIsTokenValid() {
+        // Setup
+        when(delegateAuthenticationService.isTokenValid(TEST_TOKEN, TEST_PERMISSION)).thenReturn(true);
+
+        // Execute
+        boolean result = taggingAuthenticationService.isTokenValid(TEST_TOKEN, TEST_PERMISSION);
+
+        // Verify
+        assertTrue(result);
+        verify(delegateAuthenticationService).isTokenValid(TEST_TOKEN, TEST_PERMISSION);
     }
 
-    @Override
-    public TokenInfo getTokenInfo(String token) {
-        return  authenticationService.getTokenInfo(token);
+    @Test
+    public void testGetTokenInfo() {
+        // Setup
+        TokenInfo expectedTokenInfo = new TokenInfo();
+        when(delegateAuthenticationService.getTokenInfo(TEST_TOKEN)).thenReturn(expectedTokenInfo);
+
+        // Execute
+        TokenInfo result = taggingAuthenticationService.getTokenInfo(TEST_TOKEN);
+
+        // Verify
+        assertSame(expectedTokenInfo, result);
+        verify(delegateAuthenticationService).getTokenInfo(TEST_TOKEN);
     }
 
-    public String getApplicationSsoToken(){
-        return  authenticate(
-                ssoConfiguration.getAppUserSsoLogin(),
-                ssoConfiguration.getAppUserSsoPwd(),
-                ssoConfiguration.getApplicationName()
-                );
-    }
-    public String getApplicationSsoToken(String permission){
-        return  authenticate(
-                ssoConfiguration.getAppUserSsoLogin(),
-                ssoConfiguration.getAppUserSsoPwd(),
-                permission
-        );
+    @Test
+    public void testGetApplicationSsoToken() {
+        // Setup
+        when(delegateAuthenticationService.authenticate(
+            eq(TEST_USERNAME), 
+            eq(TEST_PASSWORD), 
+            eq(TEST_APP_NAME))
+        ).thenReturn(TEST_SSO_TOKEN);
 
+        // Execute
+        String result = taggingAuthenticationService.getApplicationSsoToken();
+
+        // Verify
+        assertEquals(TEST_SSO_TOKEN, result);
+        verify(ssoConfiguration).getAppUserSsoLogin();
+        verify(ssoConfiguration).getAppUserSsoPwd();
+        verify(ssoConfiguration).getApplicationName();
+        verify(delegateAuthenticationService).authenticate(TEST_USERNAME, TEST_PASSWORD, TEST_APP_NAME);
+    }
+
+    @Test
+    public void testGetApplicationSsoTokenWithPermission() {
+        // Setup
+        when(delegateAuthenticationService.authenticate(
+            eq(TEST_USERNAME), 
+            eq(TEST_PASSWORD), 
+            eq(TEST_PERMISSION))
+        ).thenReturn(TEST_SSO_TOKEN);
+
+        // Execute
+        String result = taggingAuthenticationService.getApplicationSsoToken(TEST_PERMISSION);
+
+        // Verify
+        assertEquals(TEST_SSO_TOKEN, result);
+        verify(ssoConfiguration).getAppUserSsoLogin();
+        verify(ssoConfiguration).getAppUserSsoPwd();
+        verify(delegateAuthenticationService).authenticate(TEST_USERNAME, TEST_PASSWORD, TEST_PERMISSION);
+    }
+
+    @Test
+    public void testConstructorInjection() {
+        // This test verifies that the constructor injection works properly
+        TaggingAuthenticationService service = new TaggingAuthenticationService(ssoConfiguration, delegateAuthenticationService);
+        assertNotNull(service);
+    }
+
+    @Test(expected = NullPointerException.class)
+    public void testGetApplicationSsoTokenWhenSSOConfigNull() {
+        // Setup - create new instance with null config to test NPE
+        TaggingAuthenticationService service = new TaggingAuthenticationService(null, delegateAuthenticationService);
+        
+        // Execute - should throw NPE
+        service.getApplicationSsoToken();
+    }
+
+    @Test(expected = NullPointerException.class)
+    public void testGetApplicationSsoTokenWhenAuthServiceNull() {
+        // Setup - create new instance with null auth service to test NPE
+        TaggingAuthenticationService service = new TaggingAuthenticationService(ssoConfiguration, null);
+        
+        // Execute - should throw NPE
+        service.getApplicationSsoToken();
+    }
+
+    @Test
+    public void testGetApplicationSsoTokenWhenCredentialsNull() {
+        // Setup
+        when(ssoConfiguration.getAppUserSsoLogin()).thenReturn(null);
+        when(ssoConfiguration.getAppUserSsoPwd()).thenReturn(null);
+        when(ssoConfiguration.getApplicationName()).thenReturn(null);
+
+        // Execute
+        String result = taggingAuthenticationService.getApplicationSsoToken();
+
+        // Verify
+        verify(delegateAuthenticationService).authenticate(null, null, null);
     }
 }
