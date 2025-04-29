@@ -1,65 +1,116 @@
 package com.rbs.tntr.business.taggingService.configuration;
 
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Configuration;
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.mockito.InjectMocks;
+import org.mockito.junit.MockitoJUnitRunner;
+import org.springframework.test.util.ReflectionTestUtils;
 
-/**
- * Created by matbina on 24/06/2020.
- */
-@Configuration
-public class TaggingServiceQueryConfiguration {
-    @Value("${tntr.anvil.append.trade.query}")
-    String tradeQuery;
+import static org.junit.Assert.assertEquals;
 
-    @Value("${tntr.anvil.append.collateral.query}")
-    String collateralQuery;
+@RunWith(MockitoJUnitRunner.class)
+public class TaggingServiceQueryConfigurationTest {
 
-    @Value("${tntr.anvil.append.valuation.query}")
-    String valuationQuery;
+    @InjectMocks
+    private TaggingServiceQueryConfiguration taggingServiceQueryConfiguration;
 
-    @Value("${tntr.anvil.append.aggregatedcoll.query}")
-    String aggregatedcollQuery;
+    private static final String TEST_TRADE_QUERY = "SELECT * FROM trades";
+    private static final String TEST_COLLATERAL_QUERY = "SELECT * FROM collateral";
+    private static final String TEST_VALUATION_QUERY = "SELECT * FROM valuations";
+    private static final String TEST_AGGREGATED_COLL_QUERY = "SELECT * FROM aggregated_collateral";
+    private static final String TEST_RECON_QUERY = "SELECT * FROM reconciliation";
 
-    @Value("${tntr.anvil.append.recon.query}")
-    String reconQuery;
-
-    public String getTradeQuery() {
-        return tradeQuery;
+    @Before
+    public void setUp() {
+        // Set up test values using ReflectionTestUtils
+        ReflectionTestUtils.setField(taggingServiceQueryConfiguration, "tradeQuery", TEST_TRADE_QUERY);
+        ReflectionTestUtils.setField(taggingServiceQueryConfiguration, "collateralQuery", TEST_COLLATERAL_QUERY);
+        ReflectionTestUtils.setField(taggingServiceQueryConfiguration, "valuationQuery", TEST_VALUATION_QUERY);
+        ReflectionTestUtils.setField(taggingServiceQueryConfiguration, "aggregatedcollQuery", TEST_AGGREGATED_COLL_QUERY);
+        ReflectionTestUtils.setField(taggingServiceQueryConfiguration, "reconQuery", TEST_RECON_QUERY);
     }
 
-    public void setTradeQuery(String tradeQuery) {
-        this.tradeQuery = tradeQuery;
+    @Test
+    public void testGetTradeQuery() {
+        String result = taggingServiceQueryConfiguration.getTradeQuery();
+        assertEquals(TEST_TRADE_QUERY, result);
     }
 
-    public String getCollateralQuery() {
-        return collateralQuery;
+    @Test
+    public void testSetTradeQuery() {
+        String newQuery = "NEW TRADE QUERY";
+        taggingServiceQueryConfiguration.setTradeQuery(newQuery);
+        String result = taggingServiceQueryConfiguration.getTradeQuery();
+        assertEquals(newQuery, result);
     }
 
-    public void setCollateralQuery(String collateralQuery) {
-        this.collateralQuery = collateralQuery;
+    @Test
+    public void testGetCollateralQuery() {
+        String result = taggingServiceQueryConfiguration.getCollateralQuery();
+        assertEquals(TEST_COLLATERAL_QUERY, result);
     }
 
-    public String getValuationQuery() {
-        return valuationQuery;
+    @Test
+    public void testSetCollateralQuery() {
+        String newQuery = "NEW COLLATERAL QUERY";
+        taggingServiceQueryConfiguration.setCollateralQuery(newQuery);
+        String result = taggingServiceQueryConfiguration.getCollateralQuery();
+        assertEquals(newQuery, result);
     }
 
-    public void setValuationQuery(String valuationQuery) {
-        this.valuationQuery = valuationQuery;
+    @Test
+    public void testGetValuationQuery() {
+        String result = taggingServiceQueryConfiguration.getValuationQuery();
+        assertEquals(TEST_VALUATION_QUERY, result);
     }
 
-    public String getAggregatedcollQuery() {
-        return aggregatedcollQuery;
+    @Test
+    public void testSetValuationQuery() {
+        String newQuery = "NEW VALUATION QUERY";
+        taggingServiceQueryConfiguration.setValuationQuery(newQuery);
+        String result = taggingServiceQueryConfiguration.getValuationQuery();
+        assertEquals(newQuery, result);
     }
 
-    public void setAggregatedcollQuery(String aggregatedcollQuery) {
-        this.aggregatedcollQuery = aggregatedcollQuery;
+    @Test
+    public void testGetAggregatedcollQuery() {
+        String result = taggingServiceQueryConfiguration.getAggregatedcollQuery();
+        assertEquals(TEST_AGGREGATED_COLL_QUERY, result);
     }
 
-    public String getReconQuery() {
-        return reconQuery;
+    @Test
+    public void testSetAggregatedcollQuery() {
+        String newQuery = "NEW AGGREGATED COLL QUERY";
+        taggingServiceQueryConfiguration.setAggregatedcollQuery(newQuery);
+        String result = taggingServiceQueryConfiguration.getAggregatedcollQuery();
+        assertEquals(newQuery, result);
     }
 
-    public void setReconQuery(String reconQuery) {
-        this.reconQuery = reconQuery;
+    @Test
+    public void testGetReconQuery() {
+        String result = taggingServiceQueryConfiguration.getReconQuery();
+        assertEquals(TEST_RECON_QUERY, result);
+    }
+
+    @Test
+    public void testSetReconQuery() {
+        String newQuery = "NEW RECON QUERY";
+        taggingServiceQueryConfiguration.setReconQuery(newQuery);
+        String result = taggingServiceQueryConfiguration.getReconQuery();
+        assertEquals(newQuery, result);
+    }
+
+    @Test
+    public void testAllGettersWithDefaultValues() {
+        // Create a new instance without setting values to test default behavior
+        TaggingServiceQueryConfiguration freshConfig = new TaggingServiceQueryConfiguration();
+        
+        // Test that getters return null when no values are set
+        assertEquals(null, freshConfig.getTradeQuery());
+        assertEquals(null, freshConfig.getCollateralQuery());
+        assertEquals(null, freshConfig.getValuationQuery());
+        assertEquals(null, freshConfig.getAggregatedcollQuery());
+        assertEquals(null, freshConfig.getReconQuery());
     }
 }
