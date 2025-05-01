@@ -1,160 +1,271 @@
-package com.rbs.tntr.business.taggingService.configuration;
+/**
+ * 
+ */
+package com.rbs.tntr.business.blotter.repository;
 
-import com.rbs.ignite.security.auth.AuthenticationService;
-import com.rbs.ignite.security.domain.TokenInfo;
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.MockitoJUnitRunner;
+import static com.rbs.tntr.business.blotter.services.common.StringConstants.*;
 
-import static org.junit.Assert.*;
-import static org.mockito.Mockito.*;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
-@RunWith(MockitoJUnitRunner.class)
-public class TaggingAuthenticationServiceTest {
+import org.joda.time.DateTime;
+import org.joda.time.DateTimeZone;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.stereotype.Component;
 
-    @Mock
-    private SsoConfiguration ssoConfiguration;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.Lists;
+import com.nwm.tntr.commons.repository.df.DfConnectionManager;
+import com.rbs.datafabric.api.ScanResult;
+import com.rbs.datafabric.api.exception.DeleteException;
+import com.rbs.datafabric.api.exception.GetException;
+import com.rbs.datafabric.api.exception.OptimisticLockException;
+import com.rbs.datafabric.api.exception.ScanException;
+import com.rbs.datafabric.api.exception.UpsertException;
+import com.rbs.datafabric.domain.ConsistencyLevel;
+import com.rbs.datafabric.domain.Database;
+import com.rbs.datafabric.domain.Document;
+import com.rbs.datafabric.domain.DocumentFormat;
+import com.rbs.datafabric.domain.JsonDocument;
+import com.rbs.datafabric.domain.Record;
+import com.rbs.datafabric.domain.RecordId;
+import com.rbs.datafabric.domain.ScanExpression;
+import com.rbs.datafabric.domain.WhereExpression;
+import com.rbs.datafabric.domain.client.builder.DeleteWhereRequestBuilder;
+import com.rbs.datafabric.domain.client.builder.GetRequestBuilder;
+import com.rbs.datafabric.domain.client.builder.ScanRequestBuilder;
+import com.rbs.datafabric.domain.client.builder.UpsertRequestBuilder;
+import com.rbs.tntr.business.blotter.df.entity.BlotterExportMappings;
+import com.rbs.tntr.business.blotter.df.entity.BlotterExportMappingsResult;
+import com.rbs.tntr.business.blotter.utility.ScanExpressionUtility;
+import com.rbs.tntr.domain.blotter.exceptions.BlotterRunTimeException;
 
-    @Mock
-    private AuthenticationService delegateAuthenticationService;
+/**
+ * Description : Repository class for Blotter Export Mappings
+ * 
+ * @author agrakit Created By: Niket Agrawal Created On 12-08-2022
+ */
+@Component
+public class BlotterExportMappingsRepositoryImpl extends ScanExpressionUtility
+		implements BlotterExportMappingsRepository {
 
-    @InjectMocks
-    private TaggingAuthenticationService taggingAuthenticationService;
+	private static final ObjectMapper objectMapper = new ObjectMapper();
 
-    private static final String TEST_USERNAME = "testUser";
-    private static final String TEST_PASSWORD = "testPassword";
-    private static final String TEST_PERMISSION = "testPermission";
-    private static final String TEST_TOKEN = "testToken";
-    private static final String TEST_APP_NAME = "testApp";
-    private static final String TEST_SSO_TOKEN = "ssoToken";
+	private static final Logger LOGGER = LoggerFactory.getLogger(BlotterExportMappingsRepositoryImpl.class);
 
-    @Before
-    public void setUp() {
-        // Common stub configurations
-        when(ssoConfiguration.getAppUserSsoLogin()).thenReturn(TEST_USERNAME);
-        when(ssoConfiguration.getAppUserSsoPwd()).thenReturn(TEST_PASSWORD);
-        when(ssoConfiguration.getApplicationName()).thenReturn(TEST_APP_NAME);
-    }
+	private DfConnectionManager dfConnectionManager;
 
-    @Test
-    public void testAuthenticate() {
-        // Setup
-        when(delegateAuthenticationService.authenticate(TEST_USERNAME, TEST_PASSWORD, TEST_PERMISSION))
-            .thenReturn(TEST_TOKEN);
+	@Value("${tntr.df.database.name}")
+	private String databaseName;
 
-        // Execute
-        String result = taggingAuthenticationService.authenticate(TEST_USERNAME, TEST_PASSWORD, TEST_PERMISSION);
+	@Value("${df.blotter.export.mappings.collection}")
+	private String collectionName;
 
-        // Verify
-        assertEquals(TEST_TOKEN, result);
-        verify(delegateAuthenticationService).authenticate(TEST_USERNAME, TEST_PASSWORD, TEST_PERMISSION);
-    }
+	@Value("setup/BlotterExportMappings.json")
+	private String exportMappingResourcePath;
 
-    @Test
-    public void testIsTokenValid() {
-        // Setup
-        when(delegateAuthenticationService.isTokenValid(TEST_TOKEN, TEST_PERMISSION)).thenReturn(true);
+	@Value("${env}")
+	private String env;
 
-        // Execute
-        boolean result = taggingAuthenticationService.isTokenValid(TEST_TOKEN, TEST_PERMISSION);
+	@Autowired
+	public BlotterExportMappingsRepositoryImpl(DfConnectionManager dfConnectionManager) {
+		this.dfConnectionManager = dfConnectionManager;
+	}
 
-        // Verify
-        assertTrue(result);
-        verify(delegateAuthenticationService).isTokenValid(TEST_TOKEN, TEST_PERMISSION);
-    }
+	/**
+	 * Description : Method to upsert Blotter Export Mappings
+	 * 
+	 * @author agrakit Created By: Niket Agrawal Created On 16-08-2022
+	 * @param build
+	 * @return
+	 */
+	@Override
+	public RecordId upsertBlotterExportMappings(BlotterExportMappings blotterExportMappings) {
+		LOGGER.info("Start upserting BlotterExportMappings for: {} ", blotterExportMappings);
+		try {
+			Document document = serialize(blotterExportMappings);
 
-    @Test
-    public void testGetTokenInfo() {
-        // Setup
-        TokenInfo expectedTokenInfo = new TokenInfo();
-        when(delegateAuthenticationService.getTokenInfo(TEST_TOKEN)).thenReturn(expectedTokenInfo);
+			UpsertRequestBuilder upsertRequestBuilder = UpsertRequestBuilder.create(databaseName, collectionName)
+					.withDocument(document).withKey(String.valueOf(blotterExportMappings.hashCode()));
+			RecordId recordId = getDfClient(dfConnectionManager).upsert(upsertRequestBuilder);
+			LOGGER.info("BlotterExportMappings persisted in DF with recordId {}", recordId);
+			return recordId;
+		} catch (JsonProcessingException | UpsertException | OptimisticLockException e) {
+			LOGGER.error("Error while inserting BlotterExportMappings into DF", e);
+			throw new BlotterRunTimeException("Error while inserting BlotterExportMappings into DF", e);
+		}
+	}
 
-        // Execute
-        TokenInfo result = taggingAuthenticationService.getTokenInfo(TEST_TOKEN);
+	/**
+	 * Description : Method to fetch BlotterExportMappings
+	 * 
+	 * @author agrakit Created By: Niket Agrawal Created On 16-08-2022
+	 * @return
+	 */
+	@Override
+	public List<BlotterExportMappingsResult> fetchBlotterExportMappings() {
+		ScanExpression scanExpression = createDefaultScanExpression(collectionName, databaseName);
+		ScanRequestBuilder scanRequestBuilder = getScanRequestBuilder(scanExpression, false, 0);
+		try {
+			ScanResult records = getDfClient(dfConnectionManager).scan(scanRequestBuilder);
 
-        // Verify
-        assertSame(expectedTokenInfo, result);
-        verify(delegateAuthenticationService).getTokenInfo(TEST_TOKEN);
-    }
+			List<BlotterExportMappingsResult> scanList = Lists.newArrayList();
+			if (records.iterator().hasNext()) {
+				for (Record dfRecord : records) {
+					if (dfRecord != null && dfRecord.getDocument() != null) {
+						BlotterExportMappings blotterExportMappings = deserailze(dfRecord.getDocument());
+						scanList.add(new BlotterExportMappingsResult(dfRecord.getId().getKey(),
+								dfRecord.getId().getVersion(), blotterExportMappings));
+					}
+				}
+			}
+			LOGGER.info("Total {} Blotter Export Mappings fetched", scanList.size());
+			return scanList;
+		} catch (ScanException | IOException e) {
+			LOGGER.error("Error while fetching BlotterExportMappings from DF", e);
+			throw new BlotterRunTimeException("Error while fetching BlotterExportMappings from DF", e);
+		}
+	}
 
-    @Test
-    public void testGetApplicationSsoToken() {
-        // Setup
-        when(delegateAuthenticationService.authenticate(
-            eq(TEST_USERNAME), 
-            eq(TEST_PASSWORD), 
-            eq(TEST_APP_NAME))
-        ).thenReturn(TEST_SSO_TOKEN);
+	/**
+	 * Description : Method to fetch specific BlotterExportMappings from DF
+	 * 
+	 * @author agrakit Created By: Niket Agrawal Created On 16-08-2022
+	 * @param exportDocumentId
+	 * @return
+	 */
+	@Override
+	public BlotterExportMappingsResult fetchBlotterExportMappings(String exportDocumentId) {
+		GetRequestBuilder builder = GetRequestBuilder.create(databaseName, collectionName, exportDocumentId)
+				.withConsistencyLevel(ConsistencyLevel.STRONG).withDocumentFormat(DocumentFormat.JSON);
+		try {
+			Record dfRecord = getDfClient(dfConnectionManager).get(builder);
+			BlotterExportMappings blotterExportMappings = null;
+			BlotterExportMappingsResult result = null;
+			if (dfRecord != null && dfRecord.getDocument() != null) {
+				blotterExportMappings = deserailze(dfRecord.getDocument());
+				result = new BlotterExportMappingsResult(dfRecord.getId().getKey(), dfRecord.getId().getVersion(),
+						blotterExportMappings);
+			}
+			if (null == blotterExportMappings) {
+				LOGGER.warn("No records found against requested key {} in Data Fabric", exportDocumentId);
+				throw new BlotterRunTimeException("No records found against requested key in Data Fabric");
+			}
+			LOGGER.info("BlotterExportMappings with key : {} fetched successfully", exportDocumentId);
+			return result;
+		} catch (GetException | IOException e) {
+			LOGGER.error("Error while fetching BlotterExportMappings from DF", e);
+			throw new BlotterRunTimeException("Error while fetching BlotterExportMappings from DF", e);
+		}
+	}
 
-        // Execute
-        String result = taggingAuthenticationService.getApplicationSsoToken();
+	@Override
+	public long deleteBlotterExportMappings(String where) {
+		long result;
+		DeleteWhereRequestBuilder builder = DeleteWhereRequestBuilder.create(databaseName, collectionName,
+				new WhereExpression().withExpression(where));
+		try {
+			result = getDfClient(dfConnectionManager).deleteWhere(builder);
+		} catch (DeleteException e) {
+			LOGGER.error("Error while deleting BlotterExportMappings from DF", e);
+			throw new BlotterRunTimeException("Error while deleting BlotterExportMappings from DF", e);
+		}
+		LOGGER.info("Total {} records deleted from Blotter Export Mappings", result);
+		return result;
+	}
 
-        // Verify
-        assertEquals(TEST_SSO_TOKEN, result);
-        verify(ssoConfiguration).getAppUserSsoLogin();
-        verify(ssoConfiguration).getAppUserSsoPwd();
-        verify(ssoConfiguration).getApplicationName();
-        verify(delegateAuthenticationService).authenticate(TEST_USERNAME, TEST_PASSWORD, TEST_APP_NAME);
-    }
+	@Override
+	public boolean checkCollectionExistance() {
+		List<Database> databaseList = getDatabaseDetails(dfConnectionManager);
+		for (Database database : databaseList) {
+			if (database.getName().equals(databaseName)) {
+				for (String collection : database.getCollections()) {
+					if (collection.equals(collectionName)) {
+						LOGGER.info("Collection : {} present in Database : {}", collectionName, databaseName);
+						return true;
+					}
+				}
+			}
+		}
+		LOGGER.info("Collection : {} not present in Database : {}", collectionName, databaseName);
+		return false;
+	}
 
-    @Test
-    public void testGetApplicationSsoTokenWithPermission() {
-        // Setup
-        when(delegateAuthenticationService.authenticate(
-            eq(TEST_USERNAME), 
-            eq(TEST_PASSWORD), 
-            eq(TEST_PERMISSION))
-        ).thenReturn(TEST_SSO_TOKEN);
+	@Override
+	public void fetchAndUpdateExportMappings() {
+		try {
+			InputStream inputStream = new ClassPathResource(exportMappingResourcePath).getInputStream();
+			List<BlotterExportMappings> exportMappingsListFromJson = Arrays
+					.asList(new ObjectMapper().readValue(inputStream, BlotterExportMappings[].class));
+			LOGGER.info("Total {} export Mappings found from JSON File", exportMappingsListFromJson.size());
 
-        // Execute
-        String result = taggingAuthenticationService.getApplicationSsoToken(TEST_PERMISSION);
+			List<BlotterExportMappingsResult> blotterExportConfigResultsFromDf = fetchBlotterExportMappings();
+			Map<String, BlotterExportMappings> dfBlotterExportConfigMap = new HashMap<>();
+			blotterExportConfigResultsFromDf.forEach(
+					mapping -> dfBlotterExportConfigMap.put(mapping.getDocumentId(), mapping.getExportMappings()));
 
-        // Verify
-        assertEquals(TEST_SSO_TOKEN, result);
-        verify(ssoConfiguration).getAppUserSsoLogin();
-        verify(ssoConfiguration).getAppUserSsoPwd();
-        verify(delegateAuthenticationService).authenticate(TEST_USERNAME, TEST_PASSWORD, TEST_PERMISSION);
-    }
+			for (BlotterExportMappings blotterExportMappings : exportMappingsListFromJson) {
+				LOGGER.info("Processing Blotter Export Mapping for Flow : {}", blotterExportMappings.getflow());
+				BlotterExportMappings.Builder builder = BlotterExportMappings.newBuilder(blotterExportMappings)
+						.withCreatedAt(new DateTime().withZone(DateTimeZone.UTC).toDate());
+				if (!("prod".equals(env)))
+					builder.withCollectionName(blotterExportMappings.getCollectionName().concat(HYPHON).concat(env));
+				if ("local".equals(env))
+					builder.withCollectionName(blotterExportMappings.getCollectionName().concat(HYPHON).concat("uat"));
+				blotterExportMappings = builder.build();
+				String docId = String.valueOf(blotterExportMappings.hashCode());
+				if (dfBlotterExportConfigMap.containsKey(docId)) {
+					if (!blotterExportMappings.equals(dfBlotterExportConfigMap.get(docId))) {
+						LOGGER.info("Updating Blotter Export Mapping for Flow : {}", blotterExportMappings.getflow());
+						upsertBlotterExportMappings(blotterExportMappings);
+					}
+				} else {
+					LOGGER.info("Create new Blotter Export Mapping for Flow : {}", blotterExportMappings.getflow());
+					upsertBlotterExportMappings(blotterExportMappings);
+				}
+			}
+		} catch (IOException e) {
+			throw new BlotterRunTimeException("Error while processing Resource JSON File Blotter Export Mappings", e);
+		}
+	}
 
-    @Test
-    public void testConstructorInjection() {
-        // This test verifies that the constructor injection works properly
-        TaggingAuthenticationService service = new TaggingAuthenticationService(ssoConfiguration, delegateAuthenticationService);
-        assertNotNull(service);
-    }
+	@Override
+	public void setupBlotterExportMappings() {
+		try {
+			InputStream inputStream = new ClassPathResource(exportMappingResourcePath).getInputStream();
+			List<BlotterExportMappings> exportMappingsList = Arrays
+					.asList(new ObjectMapper().readValue(inputStream, BlotterExportMappings[].class));
+			LOGGER.info("Total {} export Mappings found from JSON File", exportMappingsList.size());
+			for (BlotterExportMappings blotterExportMappings : exportMappingsList) {
+				LOGGER.info("Creating Blotter Export Mapping for Flow : {}", blotterExportMappings.getflow());
 
-    @Test(expected = NullPointerException.class)
-    public void testGetApplicationSsoTokenWhenSSOConfigNull() {
-        // Setup - create new instance with null config to test NPE
-        TaggingAuthenticationService service = new TaggingAuthenticationService(null, delegateAuthenticationService);
-        
-        // Execute - should throw NPE
-        service.getApplicationSsoToken();
-    }
+				BlotterExportMappings.Builder builder = BlotterExportMappings.newBuilder(blotterExportMappings)
+						.withCreatedAt(new DateTime().withZone(DateTimeZone.UTC).toDate());
+				if (!("prod".equals(env)))
+					builder.withCollectionName(blotterExportMappings.getCollectionName().concat(HYPHON).concat(env));
+				if ("local".equals(env))
+					builder.withCollectionName(blotterExportMappings.getCollectionName().concat(HYPHON).concat("uat"));
+				upsertBlotterExportMappings(builder.build());
+			}
+		} catch (IOException e) {
+			throw new BlotterRunTimeException("Error while processing Resource JSON File Blotter Export Mappings", e);
+		}
+	}
 
-    @Test(expected = NullPointerException.class)
-    public void testGetApplicationSsoTokenWhenAuthServiceNull() {
-        // Setup - create new instance with null auth service to test NPE
-        TaggingAuthenticationService service = new TaggingAuthenticationService(ssoConfiguration, null);
-        
-        // Execute - should throw NPE
-        service.getApplicationSsoToken();
-    }
+	public Document serialize(BlotterExportMappings blotterExportMappings) throws JsonProcessingException {
+		return (new JsonDocument()).withContents(objectMapper.writeValueAsString(blotterExportMappings));
+	}
 
-    @Test
-    public void testGetApplicationSsoTokenWhenCredentialsNull() {
-        // Setup
-        when(ssoConfiguration.getAppUserSsoLogin()).thenReturn(null);
-        when(ssoConfiguration.getAppUserSsoPwd()).thenReturn(null);
-        when(ssoConfiguration.getApplicationName()).thenReturn(null);
-
-        // Execute
-        String result = taggingAuthenticationService.getApplicationSsoToken();
-
-        // Verify
-        verify(delegateAuthenticationService).authenticate(null, null, null);
-    }
+	public BlotterExportMappings deserailze(Document document) throws IOException {
+		return objectMapper.readValue(((JsonDocument) document).getContents(), BlotterExportMappings.class);
+	}
 }
