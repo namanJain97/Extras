@@ -1,197 +1,694 @@
-package com.rbs.tntr.business.taggingService.repository;
+Could you write all the test cases for below java class to cover all the scenarios or methods and make the test coverage or code coverage as 100% using junit 4 and old mockito version and java 8:
 
-import com.fasterxml.jackson.core.JsonParser; import com.rbs.datafabric.api.ScanResult; import com.rbs.datafabric.api.exception.ScanException; import com.rbs.datafabric.api.exception.UpsertException; import com.rbs.datafabric.client.DataFabricClient; import com.rbs.datafabric.domain.Document; import com.rbs.datafabric.domain.JsonDocument; import com.rbs.datafabric.domain.Record; import com.rbs.datafabric.domain.RecordId; import com.rbs.datafabric.domain.client.builder.UpsertRequestBuilder; import com.rbs.tntr.business.taggingService.service.common.ItrClient; import com.rbs.tntr.configuration.ItrConfiguration; import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.Itr2Query; import com.rbs.tntr.domain.taggingService.miAnalytics.dashboard.common.DFQueryMetaData; import com.rbs.tntr.domain.taggingService.miAnalytics.dashboard.common.MIDashboardAnalytics; import com.rbs.tntr.domain.taggingService.miAnalytics.dashboard.common.SubjectIdentifier; import org.apache.commons.lang3.StringUtils; import org.joda.time.DateTime; import org.joda.time.DateTimeZone; import org.junit.Before; import org.junit.Test; import org.junit.runner.RunWith; import org.mockito.*; import org.springframework.test.util.ReflectionTestUtils;
+package com.rbs.tntr.business.taggingService.service.jiraAssignment;
 
-import java.io.; import java.nio.charset.StandardCharsets; import java.text.SimpleDateFormat; import java.util.; import java.util.concurrent.atomic.AtomicReference; import java.util.function.Consumer;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.stream.Collectors;
 
-import static org.junit.Assert.; import static org.mockito.Matchers.any; import static org.mockito.Matchers.eq; import static org.mockito.Mockito.;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.stereotype.Service;
 
-@RunWith(org.mockito.runners.MockitoJUnitRunner.class) public class MIAnalyticsDashboardRepositoryImplTest {
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.nwm.tntr.commons.domain.JiraReference;
+import com.nwm.tntr.commons.repository.domain.TntrRepositoryUpdateCommandResult;
+import com.rbs.datafabric.agile.commons.lang.StartableException;
+import com.rbs.datafabric.api.exception.InsertException;
+import com.rbs.datafabric.api.exception.OptimisticLockException;
+import com.rbs.datafabric.api.exception.UpsertException;
+import com.rbs.datafabric.common.DataFabricSerializerException;
+import com.rbs.datafabric.domain.RecordId;
+import com.rbs.datafabric.shaded.org.apache.commons.lang.StringUtils;
+import com.rbs.tntr.api.taggingService.service.jiraAssignement.JiraAssignmentReader;
+import com.rbs.tntr.api.taggingService.service.jiraAssignement.JiraAssignmentService;
+import com.rbs.tntr.api.taggingService.service.jiraAssignement.JiraAssignmentTrigger;
+import com.rbs.tntr.api.taggingService.service.jiraAssignement.TntrTradeTransformer;
+import com.rbs.tntr.business.taggingService.configuration.TaggingServiceQueryConfiguration;
+import com.rbs.tntr.business.taggingService.result.JiraAssignmentResult;
+import com.rbs.tntr.business.taggingService.service.common.DateTimeService;
+import com.rbs.tntr.business.taggingService.service.common.TaggingServiceRepository;
+import com.rbs.tntr.business.taggingService.service.trigger.JiraAssignmentTriggerEvent;
+import com.rbs.tntr.business.taggingService.util.TaggingServiceUtil;
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.AutoAssignResult;
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.JiraAssignmentDao;
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.JiraTaggingDetail;
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.TaggingServiceResult;
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.enums.FlowType;
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.exceptions.MultipleFilesFoundException;
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.exceptions.TaggingServiceRunTimeException;
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.jiraAssignmentResults.FileReadResult;
 
-@Mock
-private DfConnectionManager dfConnectionManager;
-@Mock
-private DataFabricClient dfClient;
-@Mock
-private ItrConfiguration itrConfiguration;
-@Mock
-private ItrClient itrClient;
+@Service
+public class JiraAssignmentServiceImpl implements JiraAssignmentService {
+    private static final Logger logger= LoggerFactory.getLogger(JiraAssignmentServiceImpl.class);
+    public static final String WHERE_CLAUSE = "isActive = true and flow in ('Trade', 'Valuation', 'Collateral', 'Aggregated Collateral')";
+    public static final String FAILED = "Failed";
+    public static final String SUCCESSFUL = "Successful";
 
-@InjectMocks
-private MIAnalyticsDashboardRepositoryImpl repository;
+    final JiraAssignmentReader jiraAssignmentReader;
+    final TaggingServiceRepository taggingServiceRepository;
+    final TntrTradeTransformer tntrTradeTransformer;
+    final TaggingServiceQueryConfiguration taggingServiceQueryConfiguration;
 
-@Before
-public void setUp() throws Exception {
-    when(dfConnectionManager.getConnection()).thenReturn(null);
-    // inject dfClient via getDfClient override
-    // spy repository to override getDfClient
-    repository = Mockito.spy(new MIAnalyticsDashboardRepositoryImpl(dfConnectionManager, itrConfiguration, itrClient));
-    doReturn(dfClient).when(repository).getDfClient(dfConnectionManager);
-    // set config values
-    ReflectionTestUtils.setField(repository, "databaseName", "db");
-    ReflectionTestUtils.setField(repository, "miCollection", "miCol");
-    ReflectionTestUtils.setField(repository, "foMiCollection", "foCol");
-    ReflectionTestUtils.setField(repository, "readTimeOut", 5);
-    ReflectionTestUtils.setField(repository, "foEmirUrl", "emir");
-    ReflectionTestUtils.setField(repository, "foEmirParameterisedUrl", "emirParam");
-    ReflectionTestUtils.setField(repository, "foMasUrl", "mas");
-    ReflectionTestUtils.setField(repository, "foMasParameterisedUrl", "masParam");
-    ReflectionTestUtils.setField(repository, "foBoiUrl", "boi");
-    ReflectionTestUtils.setField(repository, "foMifidUrl", "mifid");
-    ReflectionTestUtils.setField(repository, "foSftrUrl", "sftr");
-    ReflectionTestUtils.setField(repository, "foSftrAldopUrl", "sftrAldop");
-    ReflectionTestUtils.setField(repository, "foCftcUrl", "cftc");
-    // ITR config
-    when(itrConfiguration.getItr2ProtocolScheme()).thenReturn("http");
-    when(itrConfiguration.getItr2ServiceName()).thenReturn("service");
-    // create connection
-    repository.createDfClientConnection();
+    private static final String TAG_LIFETIME_FROM="{lifetimeFrom}";
+
+    @Autowired
+    public JiraAssignmentServiceImpl(JiraAssignmentReader jiraAssignmentReader,
+                                     TaggingServiceRepository taggingServiceRepository,
+                                     TntrTradeTransformer tntrTradeTransformer,
+                                     TaggingServiceQueryConfiguration taggingServiceQueryConfiguration){
+        this.jiraAssignmentReader = jiraAssignmentReader;
+        this.taggingServiceRepository = taggingServiceRepository;
+        this.tntrTradeTransformer = tntrTradeTransformer;
+        this.taggingServiceQueryConfiguration = taggingServiceQueryConfiguration;
+    }
+
+
+    @Override
+    public ResponseEntity<List<AutoAssignResult>> autoJiraAssignment(Date businessDate){
+        try {
+            if(isJiraFilterFileAvailable(businessDate)) {
+                readAndPersistRulesFromTemplate(businessDate);
+            }
+            return assignJiraToTrades();
+        } catch (Exception e) {
+            logger.error("Error occured while auto assigning jira to trades. " + e.getMessage(), e);
+            return new ResponseEntity("Error occured while auto assigning jira to trades. " + e.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    @Override
+    public boolean isJiraFilterFileAvailable(Date businessDate){
+        return jiraAssignmentReader.isJiraFilterFileAvailable(businessDate);
+    }
+
+    @Override
+    public ResponseEntity<List<TaggingServiceResult>> readSaveJiraExpressions(Date businessDate){
+        List<TaggingServiceResult> lstRecords = null;
+        try {
+            lstRecords = readAndPersistRulesFromTemplate(businessDate);
+            return new ResponseEntity(lstRecords, HttpStatus.OK);
+        } catch (Exception e) {
+            logger.error("Error occured while reading and persisting data in df. ", e);
+            return new ResponseEntity(e.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    private List<TaggingServiceResult> readAndPersistRulesFromTemplate(Date businessDate) throws IOException, MultipleFilesFoundException {
+        FileReadResult<JiraAssignmentDao> lstRecords;
+        logger.info("Start reading rules from file for date {}.", businessDate);
+        lstRecords = jiraAssignmentReader.readJiraFilterFile(businessDate);
+
+        List<TaggingServiceResult> taggingServiceResults = upsertRules(lstRecords.getRecords(), businessDate);
+        return taggingServiceResults;
+    }
+
+    @Override
+    public ResponseEntity<List<TaggingServiceResult>> saveRules(List<JiraAssignmentDao> lstRecords, Date businessDate) {
+			validateGroupedRules(lstRecords);
+            List<TaggingServiceResult> taggingServiceResults = upsertRules(lstRecords, businessDate);
+			return new ResponseEntity<>(taggingServiceResults, HttpStatus.OK);
+    }
+
+    private List<TaggingServiceResult> upsertRules(List<JiraAssignmentDao> lstRecords, Date businessDate) {
+        List<TaggingServiceResult> taggingServiceResults = Lists.newArrayList();
+        logger.info("Total number of rules to be persisted = {}.", lstRecords.size());
+        String businessDateStr = TaggingServiceUtil.getDateAsString(businessDate);
+        for (JiraAssignmentDao jiraAssignmentDao : lstRecords) {
+            try {
+                RecordId recordId = taggingServiceRepository.saveTaggingService(jiraAssignmentDao, businessDateStr);
+                if(recordId != null) {
+                    logger.info("Successfully persisted rule : "+jiraAssignmentDao.getPrimaryKey());
+                    taggingServiceResults.add(TaggingServiceResult.createSuccess(jiraAssignmentDao.getPrimaryKey(), recordId.getKey(), recordId.getVersion()));
+                }else{
+                    logger.info("Failed persisting rule : "+jiraAssignmentDao.getPrimaryKey());
+                    taggingServiceResults.add(TaggingServiceResult.createWithError(jiraAssignmentDao.getPrimaryKey(), "Failed To persist record."));
+                }
+            } catch (Exception e) {
+                logger.error(e.getMessage(), e);
+                taggingServiceResults.add(TaggingServiceResult.createWithError(jiraAssignmentDao.getPrimaryKey(), e.getMessage()));
+            }
+
+        }
+        return taggingServiceResults;
+    }
+
+    @Override
+    public ResponseEntity<List<? extends JiraAssignmentTrigger>> searchRulesFromDf(String whereClause){
+        try {
+            logger.info("Search rules for given where condition {}.", whereClause);
+            List<JiraAssignmentTriggerEvent> obLst = taggingServiceRepository.searchRulesFromDf(whereClause);
+            logger.info("Total record found {}.", obLst.size());
+
+            return new ResponseEntity(obLst, HttpStatus.OK);
+        } catch (StartableException e) {
+            logger.error("Error occured while searching rule from df. ", e);
+            return new ResponseEntity(e.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    @Override
+    public ResponseEntity<List<AutoAssignResult>> readAndAssignJiraToTrades() {
+        try {
+            return assignJiraToTrades();
+        } catch (Exception e) {
+            logger.error("Error occured while assigning jira to trades. " + e.getMessage(), e);
+            return new ResponseEntity("Error occured while assigning jira to trades. " + e.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+
+    }
+
+    private ResponseEntity<List<AutoAssignResult>> assignJiraToTrades() throws InsertException, DataFabricSerializerException, UpsertException, OptimisticLockException, StartableException {
+
+        List<JiraAssignmentTriggerEvent> obLst = getActiveRules();
+
+		String ruleEngineDateTime = DateTimeService.getCurrentUTCDateTimeAsString();
+        List<AutoAssignResult> autoAssignResults  = new ArrayList<>();
+        for (JiraAssignmentTriggerEvent ob : obLst) {
+            JiraAssignmentResult jiraAssignmentResult = new JiraAssignmentResult();
+            try {
+                String whereClause = getWhereClause(ob.getExpression(), ob.getLastSuccessDate(), FlowType.valueOf(ob.getFlow().toUpperCase()).toString(), ob.getActionValue());
+                int recordCount = tntrTradeTransformer.getRecords(whereClause, FlowType.valueOf(ob.getFlow().toUpperCase()), ob.getIndexHint(), getJiraReference(ob.getActionValue()));
+                logger.info("Total record found in TDX for where expression {}, lifetimeFrom {} = {}", whereClause, ob.getLastSuccessDate(), recordCount);
+
+                if (recordCount > 0 && recordCount <= ob.getMaxVolume()) {
+                    updateRecordeWithJiraId(ob, jiraAssignmentResult, whereClause, recordCount);
+
+                } else {
+                    updateFailuerResult(ob, jiraAssignmentResult, recordCount);
+                }
+            } catch (Exception e) {
+                updateExceptionResult(jiraAssignmentResult, e);
+
+                logger.error("Error occured while primary key : "+ob.getPrimaryKey()+" assigning jira to trades. " + e.getMessage(), e);
+            }
+            createAutoAssignResult(ob, autoAssignResults, jiraAssignmentResult, ruleEngineDateTime);
+            taggingServiceRepository.updateEntity(ob.getPrimaryKey(), jiraAssignmentResult.getLastSuccessfulDate(), jiraAssignmentResult.getRecordModified(), jiraAssignmentResult.getStatus(), jiraAssignmentResult.getComment(), ruleEngineDateTime, null);
+        }
+        logger.info("Run completed for ruleEngineDateTime = '" + ruleEngineDateTime + "s'");
+
+        return new ResponseEntity(autoAssignResults , HttpStatus.OK);
+    }
+
+    private void createAutoAssignResult(JiraAssignmentTriggerEvent ob, List<AutoAssignResult> autoAssignResults, JiraAssignmentResult jiraAssignmentResult, String ruleEngineDateTime) {
+        if (FAILED.equalsIgnoreCase(jiraAssignmentResult.getStatus())) {
+            autoAssignResults.add(AutoAssignResult.createWithError(ob.getPrimaryKey(), jiraAssignmentResult.getComment()));
+        }else{
+            autoAssignResults.add(AutoAssignResult.createSuccess(ob.getPrimaryKey(), ruleEngineDateTime, jiraAssignmentResult.getRecordModified()));
+        }
+    }
+
+    private void updateExceptionResult(JiraAssignmentResult jiraAssignmentResult, Exception e) {
+        jiraAssignmentResult.setStatus(FAILED);
+        if(e.toString() != null && e.toString().length() > 250){
+            jiraAssignmentResult.setComment(e.toString().substring(0, 250));
+        }else {
+            jiraAssignmentResult.setComment(e.toString());
+        }
+    }
+
+    private void updateFailuerResult(JiraAssignmentTriggerEvent ob, JiraAssignmentResult jiraAssignmentResult, int recordCount) {
+        if(recordCount > ob.getMaxVolume()){
+            jiraAssignmentResult.setStatus(FAILED);
+            jiraAssignmentResult.setComment("Total record found for rule : "+recordCount+" is greater than Max Volume : "+ ob.getMaxVolume());
+
+            logger.error("Error occured while executing rule : {} . Total record found for rule : {} is greater than Max Volume : {}", ob.getPrimaryKey(), recordCount, ob.getMaxVolume());
+        }else{
+            jiraAssignmentResult.setStatus(SUCCESSFUL);
+			jiraAssignmentResult.setLastSuccessfulDate(DateTimeService.getCurrentUTCDateTimeAsString());
+        }
+    }
+
+    private void updateRecordeWithJiraId(JiraAssignmentTriggerEvent ob, JiraAssignmentResult jiraAssignmentResult, String whereClause, int recordCount) {
+        TntrRepositoryUpdateCommandResult result = tntrTradeTransformer.
+                executeUpdateTrades(whereClause, getJiraReference(ob.getActionValue()),
+                        getJiraTaggingDetail(ob.getPrimaryKey(), ob.getRecordVersion()), FlowType.valueOf(ob.getFlow().toUpperCase()));
+        if(result != null && result.getPersistedTdxTradeList() != null && result.getPersistedTdxTradeList().size()>0
+                && result.getPersistedTdxTradeList().size()==recordCount) {
+			jiraAssignmentResult.setLastSuccessfulDate(DateTimeService.getCurrentUTCDateTimeAsString());
+            jiraAssignmentResult.setRecordModified(result.getPersistedTdxTradeList().size());
+            jiraAssignmentResult.setStatus(SUCCESSFUL);
+            jiraAssignmentResult.setComment("Number of records found for rule : " + recordCount+". Total Records Updated : "+result.getPersistedTdxTradeList().size());
+        }else{
+            jiraAssignmentResult.setStatus(FAILED);
+            jiraAssignmentResult.setComment("Number of records found for rule : " + recordCount+". Total Records Updated : "+result.getPersistedTdxTradeList().size()+" (Error occured while updating record)");
+        }
+    }
+
+    private List<JiraAssignmentTriggerEvent> getActiveRules() throws StartableException {
+        logger.info("Search active rules from df.");
+        List<JiraAssignmentTriggerEvent> obLst = taggingServiceRepository.searchRulesFromDf(WHERE_CLAUSE);
+        logger.info("Number of active rules in df = {}", obLst.size());
+        return obLst;
+    }
+
+    private String getWhereClause(String whereExpression, String lifeTimeFrom, String flow, String jiraId){
+        return  whereExpression +" "+ getFlowClause(flow, lifeTimeFrom, jiraId);
+    }
+
+    private String getFlowClause(String flow, String lifeTimeFrom, String jiraId){
+
+        if(flow.equalsIgnoreCase(FlowType.TRADE.getValue())){
+            return tagJiraAndLifeTimeFrom(taggingServiceQueryConfiguration.getTradeQuery(), lifeTimeFrom, jiraId);
+        }else if(flow.equalsIgnoreCase(FlowType.COLLATERAL.getValue())){
+            return tagJiraAndLifeTimeFrom(taggingServiceQueryConfiguration.getCollateralQuery(), lifeTimeFrom, jiraId);
+        }else if(flow.equalsIgnoreCase(FlowType.VALUATION.getValue())){
+            return tagJiraAndLifeTimeFrom(taggingServiceQueryConfiguration.getValuationQuery(), lifeTimeFrom, jiraId);
+        }else if(flow.equalsIgnoreCase(FlowType.AGGREGATED_COLLATERAL.getValue())){
+            return tagJiraAndLifeTimeFrom(taggingServiceQueryConfiguration.getAggregatedcollQuery(), lifeTimeFrom, jiraId);
+        }
+        return "";
+    }
+
+    private String tagJiraAndLifeTimeFrom(String query, String lifeTimeFrom, String jiraId){
+        return query.replace(TAG_LIFETIME_FROM,lifeTimeFrom);
+    }
+
+    private JiraReference getJiraReference(String jiraId){
+        JiraReference jiraReference = new JiraReference();
+        jiraReference.setJiraId(jiraId);
+
+        return jiraReference;
+    }
+
+    private JiraTaggingDetail getJiraTaggingDetail(String primaryKey, long recordVersion){
+        JiraTaggingDetail  jiraTaggingDetail = new JiraTaggingDetail();
+        jiraTaggingDetail.setPrimaryKey(primaryKey);
+        jiraTaggingDetail.setRecordVersion(recordVersion);
+
+        return jiraTaggingDetail;
+    }
+
+    @Override
+    public ResponseEntity<String> deleteAllRecords(){
+        try {
+            long record =  taggingServiceRepository.deleteAllRecords();
+            return new ResponseEntity("Successfully deleted "+record , HttpStatus.OK);
+        }catch(Exception e){
+            logger.error(e.getMessage(), e);
+            return new ResponseEntity(e.getMessage() , HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+
+	private void validateGroupedRules(List<JiraAssignmentDao> requests) {
+		Map<String, List<JiraAssignmentDao>> ruleListByGroup = Maps.newHashMap();
+		List<JiraAssignmentDao> filteredRuleList = requests.stream()
+				.filter(rule -> rule.getFlow().equalsIgnoreCase(FlowType.RECONCILIATION.getValue()))
+				.collect(Collectors.toList());
+		for (JiraAssignmentDao rule : filteredRuleList) {
+			if (StringUtils.isNotBlank(rule.getGroupId())) {
+				if (ruleListByGroup.containsKey(rule.getGroupId())) {
+					List<JiraAssignmentDao> perGroupList = ruleListByGroup.get(rule.getGroupId());
+					perGroupList.add(rule);
+					ruleListByGroup.put(rule.getGroupId(), perGroupList);
+				} else {
+					ruleListByGroup.put(rule.getGroupId(), Lists.newArrayList(rule));
+				}
+			}
+
+		}
+
+		for (Entry<String, List<JiraAssignmentDao>> entry : ruleListByGroup.entrySet()) {
+			validateRulesPerGroup(entry.getKey(), entry.getValue());
+		}
+		logger.info("All Grouped Rules validated successfully");
+	}
+
+	private void validateRulesPerGroup(String groupId, List<JiraAssignmentDao> ruleListByGroup) {
+		if (ruleListByGroup.isEmpty()) {
+			throw new TaggingServiceRunTimeException("Rules are not present for Group Id : " + groupId);
+		}
+		String expression = ruleListByGroup.get(0).getExpression();
+		String subExpression = ruleListByGroup.get(0).getSubExpression();
+		String indexHint = ruleListByGroup.get(0).getIndexHint();
+		int maxVolume = ruleListByGroup.get(0).getMaxVolume();
+		String startDate = ruleListByGroup.get(0).getStartDate();
+		String scheduledTime = ruleListByGroup.get(0).getScheduledTime();
+
+		for (JiraAssignmentDao rule : ruleListByGroup) {
+			if (!expression.equals(rule.getExpression())) {
+				throw new TaggingServiceRunTimeException(
+						"Expressions are not same for all Rules of Group Id : " + groupId);
+			}
+
+			if (null != rule.getScheduledTime()) {
+				if (!scheduledTime.equals(rule.getScheduledTime()))
+					throw new TaggingServiceRunTimeException(
+							"Scheduled Time are not same for all Rules of Group Id : " + groupId);
+			}
+
+			if (null != rule.getSubExpression()) {
+				if (!subExpression.equals(rule.getSubExpression()))
+					throw new TaggingServiceRunTimeException(
+							"Sub Expressions are not same for all Rules of Group Id : " + groupId);
+			}
+
+			if (null != rule.getIndexHint()) {
+				if (!indexHint.equals(rule.getIndexHint()))
+					throw new TaggingServiceRunTimeException(
+							"Index Hit are not same for all Rules of Group Id : " + groupId);
+			}
+
+			if (!startDate.equals(rule.getStartDate())) {
+				throw new TaggingServiceRunTimeException(
+						"Start Date are not same for all Rules of Group Id : " + groupId);
+			}
+
+			if (maxVolume != rule.getMaxVolume()) {
+				throw new TaggingServiceRunTimeException(
+						"Max Volume are not same for all Rules of Group Id : " + groupId);
+			}
+		}
+	}
 }
 
-@Test
-public void testSerializeDeserialize() throws Exception {
-    SubjectIdentifier id = new SubjectIdentifier();
-    id.setBusinessDate(new SimpleDateFormat("yyyy-MM-dd").parse("2025-05-01"));
-    id.setLei("lei");
-    id.setAssetClass("asset");
-    id.setEntity("ent");
-    id.setFlow("flow");
-    id.setRegulation("reg");
-    id.setMessageType("msg");
-    MIDashboardAnalytics stats = new MIDashboardAnalytics();
-    stats.setSubjectIdentifier(id);
-    Document doc = repository.serialize(stats);
-    assertTrue(doc instanceof JsonDocument);
-    MIDashboardAnalytics out = repository.deserailze(doc);
-    assertEquals(stats.getSubjectIdentifier().getLei(), out.getSubjectIdentifier().getLei());
-}
+Existing test class:
 
-@Test
-public void testUpsertMiSnapshotSuccess() throws Exception {
-    MIDashboardAnalytics stats = mock(MIDashboardAnalytics.class);
-    SubjectIdentifier sid = new SubjectIdentifier();
-    sid.setBusinessDate(new Date());
-    sid.setLei("lei"); sid.setAssetClass("asset"); sid.setEntity("e"); sid.setFlow("f"); sid.setRegulation("r"); sid.setMessageType("m");
-    when(stats.getSubjectIdentifier()).thenReturn(sid);
-    RecordId rid = new RecordId("id");
-    when(dfClient.upsert(any(UpsertRequestBuilder.class))).thenReturn(rid);
-    RecordId out = repository.upsertMiSnapshot(stats);
-    assertEquals(rid, out);
-}
+package com.rbs.tntr.business.taggingService.service.jiraAssignment;
 
-@Test(expected = RuntimeException.class)
-public void testUpsertMiSnapshotException() throws Exception {
-    MIDashboardAnalytics stats = mock(MIDashboardAnalytics.class);
-    when(stats.getSubjectIdentifier()).thenThrow(new RuntimeException());
-    repository.upsertMiSnapshot(stats);
-}
+import java.io.IOException;
+import java.text.ParseException;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
 
-@Test
-public void testGetURL() {
-    String url = repository.getURL("endpoint");
-    assertEquals("http://service/endpoint", url);
-}
+import com.nwm.tntr.commons.repository.domain.TntrRepositoryUpdateCommandResult;
+import com.rbs.datafabric.agile.commons.lang.StartableException;
+import com.rbs.datafabric.api.exception.InsertException;
+import com.rbs.datafabric.api.exception.OptimisticLockException;
+import com.rbs.datafabric.api.exception.UpsertException;
+import com.rbs.datafabric.common.DataFabricSerializerException;
+import com.rbs.datafabric.domain.RecordId;
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.exceptions.MultipleFilesFoundException;
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.exceptions.TaggingServiceRunTimeException;
+import com.tdx.schema.TDXDocumentId;
+import org.junit.After;
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
+import org.mockito.Mockito;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 
-@Test
-public void testItrQueryForFO() {
-    DFQueryMetaData meta = new DFQueryMetaData();
-    meta.setSelect("sel"); meta.setWhere("where");
-    Itr2Query q = repository.itrQueryForFO(meta);
-    assertNotNull(q);
-}
+import com.rbs.tntr.api.taggingService.service.common.CsvReader;
+import com.rbs.tntr.api.taggingService.service.jiraAssignement.JiraAssignmentReader;
+import com.rbs.tntr.api.taggingService.service.jiraAssignement.JiraAssignmentService;
+import com.rbs.tntr.api.taggingService.service.jiraAssignement.JiraAssignmentTrigger;
+import com.rbs.tntr.api.taggingService.service.jiraAssignement.TntrTradeTransformer;
+import com.rbs.tntr.business.taggingService.configuration.TaggingServiceQueryConfiguration;
+import com.rbs.tntr.business.taggingService.service.common.CsvReaderImpl;
+import com.rbs.tntr.business.taggingService.service.common.DateTimeService;
+import com.rbs.tntr.business.taggingService.service.common.TaggingServiceRepository;
+import com.rbs.tntr.business.taggingService.service.trigger.JiraAssignmentTriggerEvent;
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.AutoAssignResult;
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.CsvReadInfo;
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.JiraAssignmentDao;
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.TaggingServiceResult;
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.jiraAssignmentResults.FileReadResult;
 
-@Test
-public void testParseRecordFlatten() throws Exception {
-    String json = "{\"a\":1, \"b\": {\"c\":2}}";
-    JsonParser parser = JsonParser.class
-            .getConstructor(InputStream.class)
-            .newInstance(new ByteArrayInputStream(json.getBytes(StandardCharsets.UTF_8)));
-    Map<String,Object> map = repository.parseRecord(parser);
-    assertTrue(map.containsKey("a"));
-    assertTrue(map.containsKey("b.c"));
-}
+/**
+ * Created by matbina on 09/06/2020.
+ */
+public class JiraAssignmentServiceImplTest {
 
-@Test
-public void testRenderCftcDataBlock() {
-    Map<String,Object> map = new HashMap<>();
-    map.put("block", "{x=true,y=false}");
-    Map<String,Object> out = repository.renderCftcDataBlock(map, "block");
-    assertEquals("true", out.get("x"));
-}
+    private static final Logger logger= LoggerFactory.getLogger(JiraAssignmentServiceImplTest.class);
+    JiraAssignmentReader jiraAssignmentReader;
+    TaggingServiceRepository taggingServiceRepository;
+    TntrTradeTransformer tntrTradeTransformer;
+    JiraAssignmentService jiraAssignmentService;
+    TaggingServiceQueryConfiguration taggingServiceQueryConfiguration;
 
-@Test
-public void testCalculateKeys() throws Exception {
-    SubjectIdentifier sid = new SubjectIdentifier();
-    sid.setBusinessDate(new SimpleDateFormat("yyyy-MM-dd").parse("2025-05-02"));
-    sid.setLei("lei"); sid.setAssetClass("asset"); sid.setEntity("entity"); sid.setFlow("flow"); sid.setRegulation("reg"); sid.setMessageType("msg");
-    String key = (String) ReflectionTestUtils.invokeMethod(repository, "calculateMiSnapshotKey", sid);
-    assertNotNull(key);
-    FrontOfficeSubjectIdentifier fsid = new FrontOfficeSubjectIdentifier("ent","lei","asset","reg",sid.getBusinessDate());
-    String fkey = (String) ReflectionTestUtils.invokeMethod(repository, "calculateFoMiSnapshotKey", fsid);
-    assertNotNull(fkey);
-}
+    @Before
+    public void intialize(){
+        logger.info("Inside intialize()");
+        jiraAssignmentReader = Mockito.mock(JiraAssignmentReader.class);
+        taggingServiceRepository = Mockito.mock(TaggingServiceRepository.class);
+        tntrTradeTransformer = Mockito.mock(TntrTradeTransformer.class);
+        setTaggingServiceQueryConfiguration();
+        try {
+            Mockito.when(taggingServiceRepository.deleteAllRecords())
+                    .thenReturn(1L);
 
-@Test(expected = TaggingServiceRunTimeException.class)
-public void testFetchStatisticsIOException() throws Exception {
-    DFQueryMetaData meta = new DFQueryMetaData(); meta.setCollectionName("col"); meta.setStatName("count");
-    when(dfClient.scan(any())).thenThrow(new RuntimeException(new IOException()));
-    repository.fetchStatistics(meta, "field");
-}
+            Mockito.when(jiraAssignmentReader.readJiraFilterFile(Mockito.any()))
+                    .thenReturn(getRecords());
 
-@Test
-public void testFetchStatisticsEmpty() throws Exception {
-    DFQueryMetaData meta = new DFQueryMetaData(); meta.setCollectionName("col"); meta.setStatName("count");
-    ScanResult res = mock(ScanResult.class);
-    when(dfClient.scan(any())).thenReturn(res);
-    when(res.iterator()).thenReturn(Collections.<Record>emptyList().iterator());
-    int count = repository.fetchStatistics(meta, "field");
-    assertEquals(0, count);
-}
+            Mockito.when(taggingServiceRepository.searchRulesFromDf(Mockito.any()))
+                    .thenReturn(getJiraAssignmentTriggerEvent());
 
-@Test
-public void testFetchRecordsFromDfSuccess() {
-    DFQueryMetaData meta = new DFQueryMetaData(); meta.setCollectionName("col");
-    ScanResult res = mock(ScanResult.class);
-    Record r = mock(Record.class);
-    when(r.getDocument()).thenReturn(new JsonDocument().withContents("{}"));
-    when(res.iterator()).thenReturn(Collections.singletonList(r).iterator());
-    when(dfClient.scan(any())).thenReturn(res);
-    List<Record> list = repository.fetchRecordsFromDf(meta);
-    assertEquals(1, list.size());
-}
+            Mockito.when(tntrTradeTransformer.getRecords(Mockito.any(),Mockito.any(),Mockito.any(),Mockito.any()))
+                    .thenReturn(0);
 
-@Test(expected = TaggingServiceRunTimeException.class)
-public void testFetchRecordsFromDfException() {
-    DFQueryMetaData meta = new DFQueryMetaData(); meta.setCollectionName("col");
-    when(dfClient.scan(any())).thenThrow(new RuntimeException());
-    repository.fetchRecordsFromDf(meta);
-}
+        }catch(Exception e){
+            logger.error("Error in JiraAssignmentServiceImplTest : {}", e.getMessage());
+        }
+        jiraAssignmentService = new JiraAssignmentServiceImpl(jiraAssignmentReader,
+				taggingServiceRepository, tntrTradeTransformer, taggingServiceQueryConfiguration);
+    }
 
-@Test
-public void testProcessFoDataMapIncrements() {
-    Map<String, Map<String,Integer>> foMiData = new HashMap<>();
-    String jurisdiction = "JUR";
-    Map<String,Integer> data = new HashMap<>(); data.put("NWM_PLC_REPORTABLE", 0);
-    foMiData.put(jurisdiction, data);
-    Map<String, Map<String,Object>> parsed = new HashMap<>();
-    Map<String,Object> rec = new HashMap<>();
-    rec.put("tradingPartyLei", "LEI_NWM_PLC"); rec.put("transactionReportable", true); rec.put("versionReportable", true);
-    parsed.put(jurisdiction, rec);
-    repository.processFoDataMap(parsed, foMiData);
-    assertEquals((Integer)1, foMiData.get(jurisdiction).get("NWM_PLC_REPORTABLE"));
-}
 
-@Test
-public void testPersistFoMiDataPaths() {
-    // test persistFoMiData indirectly covers upsertFoMiSnapshot
-    FrontOfficeMIDashboardAnalytics fo = mock(FrontOfficeMIDashboardAnalytics.class);
-    // spy upsertFoMiSnapshot to verify calls
-    MIAnalyticsDashboardRepositoryImpl spy = Mockito.spy(repository);
-    doReturn(new RecordId("id")).when(spy).upsertFoMiSnapshot(any(FrontOfficeMIDashboardAnalytics.class));
-    // invoke persistFoMiData
-    ReflectionTestUtils.invokeMethod(spy, "persistFoMiData", "E", "L", "A", "REG", new Date(), 1, 2);
-    verify(spy, times(1)).upsertFoMiSnapshot(any(FrontOfficeMIDashboardAnalytics.class));
-}
+    private FileReadResult<JiraAssignmentDao> getRecords(){
+        CsvReader csvReader = new CsvReaderImpl();
+        String filePath="src/test/resources/JiraAssignment_2020-01-01_FILE.csv";
+        CsvReadInfo<JiraAssignmentDao> readInfo = new CsvReadInfo<>(filePath, o->true,0);
 
-}
+        //act
+        List<JiraAssignmentDao> readRecords = csvReader.read(readInfo, JiraAssignmentDao.class);
 
+        return FileReadResult.createFileReadResult("mock", readRecords);
+    }
+
+    private Date parseDateString(String businessDateString) {
+		return DateTimeService.parseDateUTC(businessDateString).toDate();
+    }
+
+
+    @Test
+    public void readSaveJiraExpressionsTest_Null_Record(){
+        Date businessDate = parseDateString("2020-01-01");
+        ResponseEntity<List<TaggingServiceResult>> lst = jiraAssignmentService.readSaveJiraExpressions(businessDate);
+        Assert.assertEquals("Trade_Jira Assignment_TEST-1000001_Mis Reporting_EMIRETD_MissReporting", lst.getBody().get(0).getPrimaryKey());
+    }
+
+    @Test
+    public void readSaveJiraExpressionsTest_With_Record() throws UpsertException, InsertException, DataFabricSerializerException, OptimisticLockException, ParseException, StartableException {
+        Date businessDate = parseDateString("2020-01-01");
+        RecordId recordId = new RecordId();
+        recordId.setKey("Trade_Jira Assignment_TEST-1000001_Mis Reporting_EMIRETD_MissReporting");
+        recordId.setVersion(1);
+        Mockito.when(taggingServiceRepository.saveTaggingService(Mockito.any(), Mockito.any())).thenReturn(recordId);
+        ResponseEntity<List<TaggingServiceResult>> lst = jiraAssignmentService.readSaveJiraExpressions(businessDate);
+        Assert.assertEquals("Trade_Jira Assignment_TEST-1000001_Mis Reporting_EMIRETD_MissReporting", lst.getBody().get(0).getPrimaryKey());
+    }
+
+    @Test
+    public void readSaveJiraExpressionsTest_With_Read_Exception() throws MultipleFilesFoundException, IOException {
+        Date businessDate = parseDateString("2020-01-01");
+        Mockito.when(jiraAssignmentReader.readJiraFilterFile(Mockito.any())).thenThrow(new IOException("Erro while reading File"));
+        ResponseEntity<?> lst = jiraAssignmentService.readSaveJiraExpressions(businessDate);
+        Assert.assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, lst.getStatusCode());
+        Assert.assertTrue(lst.getBody().toString().contains("Erro while reading File"));
+    }
+
+    @Test
+    public void readSaveJiraExpressionsTest_With_Save_Exception() throws UpsertException, InsertException, DataFabricSerializerException, OptimisticLockException, ParseException, StartableException {
+        Date businessDate = parseDateString("2020-01-01");
+        Mockito.when(taggingServiceRepository.saveTaggingService(Mockito.any(), Mockito.any())).thenThrow(new RuntimeException());
+        ResponseEntity<List<TaggingServiceResult>> lst = jiraAssignmentService.readSaveJiraExpressions(businessDate);
+        Assert.assertEquals("Trade_Jira Assignment_TEST-1000001_Mis Reporting_EMIRETD_MissReporting", lst.getBody().get(0).getPrimaryKey());
+    }
+
+    @Test
+    public void searchRulesFromDfTest(){
+        ResponseEntity<List<? extends JiraAssignmentTrigger>> lst = jiraAssignmentService.searchRulesFromDf("");
+        Assert.assertEquals(lst.getBody().size(), 2);
+        JiraAssignmentTriggerEvent ob = (JiraAssignmentTriggerEvent) lst.getBody().get(0);
+        Assert.assertEquals(ob.getPrimaryKey(), "10001");
+        Assert.assertEquals(ob.getExpression(), "subjectIdentifier.reportTriggerType = 'Collateral Update' ");
+        Assert.assertEquals(ob.getFlow(), "Valuation");
+        Assert.assertEquals(ob.getAction(), "Jira Assignment");
+        Assert.assertEquals(ob.getActionValue(), "MIL-7048");
+        Assert.assertEquals(ob.getIsActive(), true);
+        Assert.assertEquals(ob.getStartDate(), "2020-01-01");
+        Assert.assertEquals(ob.getLastSuccessDate(), "2020-01-01");
+        Assert.assertEquals(ob.getMaxVolume(), 1000);
+        Assert.assertEquals(ob.getUserComment(), "Test User Comment");
+
+        JiraAssignmentTriggerEvent ob1 = (JiraAssignmentTriggerEvent) lst.getBody().get(1);
+        Assert.assertEquals(ob1.getPrimaryKey(), "10001");
+        Assert.assertEquals(ob1.getExpression(), "subjectIdentifier.reportTriggerType = 'Collateral Update' ");
+        Assert.assertEquals(ob1.getFlow(), "Valuation");
+        Assert.assertEquals(ob1.getAction(), "Jira Assignment");
+        Assert.assertEquals(ob1.getActionValueType(), "Mis Reporting");
+        Assert.assertEquals(ob1.getIsActive(), true);
+        Assert.assertEquals(ob1.getStartDate(), "2020-01-01");
+        Assert.assertEquals(ob1.getLastSuccessDate(), "2020-01-01");
+        Assert.assertEquals(ob1.getMaxVolume(), 1000);
+        Assert.assertEquals(ob1.getUserComment(), "Jira Type Added");
+    }
+
+    @Test
+    public void searchRulesFromDfTest_With_Exception() throws StartableException {
+        Mockito.when(taggingServiceRepository.searchRulesFromDf(Mockito.anyString())).thenThrow(new StartableException("Error searching rules"));
+        ResponseEntity<?> response = jiraAssignmentService.searchRulesFromDf("");
+        Assert.assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+        Assert.assertTrue(response.getBody().toString().contains("Error searching rules"));
+    }
+
+    @Test
+    public void readAndAssignJiraToTradesTest(){
+        ResponseEntity<List<AutoAssignResult>> str = jiraAssignmentService.readAndAssignJiraToTrades();
+        Assert.assertEquals(str.getStatusCode(), HttpStatus.OK);
+    }
+
+    @Test
+    public void readAndAssignJiraToTradesTest_With_Records(){
+        Mockito.when(tntrTradeTransformer.getRecords(Mockito.any(),Mockito.any(),Mockito.any(),Mockito.any()))
+                .thenReturn(1);
+        List<String> sentTradeXmlList = new ArrayList<>();
+        sentTradeXmlList.add("trade1");
+        List<TDXDocumentId> persistedTdxTradeList = new ArrayList<>();
+        TDXDocumentId tdxDocumentId = null;
+        persistedTdxTradeList.add(tdxDocumentId);
+        TntrRepositoryUpdateCommandResult result = new TntrRepositoryUpdateCommandResult(sentTradeXmlList, persistedTdxTradeList);
+        Mockito.when(tntrTradeTransformer.executeUpdateTrades(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(result);
+        ResponseEntity<List<AutoAssignResult>> str = jiraAssignmentService.readAndAssignJiraToTrades();
+        Assert.assertEquals(str.getStatusCode(), HttpStatus.OK);
+    }
+
+    //write and assign test for count exception
+    @Test
+    public void readAndAssignJiraToTradesTest_With_Count_Exception() {
+        Mockito.when(tntrTradeTransformer.getRecords(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenThrow(new RuntimeException("Error getting record count"));
+        ResponseEntity<List<AutoAssignResult>> response = jiraAssignmentService.readAndAssignJiraToTrades();
+        System.out.println(response.getBody().get(0).getStatus());
+        Assert.assertEquals(HttpStatus.OK, response.getStatusCode());
+        Assert.assertNotNull(response.getBody());
+    }
+
+    @Test
+    public void deleteAllRecordsTest(){
+        ResponseEntity<String> str = jiraAssignmentService.deleteAllRecords();
+        Assert.assertEquals(str.getStatusCode(), HttpStatus.OK);
+    }
+
+    @Test
+    public void deleteAllRecordsTest_With_Exception() {
+        Mockito.when(taggingServiceRepository.deleteAllRecords()).thenThrow(new RuntimeException("Error deleting records"));
+        ResponseEntity<String> response = jiraAssignmentService.deleteAllRecords();
+        Assert.assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+        Assert.assertTrue(response.getBody().contains("Error deleting records"));
+    }
+
+    @Test
+    public void autoJiraAssignmentTest(){
+        Date businessDate = parseDateString("2020-01-01");
+        ResponseEntity<List<AutoAssignResult>> str = jiraAssignmentService.autoJiraAssignment(businessDate);
+        Assert.assertEquals(str.getStatusCode(), HttpStatus.OK);
+    }
+
+    @Test
+    public void autoJiraAssignmentTest_With_Exception() throws MultipleFilesFoundException, IOException {
+        Date businessDate = parseDateString("2020-01-01");
+        Mockito.when(jiraAssignmentReader.isJiraFilterFileAvailable(Mockito.any())).thenReturn(true);
+//        Mockito.when(taggingServiceRepository.searchRulesFromDf(Mockito.anyString())).thenThrow(new StartableException("Error searching rules"));
+        Mockito.when(jiraAssignmentReader.readJiraFilterFile(Mockito.any())).thenThrow(new IOException("Error reading file"));
+        ResponseEntity<?> response = jiraAssignmentService.autoJiraAssignment(businessDate);
+        Assert.assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+    }
+
+    @Test
+    public void saveRules(){
+        Date businessDate = parseDateString("2020-01-01");
+        List<JiraAssignmentDao> lstRecords = getRecords().getRecords();
+        ResponseEntity<List<TaggingServiceResult>> response = jiraAssignmentService.saveRules(lstRecords, businessDate);
+        Assert.assertEquals(HttpStatus.OK, response.getStatusCode());
+        Assert.assertNotNull(response.getBody());
+        Assert.assertEquals(1, response.getBody().size());
+    }
+
+    private List<JiraAssignmentTriggerEvent> getJiraAssignmentTriggerEvent(){
+        List<JiraAssignmentTriggerEvent> obLst = new ArrayList<>();
+        JiraAssignmentTriggerEvent jiraAssignmentTriggerEvent = new JiraAssignmentTriggerEvent.Builder()
+                .withId("1")
+                .withPrimaryKey("10001")
+                .withExpression("subjectIdentifier.reportTriggerType = 'Collateral Update' ")
+                .withFlow("Valuation")
+                .withAction("Jira Assignment")
+                .withActionValue("MIL-7048")
+                .withActionValueType("Over Reporting")
+                .withIsActive(true)
+                .withStartDate("2020-01-01")
+                .withLastSuccessDate("2020-01-01")
+                .withMaxVolume(1000)
+                .withUserComments("Test User Comment").create();
+
+        JiraAssignmentTriggerEvent jiraAssignmentTriggerEvent1 = new JiraAssignmentTriggerEvent.Builder()
+                .withId("1")
+                .withPrimaryKey("10001")
+                .withExpression("subjectIdentifier.reportTriggerType = 'Collateral Update' ")
+                .withFlow("Valuation")
+                .withAction("Jira Assignment")
+                .withActionValue("MIL-7049")
+                .withActionValueType("Mis Reporting")
+                .withIsActive(true)
+                .withStartDate("2020-01-01")
+                .withLastSuccessDate("2020-01-01")
+                .withMaxVolume(1000)
+                .withUserComments("Jira Type Added").create();
+
+        obLst.add(jiraAssignmentTriggerEvent);
+        obLst.add(jiraAssignmentTriggerEvent1);
+        return obLst;
+    }
+
+    private void setTaggingServiceQueryConfiguration(){
+        taggingServiceQueryConfiguration = new TaggingServiceQueryConfiguration();
+        taggingServiceQueryConfiguration.setValuationQuery("and eventOccurrence.occurrenceDetail.event.transactionReportingState.supplementaryInformation.userWorkFlow.jiraReferences.jiraId != '{jiraId}' and _df.lifetimeFrom >= '{lifetimeFrom}' and _df.lifetimeTo >= 9223372036854775807L");
+        taggingServiceQueryConfiguration.setCollateralQuery("and eventOccurrence.occurrenceDetail.event.transactionReportingState.supplementaryInformation.userWorkFlow.jiraReferences.jiraId != '{jiraId}' and _df.lifetimeFrom >= '{lifetimeFrom}' and _df.lifetimeTo >= 9223372036854775807L");
+        taggingServiceQueryConfiguration.setAggregatedcollQuery("and eventOccurrence.occurrenceDetail.event.supplementaryInformation.userWorkFlow.jiraReferences.jiraId != '{jiraId}' and _df.lifetimeFrom >= '{lifetimeFrom}' and _df.lifetimeTo >= 9223372036854775807L");
+        taggingServiceQueryConfiguration.setTradeQuery("and eventOccurrence.occurrenceDetail.event.transactionReportingState.supplementaryInformation.userWorkFlow.jiraReferences.jiraId != '{jiraId}' and _df.lifetimeFrom >= '{lifetimeFrom}' and _df.lifetimeTo >= 9223372036854775807L");
+    }
+
+    @After
+    public  void dispose(){
+        taggingServiceQueryConfiguration = null;
+    }
+
+    @Test
+    public void assignJiraToTrades_WithFlowType() throws StartableException {
+        List<JiraAssignmentTriggerEvent> events = new ArrayList<>();
+        JiraAssignmentTriggerEvent event = Mockito.mock(JiraAssignmentTriggerEvent.class);
+        Mockito.when(event.getFlow()).thenReturn("TRADE");
+        events.add(event);
+
+        Mockito.when(taggingServiceRepository.searchRulesFromDf(Mockito.anyString())).thenReturn(events);
+        ResponseEntity<List<AutoAssignResult>> response = jiraAssignmentService.readAndAssignJiraToTrades();
+
+        Assert.assertNotNull(response);
+        Assert.assertEquals(HttpStatus.OK, response.getStatusCode());
+        Assert.assertNotNull(response.getBody());
+    }
+
+    @Test
+    public void deleteAllRecords_WithExceptionHandling() {
+        Mockito.when(taggingServiceRepository.deleteAllRecords()).thenThrow(new RuntimeException("Deletion failed"));
+
+        ResponseEntity<String> response = jiraAssignmentService.deleteAllRecords();
+
+        Assert.assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+        Assert.assertTrue(response.getBody().contains("Deletion failed"));
+    }
+}
