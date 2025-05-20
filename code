@@ -1,721 +1,4 @@
-Could you write all the test cases for below java class to cover all the scenarios or methods and make the test coverage or code coverage as 100% using junit 4 and old mockito version and java 8:
-
 package com.rbs.tntr.business.taggingService.service.jiraAssignment;
-
-import static com.rbs.tntr.business.taggingService.util.TaggingServiceConstants.*;
-
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
-
-import org.apache.commons.lang3.tuple.Pair;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Service;
-
-import com.google.common.base.Stopwatch;
-import com.nwm.tntr.commons.domain.persistence.constant.IssueType;
-import com.nwm.tntr.commons.domain.persistence.constant.TNTRApplication;
-import com.nwm.tntr.commons.domain.persistence.entity.ExceptionManagement;
-import com.nwm.tntr.commons.domain.persistence.entity.NonReportableData;
-import com.nwm.tntr.commons.domain.persistence.entity.collateral.CollateralReport;
-import com.nwm.tntr.commons.domain.persistence.entity.collateral.CollateralReportDocument;
-import com.nwm.tntr.commons.domain.persistence.entity.collaterallink.CollateralLinkReport;
-import com.nwm.tntr.commons.domain.persistence.entity.collaterallink.CollateralLinkReportDocument;
-import com.nwm.tntr.commons.domain.persistence.entity.recon.BreakManagement;
-import com.nwm.tntr.commons.domain.persistence.entity.recon.ReconReport;
-import com.nwm.tntr.commons.domain.persistence.entity.recon.ReconReportDocument;
-import com.nwm.tntr.commons.domain.persistence.entity.trade.TradeReport;
-import com.nwm.tntr.commons.domain.persistence.entity.trade.TradeReportDocument;
-import com.nwm.tntr.commons.domain.persistence.entity.valuation.ValuationReport;
-import com.nwm.tntr.commons.domain.persistence.entity.valuation.ValuationReportDocument;
-import com.nwm.tntr.commons.repository.regreporting.WriteResult;
-import com.nwm.tntr.executors.CustomExecutor;
-import com.rbs.datafabric.agile.commons.lang.StartableException;
-import com.rbs.datafabric.api.exception.InsertException;
-import com.rbs.datafabric.api.exception.OptimisticLockException;
-import com.rbs.datafabric.api.exception.UpsertException;
-import com.rbs.datafabric.common.DataFabricSerializerException;
-import com.rbs.datafabric.shaded.com.google.common.collect.Lists;
-import com.rbs.datafabric.shaded.org.apache.commons.lang.StringUtils;
-import com.rbs.tntr.api.taggingService.service.jiraAssignement.AutoAssignmentService;
-import com.rbs.tntr.business.taggingService.configuration.TaggingServiceQueryConfiguration;
-import com.rbs.tntr.business.taggingService.df.DfCollateralLinkPersistManager;
-import com.rbs.tntr.business.taggingService.df.DfCollateralPersistManager;
-import com.rbs.tntr.business.taggingService.df.DfReconciliationPersistManager;
-import com.rbs.tntr.business.taggingService.df.DfTradePersistManager;
-import com.rbs.tntr.business.taggingService.df.DfValuationPersistManager;
-import com.rbs.tntr.business.taggingService.df.ExceptionManagmentUpdater;
-import com.rbs.tntr.business.taggingService.df.ReconBreakManagerUpdater;
-import com.rbs.tntr.business.taggingService.result.JiraAssignmentResult;
-import com.rbs.tntr.business.taggingService.service.common.DateTimeService;
-import com.rbs.tntr.business.taggingService.service.common.TaggingRulesBase;
-import com.rbs.tntr.business.taggingService.service.common.TaggingServiceRepository;
-import com.rbs.tntr.business.taggingService.service.trigger.JiraAssignmentTriggerEvent;
-import com.rbs.tntr.business.taggingService.util.TaggingServiceUtil;
-import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.AutoAssignResult;
-import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.enums.FlowType;
-import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.exceptions.TaggingServiceRunTimeException;
-
-@Service
-public class AutoAssignmentServiceImpl extends TaggingRulesBase implements AutoAssignmentService {
-	private static final Logger logger = LoggerFactory.getLogger(AutoAssignmentServiceImpl.class);
-
-	private final TaggingServiceQueryConfiguration taggingServiceQueryConfiguration;
-	private final DfTradePersistManager dfTradePersistManager;
-	private final DfValuationPersistManager dfValuationPersistManager;
-	private final DfCollateralPersistManager dfCollateralPersistManager;
-	private final DfCollateralLinkPersistManager dfCollateralLinkPersistManager;
-	private final ExceptionManagmentUpdater exceptionManagmentUpdater;
-	private final ReconBreakManagerUpdater reconBreakManagerUpdater;
-	private final CustomExecutor executor;
-
-	@Autowired
-	public AutoAssignmentServiceImpl(TaggingServiceRepository taggingServiceRepository,
-			TaggingServiceQueryConfiguration taggingServiceQueryConfiguration,
-			DfTradePersistManager dfTradePersistManager, DfValuationPersistManager dfValuationPersistManager,
-			DfCollateralPersistManager dfCollateralPersistManager,
-			DfCollateralLinkPersistManager dfCollateralLinkPersistManager,
-			DfReconciliationPersistManager dfReconciliationPersistManager,
-			ExceptionManagmentUpdater exceptionManagmentUpdater, ReconBreakManagerUpdater reconBreakManagerUpdater,
-			CustomExecutor executor) {
-		super(dfReconciliationPersistManager, taggingServiceRepository);
-		this.taggingServiceQueryConfiguration = taggingServiceQueryConfiguration;
-		this.dfTradePersistManager = dfTradePersistManager;
-		this.dfValuationPersistManager = dfValuationPersistManager;
-		this.dfCollateralPersistManager = dfCollateralPersistManager;
-		this.dfCollateralLinkPersistManager = dfCollateralLinkPersistManager;
-		this.exceptionManagmentUpdater = exceptionManagmentUpdater;
-		this.reconBreakManagerUpdater = reconBreakManagerUpdater;
-		this.executor = executor;
-	}
-
-
-	@Override
-	public List<AutoAssignResult> autoAssign(String whereClause) {
-		List<AutoAssignResult> autoAssignResults = new ArrayList<>();
-
-		List<JiraAssignmentTriggerEvent> obLst = getActiveRulesFromDf(whereClause);
-
-		String ruleEngineDateTime = DateTimeService.getCurrentUTCDateTimeAsString();
-		List<CompletableFuture<List<AutoAssignResult>>> futureList = Lists.newArrayList();
-		futureList.add(executor.submitCompletableFutureTask(() -> assignActionsPerFlow(obLst, ruleEngineDateTime, FlowType.TRADE_REPORT),
-				FlowType.TRADE_REPORT.getValue()));
-		futureList.add(
-				executor.submitCompletableFutureTask(() -> assignActionsPerFlow(obLst, ruleEngineDateTime, FlowType.VALUATION_REPORT),
-						FlowType.VALUATION_REPORT.getValue()));
-		futureList.add(
-				executor.submitCompletableFutureTask(() -> assignActionsPerFlow(obLst, ruleEngineDateTime, FlowType.COLLATERAL_REPORT),
-						FlowType.COLLATERAL_REPORT.getValue()));
-		futureList.add(executor.submitCompletableFutureTask(
-				() -> assignActionsPerFlow(obLst, ruleEngineDateTime, FlowType.COLLATERAL_LINK_REPORT),
-				FlowType.COLLATERAL_LINK_REPORT.getValue()));
-		futureList
-				.add(executor.submitCompletableFutureTask(() -> assignActionsPerFlow(obLst, ruleEngineDateTime, FlowType.RECONCILIATION),
-						FlowType.RECONCILIATION.getValue()));
-
-		List<List<AutoAssignResult>> futureResultList = executor.getCompletableFutureResults(futureList);
-		futureResultList.forEach(autoAssignResults::addAll);
-		logger.info("Run completed for ruleEngineDateTime = '" + ruleEngineDateTime + "s'");
-		return autoAssignResults;
-	}
-
-	@Override
-	public List<AutoAssignResult> reTriggerRules(String whereClause) {
-		List<AutoAssignResult> autoAssignResults = new ArrayList<>();
-		List<JiraAssignmentTriggerEvent> obLst = getActiveRulesFromDf(whereClause);
-
-		String ruleEngineDateTime = DateTimeService.getCurrentUTCDateTimeAsString();
-
-		List<CompletableFuture<List<AutoAssignResult>>> futureList = Lists.newArrayList();
-		futureList.add(executor.submitCompletableFutureTask(() -> assignActionsPerFlow(obLst, ruleEngineDateTime, FlowType.TRADE_REPORT),
-				FlowType.TRADE_REPORT.getValue()));
-		futureList.add(
-				executor.submitCompletableFutureTask(() -> assignActionsPerFlow(obLst, ruleEngineDateTime, FlowType.VALUATION_REPORT),
-						FlowType.VALUATION_REPORT.getValue()));
-		futureList.add(
-				executor.submitCompletableFutureTask(() -> assignActionsPerFlow(obLst, ruleEngineDateTime, FlowType.COLLATERAL_REPORT),
-						FlowType.COLLATERAL_REPORT.getValue()));
-		futureList.add(executor.submitCompletableFutureTask(
-				() -> assignActionsPerFlow(obLst, ruleEngineDateTime, FlowType.COLLATERAL_LINK_REPORT),
-				FlowType.COLLATERAL_LINK_REPORT.getValue()));
-		futureList
-				.add(executor.submitCompletableFutureTask(() -> assignActionsToRetriggerReconciliation(obLst, ruleEngineDateTime),
-						FlowType.RECONCILIATION.getValue()));
-
-		List<List<AutoAssignResult>> futureResultList = executor.getCompletableFutureResults(futureList);
-		futureResultList.forEach(autoAssignResults::addAll);
-
-		logger.info("Run completed for Retrigger Rules with clause : {} ", whereClause);
-		return autoAssignResults;
-	}
-
-	private List<AutoAssignResult> assignActionsPerFlow(List<JiraAssignmentTriggerEvent> jiraAssignmentTriggerEvents,
-			String ruleEngineDateTime, FlowType flowType) {
-		logger.info("Running the Actions for {} on Thread {}", flowType.getValue(), Thread.currentThread().getName());
-		List<JiraAssignmentTriggerEvent> obLst = getFilteredRules(jiraAssignmentTriggerEvents,
-				flowType.getValue());
-		List<AutoAssignResult> autoAssignResults = new ArrayList<>();
-
-		for (JiraAssignmentTriggerEvent ob : obLst) {
-			switch (flowType) {
-			case TRADE_REPORT:
-				assignTradeActions(ruleEngineDateTime, ob, autoAssignResults);
-				break;
-			case VALUATION_REPORT:
-				assignValuationActions(ruleEngineDateTime, ob, autoAssignResults);
-				break;
-			case COLLATERAL_REPORT:
-				assignCollateralActions(ruleEngineDateTime, ob, autoAssignResults);
-				break;
-			case COLLATERAL_LINK_REPORT:
-				assignCollateralLinkActions(ruleEngineDateTime, ob, autoAssignResults);
-				break;
-			case RECONCILIATION:
-				assignReconActions(ruleEngineDateTime, ob, autoAssignResults);
-				break;
-			default:
-				break;
-			}
-
-		}
-
-		return autoAssignResults;
-	}
-
-	private void assignTradeActions(String ruleEngineDateTime, JiraAssignmentTriggerEvent ob,
-			List<AutoAssignResult> autoAssignResults) {
-		JiraAssignmentResult jiraAssignmentResult = new JiraAssignmentResult();
-		Stopwatch stopwatchMain = Stopwatch.createStarted();
-		int recordCount = 0;
-		try {
-			Stopwatch stopwatch = Stopwatch.createStarted();
-			String whereClause = getWhereClause(ob.getExpression(), ob.getLastSuccessDate());
-			List<TradeReportDocument> tradeReportDocuments = getAllTradeRecords(whereClause, ob.getIndexHint(),
-					ob.getActionValue(), ob.getActionValueType());
-			recordCount = tradeReportDocuments.size();
-			logger.info("Total Trade record found in TDX for where expression [{}], lifetimeFrom [{}] = [{}]",
-					whereClause, ob.getLastSuccessDate(), recordCount);
-			logger.info("Time taken in fetching [{}] records = [{}]ms.", recordCount,
-					stopwatch.elapsed(TimeUnit.MILLISECONDS));
-
-			if (recordCount > 0 && recordCount <= ob.getMaxVolume()) {
-				assignActionsToTradeRecords(ob, jiraAssignmentResult, tradeReportDocuments, recordCount);
-			} else {
-				updateFailuerReason(ob, jiraAssignmentResult, recordCount);
-			}
-		} catch (Exception e) {
-			updateErrorResult(jiraAssignmentResult, e);
-			logger.error("Error occured while primary key : " + ob.getPrimaryKey() + " assigning jira to trades. "
-					+ e.getMessage(), e);
-		}
-		createAutoAssignResult(ob, autoAssignResults, jiraAssignmentResult, ruleEngineDateTime);
-		updateTaggingBatchDf(ruleEngineDateTime, ob, jiraAssignmentResult, null);
-		logger.info("Total time taken in processing [{}] records = [{}]ms.", recordCount,
-				stopwatchMain.elapsed(TimeUnit.MILLISECONDS));
-	}
-
-	/**
-	 * Description : 
-	 * @author agrakit
-	 * Created By: Niket Agrawal
-	 * Created On 24-01-2023
-	 * @param ruleEngineDateTime
-	 * @param ob
-	 * @param jiraAssignmentResult
-	 */
-	private void updateTaggingBatchDf(String ruleEngineDateTime, JiraAssignmentTriggerEvent ob,
-			JiraAssignmentResult jiraAssignmentResult, Date nextRunDate) {
-		try {
-			taggingServiceRepository.updateEntity(ob.getPrimaryKey(), jiraAssignmentResult.getLastSuccessfulDate(),
-					jiraAssignmentResult.getRecordModified(), jiraAssignmentResult.getStatus(),
-					jiraAssignmentResult.getComment(), ruleEngineDateTime, nextRunDate);
-		} catch (InsertException | UpsertException | OptimisticLockException | DataFabricSerializerException
-				| StartableException e) {
-			logger.error("Error while updating Tagging Batch Collection");
-		}
-	}
-
-	private List<AutoAssignResult> assignActionsToRetriggerReconciliation(
-			List<JiraAssignmentTriggerEvent> jiraAssignmentTriggerEvents, String ruleEngineDateTime) {
-
-		List<JiraAssignmentTriggerEvent> obLst = getFilteredRulesForRetrigger(jiraAssignmentTriggerEvents,
-				FlowType.RECONCILIATION.getValue());
-		List<AutoAssignResult> autoAssignResults = new ArrayList<>();
-
-		for (JiraAssignmentTriggerEvent ob : obLst) {
-			assignReconActions(ruleEngineDateTime, ob, autoAssignResults);
-		}
-
-		return autoAssignResults;
-	}
-
-	private void assignReconActions(String ruleEngineDateTime, JiraAssignmentTriggerEvent ob,
-			List<AutoAssignResult> autoAssignResults) {
-		JiraAssignmentResult jiraAssignmentResult = new JiraAssignmentResult();
-		Stopwatch stopwatchMain = Stopwatch.createStarted();
-		int recordCount = 0;
-		List<ReconReportDocument> reconReportDocuments;
-		String whereClause;
-		try {
-			logger.info("Processing Started for Rule : {}", ob.getRuleName());
-			Stopwatch stopwatch = Stopwatch.createStarted();
-			whereClause = getWhereClauseForRecon(ob.getExpression());
-			reconReportDocuments = getAllReconRecords(whereClause, ob.getIndexHint(), ob.getAction(),
-					ob.getActionValue(), ob.getActionValueType());
-			recordCount = reconReportDocuments.size();
-			logger.info("Total Recon record found in DF for where expression [{}], lifetimeFrom [{}] = [{}]",
-					whereClause, ob.getLastSuccessDate(), recordCount);
-			logger.info("Time taken in fetching [{}] records = [{}]ms.", recordCount,
-					stopwatch.elapsed(TimeUnit.MILLISECONDS));
-
-			if (StringUtils.isNotBlank(ob.getSubExpression())) {
-				reconReportDocuments = processSubExpression(Lists.newArrayList(ob), reconReportDocuments);
-				recordCount = reconReportDocuments.size();
-			}
-
-			if (recordCount > 0 && recordCount <= ob.getMaxVolume()) {
-				assignActionsToReconRecords(ob, jiraAssignmentResult, reconReportDocuments, recordCount);
-			} else {
-				updateFailuerReason(ob, jiraAssignmentResult, recordCount);
-			}
-		} catch (Exception e) {
-			updateErrorResult(jiraAssignmentResult, e);
-			logger.error("Error occured while primary key : " + ob.getPrimaryKey() + " assigning jira to recon. "
-					+ e.getMessage(), e);
-		}
-		createAutoAssignResult(ob, autoAssignResults, jiraAssignmentResult, ruleEngineDateTime);
-		if (ob.getFlow().equals(FlowType.RECONCILIATION.toString())) {
-			updateTaggingBatchDf(ruleEngineDateTime, ob, jiraAssignmentResult,
-					TaggingServiceUtil.getNextRunDateTime(ob.getScheduledTime()));
-		} else {
-			updateTaggingBatchDf(ruleEngineDateTime, ob, jiraAssignmentResult, null);
-		}
-
-		logger.info("Total time taken in processing [{}] records = [{}]ms.", recordCount,
-				stopwatchMain.elapsed(TimeUnit.MILLISECONDS));
-	}
-
-	private List<ReconReportDocument> getAllReconRecords(String whereClause, String indexHint, String action,
-			String actionValue, String actionValueType) {
-		List<ReconReportDocument> reconReportDocuments = dfReconciliationPersistManager
-				.getAllRecords(getQueryParamsObj(whereClause, indexHint));
-
-		if (reconReportDocuments != null && !reconReportDocuments.isEmpty()) {
-			reconReportDocuments = reconReportDocuments.stream()
-					.filter(reconReportDocument -> filterJiraReferenceForRecon(
-							reconReportDocument.getReconReport().getBreakManagement(), action, actionValue,
-							actionValueType))
-					.collect(Collectors.toList());
-		}
-		return reconReportDocuments;
-	}
-
-	private void assignValuationActions(String ruleEngineDateTime, JiraAssignmentTriggerEvent ob,
-			List<AutoAssignResult> autoAssignResults) {
-		JiraAssignmentResult jiraAssignmentResult = new JiraAssignmentResult();
-
-		try {
-			String whereClause = getWhereClause(ob.getExpression(), ob.getLastSuccessDate());
-			List<ValuationReportDocument> tradeReportDocuments = getAllValuationRecords(whereClause, ob.getIndexHint(),
-					ob.getActionValue(), ob.getActionValueType());
-			int recordCount = tradeReportDocuments.size();
-			logger.info("Total Valuation record found in TDX for where expression [{}], lifetimeFrom [{}] = [{}]",
-					whereClause, ob.getLastSuccessDate(), recordCount);
-
-			if (recordCount > 0 && recordCount <= ob.getMaxVolume()) {
-				assignActionsToValuationRecord(ob, jiraAssignmentResult, tradeReportDocuments, recordCount);
-			} else {
-				updateFailuerReason(ob, jiraAssignmentResult, recordCount);
-			}
-		} catch (Exception e) {
-			updateErrorResult(jiraAssignmentResult, e);
-			logger.error("Error occured while primary key : " + ob.getPrimaryKey() + " assigning jira to valuations. "
-					+ e.getMessage(), e);
-		}
-		createAutoAssignResult(ob, autoAssignResults, jiraAssignmentResult, ruleEngineDateTime);
-		updateTaggingBatchDf(ruleEngineDateTime, ob, jiraAssignmentResult, null);
-	}
-
-	private void assignCollateralActions(String ruleEngineDateTime, JiraAssignmentTriggerEvent ob,
-			List<AutoAssignResult> autoAssignResults) {
-		JiraAssignmentResult jiraAssignmentResult = new JiraAssignmentResult();
-
-		try {
-			String whereClause = getWhereClause(ob.getExpression(), ob.getLastSuccessDate());
-			List<CollateralReportDocument> tradeReportDocuments = getAllCollateralRecords(whereClause,
-					ob.getIndexHint(), ob.getActionValue(), ob.getActionValueType());
-			int recordCount = tradeReportDocuments.size();
-			logger.info("Total Collateral record found in TDX for where expression [{}], lifetimeFrom [{}] = [{}]",
-					whereClause, ob.getLastSuccessDate(), recordCount);
-
-			if (recordCount > 0 && recordCount <= ob.getMaxVolume()) {
-				assignActionsToCollateralRecord(ob, jiraAssignmentResult, tradeReportDocuments, recordCount);
-			} else {
-				updateFailuerReason(ob, jiraAssignmentResult, recordCount);
-			}
-		} catch (Exception e) {
-			updateErrorResult(jiraAssignmentResult, e);
-			logger.error("Error occured while primary key : " + ob.getPrimaryKey() + " assigning jira to valuations. "
-					+ e.getMessage(), e);
-		}
-		createAutoAssignResult(ob, autoAssignResults, jiraAssignmentResult, ruleEngineDateTime);
-		updateTaggingBatchDf(ruleEngineDateTime, ob, jiraAssignmentResult, null);
-	}
-
-	private void assignCollateralLinkActions(String ruleEngineDateTime, JiraAssignmentTriggerEvent ob,
-			List<AutoAssignResult> autoAssignResults) {
-		JiraAssignmentResult jiraAssignmentResult = new JiraAssignmentResult();
-
-		try {
-			String whereClause = getWhereClause(ob.getExpression(), ob.getLastSuccessDate());
-			List<CollateralLinkReportDocument> tradeReportDocuments = getAllCollateralLinkRecords(whereClause,
-					ob.getIndexHint(), ob.getActionValue(), ob.getActionValueType());
-			int recordCount = tradeReportDocuments.size();
-			logger.info("Total Collateral Link record found in TDX for where expression [{}], lifetimeFrom [{}] = [{}]",
-					whereClause, ob.getLastSuccessDate(), recordCount);
-
-			if (recordCount > 0 && recordCount <= ob.getMaxVolume()) {
-				assignActionsToCollateralLinkRecord(ob, jiraAssignmentResult, tradeReportDocuments, recordCount);
-			} else {
-				updateFailuerReason(ob, jiraAssignmentResult, recordCount);
-			}
-		} catch (Exception e) {
-			updateErrorResult(jiraAssignmentResult, e);
-			logger.error("Error occured while primary key : " + ob.getPrimaryKey() + " assigning jira to valuations. "
-					+ e.getMessage(), e);
-		}
-		createAutoAssignResult(ob, autoAssignResults, jiraAssignmentResult, ruleEngineDateTime);
-		updateTaggingBatchDf(ruleEngineDateTime, ob, jiraAssignmentResult, null);
-	}
-
-	private List<JiraAssignmentTriggerEvent> getFilteredRulesForRetrigger(
-			List<JiraAssignmentTriggerEvent> jiraAssignmentTriggerEvents, String filterReport) {
-		return jiraAssignmentTriggerEvents.stream().filter(
-				jiraAssignmentTriggerEvent -> jiraAssignmentTriggerEvent.getFlow().equalsIgnoreCase(filterReport))
-				.collect(Collectors.toList());
-	}
-
-	private String getWhereClause(String whereExpression, String lifeTimeFrom) {
-		return whereExpression + " "
-				+ taggingServiceQueryConfiguration.getTradeQuery().replace(TAG_LIFETIME_FROM, lifeTimeFrom);
-	}
-
-	protected boolean filterJiraReference(ExceptionManagement exceptionManagement, String actionValue,
-			String actionValueType) {
-		if (exceptionManagement == null
-				|| (exceptionManagement.getIssueIds() == null && exceptionManagement.getIssueType() == null)) {
-			return true;
-		} else if (StringUtils.isNotEmpty(actionValue) && exceptionManagement.getIssueIds() == null) {
-			return true;
-		} else if (StringUtils.isNotEmpty(actionValueType) && exceptionManagement.getIssueType() == null) {
-			return true;
-		} else if (StringUtils.isEmpty(actionValue) && StringUtils.isNotEmpty(actionValueType)
-				&& exceptionManagement.getIssueType() != null
-				&& exceptionManagement.getIssueType().equals(IssueType.fromValue(actionValueType))) {
-			return false;
-		} else if (StringUtils.isEmpty(actionValueType) && StringUtils.isNotEmpty(actionValue)
-				&& exceptionManagement.getIssueIds() != null
-				&& exceptionManagement.getIssueIds().contains(actionValue)) {
-			return false;
-		} else if (exceptionManagement.getIssueIds() != null && exceptionManagement.getIssueType() != null
-				&& exceptionManagement.getIssueIds().contains(actionValue)
-				&& exceptionManagement.getIssueType().equals(IssueType.fromValue(actionValueType))) {
-			return false;
-		} else {
-			return true;
-		}
-	}
-
-	private void assignActionsToTradeRecords(JiraAssignmentTriggerEvent ob, JiraAssignmentResult jiraAssignmentResult,
-			List<TradeReportDocument> tradeReportDocuments, int recordCount) {
-		List<Pair<TradeReport, Long>> tradeReports = assignActionToTrade(tradeReportDocuments, ob.getActionValue(),
-				ob.getActionValueType());
-		int successResults = 0;
-		if (!tradeReports.isEmpty()) {
-			List<WriteResult<TradeReport>> results = dfTradePersistManager.saveAllRecords(tradeReports);
-
-			if (!results.isEmpty()) {
-				successResults = (int) results.stream().filter(result -> result.isSuccess()).count();
-			}
-		}
-		updatePersistResult(jiraAssignmentResult, recordCount, successResults);
-	}
-
-	protected List<Pair<TradeReport, Long>> assignActionToTrade(List<TradeReportDocument> tradeReportDocuments,
-			String actionValue, String actionValueType) throws TaggingServiceRunTimeException {
-		try {
-			List<Pair<TradeReport, Long>> reportsWithExpectedBaseVersions = new ArrayList<>();
-			for (TradeReportDocument tradeReportDocument : tradeReportDocuments) {
-				TradeReport tradeReport = tradeReportDocument.getTradeReport();
-				ExceptionManagement exceptionManagement = exceptionManagmentUpdater.addJiraIdToException(actionValue,
-						actionValueType, tradeReport.getExceptionManagement());
-
-				TradeReport tradeRepo = TradeReport.newBuilder(tradeReport).withExceptionManagement(exceptionManagement)
-						.withNonReportableData(NonReportableData.newBuilder(tradeReport.getNonReportableData())
-								.withUpdatedByApplication(TNTRApplication.TAGGING_SERVICE).build())
-						.build();
-				reportsWithExpectedBaseVersions.add(getReportsWithExpectedBaseVersion(tradeReportDocument, tradeRepo));
-			}
-			return reportsWithExpectedBaseVersions;
-		} catch (Exception e) {
-			throw new TaggingServiceRunTimeException("Error occured while adding jira in ExceptionManagement. ", e);
-		}
-	}
-
-	private void assignActionsToReconRecords(JiraAssignmentTriggerEvent ob, JiraAssignmentResult jiraAssignmentResult,
-			List<ReconReportDocument> reconReportDocument, int recordCount) {
-		List<Pair<ReconReport, Long>> reconReports = assignActionToRecon(reconReportDocument, ob.getAction(),
-				ob.getActionValue(), ob.getActionValueType());
-		int successResults = 0;
-		if (!reconReports.isEmpty()) {
-			List<WriteResult<ReconReport>> results = dfReconciliationPersistManager.saveAllRecords(reconReports);
-
-			if (!results.isEmpty()) {
-				successResults = (int) results.stream().filter(result -> result.isSuccess()).count();
-			}
-		}
-		updatePersistResult(jiraAssignmentResult, recordCount, successResults);
-	}
-
-	protected List<Pair<ReconReport, Long>> assignActionToRecon(List<ReconReportDocument> reconReportDocuments,
-			String action, String actionValue, String actionValueType) throws TaggingServiceRunTimeException {
-		try {
-			List<Pair<ReconReport, Long>> reportsWithExpectedBaseVersions = new ArrayList<>();
-			BreakManagement breakManagement = null;
-			for (ReconReportDocument reconReportDocument : reconReportDocuments) {
-				ReconReport reconReport = reconReportDocument.getReconReport();
-				breakManagement = reconBreakManagerUpdater.addActionToBreakManagement(action, actionValue,
-						actionValueType, reconReport.getBreakManagement());
-				ReconReport reconRepo = ReconReport.newBuilder(reconReport).withBreakManagement(breakManagement)
-						.build();
-				reportsWithExpectedBaseVersions
-						.add(Pair.of(reconRepo, reconReportDocument.getDocumentId().getVersion()));
-			}
-			return reportsWithExpectedBaseVersions;
-		} catch (Exception e) {
-			throw new TaggingServiceRunTimeException("Error occurred while adding " + action + " in BreakManagement. ",
-					e);
-		}
-	}
-
-	private Pair<TradeReport, Long> getReportsWithExpectedBaseVersion(TradeReportDocument tradeReportDocument,
-			TradeReport tradeReport) {
-		return Pair.of(tradeReport, tradeReportDocument.getDocumentId().getVersion());
-	}
-
-	protected List<Pair<ValuationReport, Long>> assignActionToValuation(
-			List<ValuationReportDocument> tradeReportDocuments, String actionValue, String actionValueType)
-			throws TaggingServiceRunTimeException {
-		try {
-			List<Pair<ValuationReport, Long>> reportsWithExpectedBaseVersions = new ArrayList<>();
-			for (ValuationReportDocument tradeReportDocument : tradeReportDocuments) {
-				ValuationReport tradeReport = tradeReportDocument.getValuationReport();
-				ExceptionManagement exceptionManagement;
-				exceptionManagement = exceptionManagmentUpdater.addJiraIdToException(actionValue, actionValueType,
-						tradeReport.getExceptionManagement());
-
-				ValuationReport valuationReport = ValuationReport.newBuilder(tradeReport)
-						.withExceptionManagement(exceptionManagement)
-						.withNonReportableData(NonReportableData.newBuilder(tradeReport.getNonReportableData())
-								.withUpdatedByApplication(TNTRApplication.TAGGING_SERVICE).build())
-						.build();
-				reportsWithExpectedBaseVersions
-						.add(Pair.of(valuationReport, tradeReportDocument.getDocumentId().getVersion()));
-			}
-			return reportsWithExpectedBaseVersions;
-		} catch (Exception e) {
-			throw new TaggingServiceRunTimeException("Error occured while adding jira in ExceptionManagement. ", e);
-		}
-	}
-
-	protected List<Pair<CollateralReport, Long>> assignActionToCollateral(
-			List<CollateralReportDocument> tradeReportDocuments, String actionValue, String actionValueType)
-			throws TaggingServiceRunTimeException {
-		try {
-			List<Pair<CollateralReport, Long>> reportsWithExpectedBaseVersions = new ArrayList<>();
-			for (CollateralReportDocument tradeReportDocument : tradeReportDocuments) {
-				CollateralReport tradeReport = tradeReportDocument.getCollateralReport();
-				ExceptionManagement exceptionManagement;
-				exceptionManagement = exceptionManagmentUpdater.addJiraIdToException(actionValue, actionValueType,
-						tradeReport.getExceptionManagement());
-
-				CollateralReport collateralReport = CollateralReport.newBuilder(tradeReport)
-						.withExceptionManagement(exceptionManagement)
-						.withNonReportableData(NonReportableData.newBuilder(tradeReport.getNonReportableData())
-								.withUpdatedByApplication(TNTRApplication.TAGGING_SERVICE).build())
-						.build();
-				reportsWithExpectedBaseVersions
-						.add(Pair.of(collateralReport, tradeReportDocument.getDocumentId().getVersion()));
-			}
-			return reportsWithExpectedBaseVersions;
-		} catch (Exception e) {
-			throw new TaggingServiceRunTimeException("Error occured while adding jira in ExceptionManagement. ", e);
-		}
-	}
-
-	protected List<Pair<CollateralLinkReport, Long>> assignActionToCollateralLink(
-			List<CollateralLinkReportDocument> tradeReportDocuments, String actionValue, String actionValueType)
-			throws TaggingServiceRunTimeException {
-		try {
-			List<Pair<CollateralLinkReport, Long>> reportsWithExpectedBaseVersions = new ArrayList<>();
-			for (CollateralLinkReportDocument tradeReportDocument : tradeReportDocuments) {
-				CollateralLinkReport tradeReport = tradeReportDocument.getCollateralLinkReport();
-				ExceptionManagement exceptionManagement;
-				exceptionManagement = exceptionManagmentUpdater.addJiraIdToException(actionValue, actionValueType,
-						tradeReport.getExceptionManagement());
-
-				CollateralLinkReport collateralLinkReport = CollateralLinkReport.newBuilder(tradeReport)
-						.withExceptionManagement(exceptionManagement)
-						.withNonReportableData(NonReportableData.newBuilder(tradeReport.getNonReportableData())
-								.withUpdatedByApplication(TNTRApplication.TAGGING_SERVICE).build())
-						.build();
-				reportsWithExpectedBaseVersions
-						.add(Pair.of(collateralLinkReport, tradeReportDocument.getDocumentId().getVersion()));
-			}
-			return reportsWithExpectedBaseVersions;
-		} catch (Exception e) {
-			throw new TaggingServiceRunTimeException("Error occured while adding jira in ExceptionManagement. ", e);
-		}
-	}
-
-	private List<TradeReportDocument> getAllTradeRecords(String whereClause, String indexHint, String actionValue,
-			String actionValueType) {
-		List<TradeReportDocument> tradeReportDocuments = dfTradePersistManager
-				.getAllRecords(getQueryParamsObj(whereClause, indexHint));
-
-		if (tradeReportDocuments != null && !tradeReportDocuments.isEmpty()) {
-			tradeReportDocuments = tradeReportDocuments.stream()
-					.filter(tradeReportDocument -> filterJiraReference(
-							tradeReportDocument.getTradeReport().getExceptionManagement(), actionValue,
-							actionValueType))
-					.collect(Collectors.toList());
-		}
-		return tradeReportDocuments;
-	}
-
-	private List<ValuationReportDocument> getAllValuationRecords(String whereClause, String indexHint,
-			String actionValue, String actionValueType) {
-		List<ValuationReportDocument> tradeReportDocuments = dfValuationPersistManager
-				.getAllRecords(getQueryParamsObj(whereClause, indexHint));
-		if (tradeReportDocuments != null && !tradeReportDocuments.isEmpty()) {
-			tradeReportDocuments = tradeReportDocuments.stream()
-					.filter(tradeReportDocument -> filterJiraReference(
-							tradeReportDocument.getValuationReport().getExceptionManagement(), actionValue,
-							actionValueType))
-					.collect(Collectors.toList());
-		}
-		return tradeReportDocuments;
-	}
-
-	private List<CollateralReportDocument> getAllCollateralRecords(String whereClause, String indexHint,
-			String actionValue, String actionValueType) {
-		List<CollateralReportDocument> tradeReportDocuments = dfCollateralPersistManager
-				.getAllRecords(getQueryParamsObj(whereClause, indexHint));
-		if (tradeReportDocuments != null && !tradeReportDocuments.isEmpty()) {
-			tradeReportDocuments = tradeReportDocuments.stream()
-					.filter(tradeReportDocument -> filterJiraReference(
-							tradeReportDocument.getCollateralReport().getExceptionManagement(), actionValue,
-							actionValueType))
-					.collect(Collectors.toList());
-		}
-		return tradeReportDocuments;
-	}
-
-	private List<CollateralLinkReportDocument> getAllCollateralLinkRecords(String whereClause, String indexHint,
-			String actionValue, String actionValueType) {
-		List<CollateralLinkReportDocument> tradeReportDocuments = dfCollateralLinkPersistManager
-				.getAllRecords(getQueryParamsObj(whereClause, indexHint));
-		if (tradeReportDocuments != null && !tradeReportDocuments.isEmpty()) {
-			tradeReportDocuments = tradeReportDocuments.stream()
-					.filter(tradeReportDocument -> filterJiraReference(
-							tradeReportDocument.getCollateralLinkReport().getExceptionManagement(), actionValue,
-							actionValueType))
-					.collect(Collectors.toList());
-		}
-		return tradeReportDocuments;
-	}
-
-	private void assignActionsToValuationRecord(JiraAssignmentTriggerEvent ob,
-			JiraAssignmentResult jiraAssignmentResult, List<ValuationReportDocument> tradeReportDocuments,
-			int recordCount) {
-		List<Pair<ValuationReport, Long>> tradeReports = assignActionToValuation(tradeReportDocuments,
-				ob.getActionValue(), ob.getActionValueType());
-		int successResults = 0;
-		if (!tradeReports.isEmpty()) {
-			List<WriteResult<ValuationReport>> results = dfValuationPersistManager.saveAllRecords(tradeReports);
-
-			if (!results.isEmpty()) {
-				successResults = (int) results.stream().filter(result -> result.isSuccess()).count();
-			}
-		}
-
-		updatePersistResult(jiraAssignmentResult, recordCount, successResults);
-	}
-
-	private void assignActionsToCollateralRecord(JiraAssignmentTriggerEvent ob,
-			JiraAssignmentResult jiraAssignmentResult, List<CollateralReportDocument> tradeReportDocuments,
-			int recordCount) {
-		List<Pair<CollateralReport, Long>> tradeReports = assignActionToCollateral(tradeReportDocuments,
-				ob.getActionValue(), ob.getActionValueType());
-		int successResults = 0;
-		if (!tradeReports.isEmpty()) {
-			List<WriteResult<CollateralReport>> results = dfCollateralPersistManager.saveAllRecords(tradeReports);
-
-			if (!results.isEmpty()) {
-				successResults = (int) results.stream().filter(result -> result.isSuccess()).count();
-			}
-		}
-
-		updatePersistResult(jiraAssignmentResult, recordCount, successResults);
-	}
-
-	private void assignActionsToCollateralLinkRecord(JiraAssignmentTriggerEvent ob,
-			JiraAssignmentResult jiraAssignmentResult, List<CollateralLinkReportDocument> tradeReportDocuments,
-			int recordCount) {
-		List<Pair<CollateralLinkReport, Long>> tradeReports = assignActionToCollateralLink(tradeReportDocuments,
-				ob.getActionValue(), ob.getActionValueType());
-		int successResults = 0;
-		if (!tradeReports.isEmpty()) {
-			List<WriteResult<CollateralLinkReport>> results = dfCollateralLinkPersistManager
-					.saveAllRecords(tradeReports);
-
-			if (!results.isEmpty()) {
-				successResults = (int) results.stream().filter(result -> result.isSuccess()).count();
-			}
-		}
-
-		updatePersistResult(jiraAssignmentResult, recordCount, successResults);
-	}
-}
-
-Existing test class:
-
-package com.rbs.tntr.business.taggingService.service.jiraAssignment;
-
-import java.lang.reflect.Constructor;
-import java.lang.reflect.Method;
-import java.time.LocalDate;
-import java.time.ZoneOffset;
-import java.time.ZonedDateTime;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-
-import com.rbs.datafabric.api.exception.InsertException;
-import com.rbs.datafabric.api.exception.OptimisticLockException;
-import com.rbs.datafabric.api.exception.UpsertException;
-import com.rbs.datafabric.common.DataFabricSerializerException;
-import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.enums.FlowType;
-import org.apache.commons.lang3.tuple.Pair;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
-import org.mockito.Mockito;
 
 import com.google.common.collect.Lists;
 import com.nwm.tntr.commons.domain.persistence.constant.*;
@@ -744,6 +27,10 @@ import com.nwm.tntr.commons.repository.regreporting.WriteResult;
 import com.nwm.tntr.configuration.CustomExecutorConfiguration;
 import com.nwm.tntr.executors.CustomExecutor;
 import com.rbs.datafabric.agile.commons.lang.StartableException;
+import com.rbs.datafabric.api.exception.InsertException;
+import com.rbs.datafabric.api.exception.OptimisticLockException;
+import com.rbs.datafabric.api.exception.UpsertException;
+import com.rbs.datafabric.common.DataFabricSerializerException;
 import com.rbs.tntr.business.taggingService.configuration.TaggingServiceQueryConfiguration;
 import com.rbs.tntr.business.taggingService.df.DfCollateralLinkPersistManager;
 import com.rbs.tntr.business.taggingService.df.DfCollateralPersistManager;
@@ -752,418 +39,1019 @@ import com.rbs.tntr.business.taggingService.df.DfTradePersistManager;
 import com.rbs.tntr.business.taggingService.df.DfValuationPersistManager;
 import com.rbs.tntr.business.taggingService.df.ExceptionManagmentUpdater;
 import com.rbs.tntr.business.taggingService.df.ReconBreakManagerUpdater;
+import com.rbs.tntr.business.taggingService.result.JiraAssignmentResult;
 import com.rbs.tntr.business.taggingService.service.common.TaggingServiceRepository;
 import com.rbs.tntr.business.taggingService.service.trigger.JiraAssignmentTriggerEvent;
 import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.AutoAssignResult;
 import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.enums.ActionType;
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.enums.FlowType;
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.exceptions.TaggingServiceRunTimeException;
 import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.response.Status;
 import com.rbs.tntr.domain.taggingService.miAnalytics.dashboard.common.TaggingStringConstants;
+import org.apache.commons.lang3.tuple.Pair;
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
+import org.mockito.Mockito;
+
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Method;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Date;
+import java.util.List;
 
 @SuppressWarnings("unchecked")
 public class AutoAssignmentServiceImplTest {
 
-	private TaggingServiceRepository taggingServiceRepository;
-	private TaggingServiceQueryConfiguration taggingServiceQueryConfiguration;
-	private DfTradePersistManager dfTradePersistManager;
-	private DfValuationPersistManager dfValuationPersistManager;
-	private DfCollateralPersistManager dfCollateralPersistManager;
-	private DfCollateralLinkPersistManager dfCollateralLinkPersistManager;
-	private DfReconciliationPersistManager dfReconciliationPersistManager;
-	private ExceptionManagmentUpdater exceptionManagmentUpdater;
-	private ReconBreakManagerUpdater reconBreakManagerUpdater;
-	private AutoAssignmentServiceImpl autoAssignmentService;
-	private static final String testJiraId = "TNTR-5234";
-	private static final String testJiraType = IssueType.MIS_REPORTING.value();
-	private CustomExecutor executor;
+    private TaggingServiceRepository taggingServiceRepository;
+    private TaggingServiceQueryConfiguration taggingServiceQueryConfiguration;
+    private DfTradePersistManager dfTradePersistManager;
+    private DfValuationPersistManager dfValuationPersistManager;
+    private DfCollateralPersistManager dfCollateralPersistManager;
+    private DfCollateralLinkPersistManager dfCollateralLinkPersistManager;
+    private DfReconciliationPersistManager dfReconciliationPersistManager;
+    private ExceptionManagmentUpdater exceptionManagmentUpdater;
+    private ReconBreakManagerUpdater reconBreakManagerUpdater;
+    private AutoAssignmentServiceImpl autoAssignmentService;
+    private static final String testJiraId = "TNTR-5234";
+    private static final String testJiraType = IssueType.MIS_REPORTING.value();
+    private CustomExecutor executor;
 
-	@Before
-	public void intialize() throws StartableException {
-		dfTradePersistManager = Mockito.mock(DfTradePersistManager.class);
-		dfValuationPersistManager = Mockito.mock(DfValuationPersistManager.class);
-		dfCollateralPersistManager = Mockito.mock(DfCollateralPersistManager.class);
-		dfCollateralLinkPersistManager = Mockito.mock(DfCollateralLinkPersistManager.class);
-		dfReconciliationPersistManager = Mockito.mock(DfReconciliationPersistManager.class);
-		taggingServiceRepository = Mockito.mock(TaggingServiceRepository.class);
-		taggingServiceQueryConfiguration = Mockito.mock(TaggingServiceQueryConfiguration.class);
-		exceptionManagmentUpdater = new ExceptionManagmentUpdater();
-		reconBreakManagerUpdater = new ReconBreakManagerUpdater();
-		executor = new CustomExecutor(new CustomExecutorConfiguration.Builder()
-    			.setActivateRunnable(true)
-    			.setRunnableThreadPoolName("TaggingRunnableExecutorThreadPoolThread-%d")
-    			.setRunnableCorePoolSize(2)
-    			.setRunnableMaxPoolSize(2)
-    			.setActivateCallable(true)
-    			.setCallableCorePoolSize(2)
-    			.setCallableMaxPoolSize(2)
-    			.setCallableThreadPoolName("TaggingCallableExecutorThreadPoolThread-%d")
-    			.build());
-		autoAssignmentService = new AutoAssignmentServiceImpl(taggingServiceRepository,
-				taggingServiceQueryConfiguration, dfTradePersistManager, dfValuationPersistManager,
-				dfCollateralPersistManager, dfCollateralLinkPersistManager, dfReconciliationPersistManager,
-				exceptionManagmentUpdater, reconBreakManagerUpdater, executor);
+    @Before
+    public void initialize() throws StartableException {
+        dfTradePersistManager = Mockito.mock(DfTradePersistManager.class);
+        dfValuationPersistManager = Mockito.mock(DfValuationPersistManager.class);
+        dfCollateralPersistManager = Mockito.mock(DfCollateralPersistManager.class);
+        dfCollateralLinkPersistManager = Mockito.mock(DfCollateralLinkPersistManager.class);
+        dfReconciliationPersistManager = Mockito.mock(DfReconciliationPersistManager.class);
+        taggingServiceRepository = Mockito.mock(TaggingServiceRepository.class);
+        taggingServiceQueryConfiguration = Mockito.mock(TaggingServiceQueryConfiguration.class);
+        exceptionManagmentUpdater = new ExceptionManagmentUpdater();
+        reconBreakManagerUpdater = new ReconBreakManagerUpdater();
+        executor = new CustomExecutor(new CustomExecutorConfiguration.Builder()
+                .setActivateRunnable(true)
+                .setRunnableThreadPoolName("TaggingRunnableExecutorThreadPoolThread-%d")
+                .setRunnableCorePoolSize(2)
+                .setRunnableMaxPoolSize(2)
+                .setActivateCallable(true)
+                .setCallableCorePoolSize(2)
+                .setCallableMaxPoolSize(2)
+                .setCallableThreadPoolName("TaggingCallableExecutorThreadPoolThread-%d")
+                .build());
+        autoAssignmentService = new AutoAssignmentServiceImpl(taggingServiceRepository,
+                taggingServiceQueryConfiguration, dfTradePersistManager, dfValuationPersistManager,
+                dfCollateralPersistManager, dfCollateralLinkPersistManager, dfReconciliationPersistManager,
+                exceptionManagmentUpdater, reconBreakManagerUpdater, executor);
 
-		Mockito.when(taggingServiceQueryConfiguration.getTradeQuery())
-				.thenReturn("and _df.lifetimeFrom >= '{lifetimeFrom}' and _df.lifetimeTo >= 9223372036854775807L");
-		Mockito.when(taggingServiceRepository.searchRulesFromDf(Mockito.any()))
-				.thenReturn(getJiraAssignmentTriggerEvent());
-		Mockito.when(dfTradePersistManager.getAllRecords(Mockito.any()))
-				.thenReturn(Lists.newArrayList(getTradeReportDocument()));
-		Mockito.when(dfValuationPersistManager.getAllRecords(Mockito.any()))
-				.thenReturn(Lists.newArrayList(getValReportDocument()));
-		Mockito.when(dfCollateralPersistManager.getAllRecords(Mockito.any()))
-				.thenReturn(Lists.newArrayList(getColReportDocument()));
-		Mockito.when(dfCollateralLinkPersistManager.getAllRecords(Mockito.any()))
-				.thenReturn(Lists.newArrayList(getColLinkReportDocument()));
-		Mockito.when(dfReconciliationPersistManager.getAllRecords(Mockito.any()))
-				.thenReturn(Lists.newArrayList(getReconReportDocument()));
-		Mockito.when(dfTradePersistManager.saveAllRecords(Mockito.any())).thenReturn(getWriteResults());
-		Mockito.when(dfValuationPersistManager.saveAllRecords(Mockito.any())).thenReturn(getValWriteResults());
-		Mockito.when(dfCollateralPersistManager.saveAllRecords(Mockito.any())).thenReturn(getColWriteResults());
-		Mockito.when(dfCollateralLinkPersistManager.saveAllRecords(Mockito.any())).thenReturn(getColLinkWriteResults());
-		Mockito.when(dfReconciliationPersistManager.saveAllRecords(Mockito.any())).thenReturn(getReconWriteResults());
-	}
+        Mockito.when(taggingServiceQueryConfiguration.getTradeQuery())
+                .thenReturn("and _df.lifetimeFrom >= '{lifetimeFrom}' and _df.lifetimeTo >= 9223372036854775807L");
+        Mockito.when(taggingServiceRepository.searchRulesFromDf(Mockito.any()))
+                .thenReturn(getJiraAssignmentTriggerEvent());
+        Mockito.when(dfTradePersistManager.getAllRecords(Mockito.any()))
+                .thenReturn(Lists.newArrayList(getTradeReportDocument()));
+        Mockito.when(dfValuationPersistManager.getAllRecords(Mockito.any()))
+                .thenReturn(Lists.newArrayList(getValReportDocument()));
+        Mockito.when(dfCollateralPersistManager.getAllRecords(Mockito.any()))
+                .thenReturn(Lists.newArrayList(getColReportDocument()));
+        Mockito.when(dfCollateralLinkPersistManager.getAllRecords(Mockito.any()))
+                .thenReturn(Lists.newArrayList(getColLinkReportDocument()));
+        Mockito.when(dfReconciliationPersistManager.getAllRecords(Mockito.any()))
+                .thenReturn(Lists.newArrayList(getReconReportDocument()));
+        Mockito.when(dfTradePersistManager.saveAllRecords(Mockito.any())).thenReturn(getWriteResults());
+        Mockito.when(dfValuationPersistManager.saveAllRecords(Mockito.any())).thenReturn(getValWriteResults());
+        Mockito.when(dfCollateralPersistManager.saveAllRecords(Mockito.any())).thenReturn(getColWriteResults());
+        Mockito.when(dfCollateralLinkPersistManager.saveAllRecords(Mockito.any())).thenReturn(getColLinkWriteResults());
+        Mockito.when(dfReconciliationPersistManager.saveAllRecords(Mockito.any())).thenReturn(getReconWriteResults());
+    }
 
-	@Test
-	public void autoAsignTest() {
-		List<AutoAssignResult> successMsg = autoAssignmentService.autoAssign(TaggingStringConstants.WHERE_CLAUSE);
+    @Test
+    public void testAutoAssign_Success() {
+        List<AutoAssignResult> successMsg = autoAssignmentService.autoAssign(TaggingStringConstants.WHERE_CLAUSE);
 
-		Assert.assertNotNull(successMsg);
-		Assert.assertEquals(successMsg.size(), 4);
-		Assert.assertEquals(successMsg.get(0).getPrimaryKey(),
-				"Trade Report_Jira Assignment_GTR-3012_EMIRSFTR_GTR-3012");
-		Assert.assertEquals(successMsg.get(0).getRecordsModified(), 1);
-		Assert.assertEquals(successMsg.get(0).getStatus(), Status.SUCCESS);
-	}
+        Assert.assertNotNull(successMsg);
+        Assert.assertEquals(4, successMsg.size());
+        Assert.assertEquals("Trade Report_Jira Assignment_GTR-3012_EMIRSFTR_GTR-3012", successMsg.get(0).getPrimaryKey());
+        Assert.assertEquals(1, successMsg.get(0).getRecordsModified());
+        Assert.assertEquals(Status.SUCCESS, successMsg.get(0).getStatus());
+    }
 
-@Test
-    public void reTriggerRulesTest() throws StartableException {
-		Mockito.when(taggingServiceRepository.searchRulesFromDf(Mockito.any()))
-				.thenReturn(Lists.newArrayList(getJiraAssignmentTriggerEvent().get(0)));
-		List<AutoAssignResult> results = autoAssignmentService.reTriggerRules(TaggingStringConstants.WHERE_CLAUSE);
+    @Test
+    public void testAutoAssign_NoActiveRules() throws StartableException {
+        Mockito.when(taggingServiceRepository.searchRulesFromDf(Mockito.any())).thenReturn(Collections.emptyList());
+        List<AutoAssignResult> result = autoAssignmentService.autoAssign("dummyWhereClause");
 
-		// Verify results
-		Assert.assertNotNull(results);
-		Assert.assertEquals(1, results.size());
+        Assert.assertNotNull(result);
+        Assert.assertTrue(result.isEmpty());
+    }
 
-		// Verify first result details
-		Assert.assertEquals("Trade Report_Jira Assignment_GTR-3012_EMIRSFTR_GTR-3012", results.get(0).getPrimaryKey());
-		Assert.assertEquals(1, results.get(0).getRecordsModified());
-	}
+    @Test
+    public void testAutoAssign_EmptyRecords() throws StartableException {
+        Mockito.when(dfTradePersistManager.getAllRecords(Mockito.any())).thenReturn(Collections.emptyList());
+        Mockito.when(dfValuationPersistManager.getAllRecords(Mockito.any())).thenReturn(Collections.emptyList());
+        Mockito.when(dfCollateralPersistManager.getAllRecords(Mockito.any())).thenReturn(Collections.emptyList());
+        Mockito.when(dfCollateralLinkPersistManager.getAllRecords(Mockito.any())).thenReturn(Collections.emptyList());
+        Mockito.when(dfReconciliationPersistManager.getAllRecords(Mockito.any())).thenReturn(Collections.emptyList());
 
-	@Test
-	public void assignActionToTradeTest() {
-		String jiraId = "TNTR-7845";
-		List<Pair<TradeReport, Long>> tradeReports = autoAssignmentService.assignActionToTrade(
-				Lists.newArrayList(getTradeReportDocument()), jiraId, IssueType.UNDER_REPORTING.value());
+        List<AutoAssignResult> result = autoAssignmentService.autoAssign("dummyWhereClause");
 
-		Assert.assertNotNull(tradeReports);
-		Assert.assertNotNull(tradeReports.get(0).getKey().getExceptionManagement());
-		Assert.assertEquals(tradeReports.get(0).getKey().getExceptionManagement().getIssueType(),
-				IssueType.UNDER_REPORTING);
-		Assert.assertEquals(tradeReports.get(0).getKey().getExceptionManagement().getIssueIds().size(), 3);
-		Assert.assertEquals(tradeReports.get(0).getKey().getExceptionManagement().getIssueIds().get(2), jiraId);
-	}
+        Assert.assertNotNull(result);
+        Assert.assertEquals(4, result.size());
+        Assert.assertEquals(0, result.get(0).getRecordsModified());
+        Assert.assertEquals(Status.FAILED, result.get(0).getStatus());
+    }
 
-	@Test
-	public void assignActionToValuationTest() {
-		String jiraId = "TNTR-7845";
-		List<Pair<ValuationReport, Long>> tradeReports = autoAssignmentService.assignActionToValuation(
-				Lists.newArrayList(getValReportDocument()), jiraId, IssueType.UNDER_REPORTING.value());
+    @Test
+    public void testAutoAssign_RecordsExceedMaxVolume() throws StartableException {
+        List<TradeReportDocument> largeList = new ArrayList<>();
+        for (int i = 0; i < 11; i++) {
+            largeList.add(getTradeReportDocument());
+        }
+        Mockito.when(dfTradePersistManager.getAllRecords(Mockito.any())).thenReturn(largeList);
 
-		Assert.assertNotNull(tradeReports);
-		Assert.assertNotNull(tradeReports.get(0).getKey().getExceptionManagement());
-		Assert.assertEquals(tradeReports.get(0).getKey().getExceptionManagement().getIssueType(),
-				IssueType.UNDER_REPORTING);
-		Assert.assertEquals(tradeReports.get(0).getKey().getExceptionManagement().getIssueIds().size(), 3);
-		Assert.assertEquals(tradeReports.get(0).getKey().getExceptionManagement().getIssueIds().get(2), jiraId);
-	}
+        List<AutoAssignResult> result = autoAssignmentService.autoAssign("dummyWhereClause");
 
-	@Test
-	public void assignActionToCollateralTest() {
-		String jiraId = "TNTR-7845";
-		List<Pair<CollateralReport, Long>> tradeReports = autoAssignmentService.assignActionToCollateral(
-				Lists.newArrayList(getColReportDocument()), jiraId, IssueType.OVER_REPORTING.value());
+        Assert.assertNotNull(result);
+        Assert.assertEquals(4, result.size());
+        Assert.assertEquals(0, result.get(0).getRecordsModified());
+        Assert.assertEquals(Status.FAILED, result.get(0).getStatus());
+        Assert.assertTrue(result.get(0).getComment().contains("Total records found are more than maxVolume"));
+    }
 
-		Assert.assertNotNull(tradeReports);
-		Assert.assertNotNull(tradeReports.get(0).getKey().getExceptionManagement());
-		Assert.assertEquals(tradeReports.get(0).getKey().getExceptionManagement().getIssueType(),
-				IssueType.OVER_REPORTING);
-		Assert.assertEquals(tradeReports.get(0).getKey().getExceptionManagement().getIssueIds().size(), 3);
-		Assert.assertEquals(tradeReports.get(0).getKey().getExceptionManagement().getIssueIds().get(2), jiraId);
-	}
+    @Test
+    public void testAutoAssign_FetchRecordsThrowsException() throws StartableException {
+        Mockito.when(dfTradePersistManager.getAllRecords(Mockito.any()))
+                .thenThrow(new RuntimeException("Fetch error"));
 
-	@Test
-	public void assignActionToCollateralLinkTest() {
-		String jiraId = "TNTR-7845";
-		List<Pair<CollateralLinkReport, Long>> tradeReports = autoAssignmentService.assignActionToCollateralLink(
-				Lists.newArrayList(getColLinkReportDocument()), jiraId, IssueType.MIS_REPORTING.value());
+        List<AutoAssignResult> result = autoAssignmentService.autoAssign("dummyWhereClause");
 
-		Assert.assertNotNull(tradeReports);
-		Assert.assertNotNull(tradeReports.get(0).getKey().getExceptionManagement());
-		Assert.assertEquals(tradeReports.get(0).getKey().getExceptionManagement().getIssueType(),
-				IssueType.MIS_REPORTING);
-		Assert.assertEquals(tradeReports.get(0).getKey().getExceptionManagement().getIssueIds().size(), 3);
-		Assert.assertEquals(tradeReports.get(0).getKey().getExceptionManagement().getIssueIds().get(2), jiraId);
-	}
+        Assert.assertNotNull(result);
+        Assert.assertEquals(4, result.size());
+        Assert.assertEquals(Status.FAILED, result.get(0).getStatus());
+        Assert.assertTrue(result.get(0).getComment().contains("Fetch error"));
+    }
 
-	@Test
-	public void assignActionToReconTest() {
-		String jiraId = "TNTR-7845";
-		List<Pair<ReconReport, Long>> reconReports = autoAssignmentService.assignActionToRecon(
-				Lists.newArrayList(getReconReportDocument()), ActionType.JIRA_ASSIGNMENT.getValue(), jiraId,
-				IssueType.UNDER_REPORTING.value());
+    @Test
+    public void testAutoAssign_SaveRecordsThrowsException() throws StartableException {
+        Mockito.when(dfTradePersistManager.saveAllRecords(Mockito.any()))
+                .thenThrow(new TaggingServiceRunTimeException("Save error"));
+        List<AutoAssignResult> result = autoAssignmentService.autoAssign("dummyWhereClause");
 
-		Assert.assertNotNull(reconReports);
-		Assert.assertNotNull(reconReports.get(0).getKey().getBreakManagement());
-		Assert.assertEquals(reconReports.get(0).getKey().getBreakManagement().getIssueType(),
-				IssueType.UNDER_REPORTING.value());
-		Assert.assertEquals(reconReports.get(0).getKey().getBreakManagement().getIssueTrackingReferences().size(), 2);
-		Assert.assertEquals(reconReports.get(0).getKey().getBreakManagement().getAssignedTo(), "philvdp");
-		Assert.assertEquals(reconReports.get(0).getKey().getBreakManagement().getUserComment(), "Test Comment");
-	}
+        Assert.assertNotNull(result);
+        Assert.assertEquals(4, result.size());
+        Assert.assertEquals(0, result.get(0).getRecordsModified());
+        Assert.assertEquals(Status.FAILED, result.get(0).getStatus());
+    }
 
-	@Test
-	public void filterJiraReferenceNullTest() {
-		ExceptionManagement em = getTradeReportWithNullExceptionMgt().getTradeReport().getExceptionManagement();
-		boolean value = autoAssignmentService.filterJiraReference(em, testJiraId, testJiraType);
-		Assert.assertTrue(value);
-	}
+    @Test
+    public void testReTriggerRules_Success() throws StartableException {
+        Mockito.when(taggingServiceRepository.searchRulesFromDf(Mockito.any()))
+                .thenReturn(Lists.newArrayList(getJiraAssignmentTriggerEvent().get(0)));
+        List<AutoAssignResult> results = autoAssignmentService.reTriggerRules(TaggingStringConstants.WHERE_CLAUSE);
 
-	@Test
-	public void filterJiraReferenceNullJiraIdTest() {
-		ExceptionManagement em = getTradeReportWithNullJiraId().getTradeReport().getExceptionManagement();
-		boolean value = autoAssignmentService.filterJiraReference(em, testJiraId, testJiraType);
-		Assert.assertTrue(value);
-	}
+        Assert.assertNotNull(results);
+        Assert.assertEquals(1, results.size());
+        Assert.assertEquals("Trade Report_Jira Assignment_GTR-3012_EMIRSFTR_GTR-3012", results.get(0).getPrimaryKey());
+        Assert.assertEquals(1, results.get(0).getRecordsModified());
+        Assert.assertEquals(Status.SUCCESS, results.get(0).getStatus());
+    }
 
-	@Test
-	public void filterJiraReferenceNullJiraTypeTest() {
-		ExceptionManagement em = getTradeReportWithNullJiraType().getTradeReport().getExceptionManagement();
-		boolean value = autoAssignmentService.filterJiraReference(em, testJiraId, testJiraType);
-		Assert.assertTrue(value);
-	}
+    @Test
+    public void testReTriggerRules_NoMatchingRules() throws StartableException {
+        Mockito.when(taggingServiceRepository.searchRulesFromDf(Mockito.any()))
+                .thenReturn(Collections.emptyList());
+        List<AutoAssignResult> result = autoAssignmentService.reTriggerRules("dummyWhereClause");
 
-	@Test
-	public void filterJiraReferenceNullActionValueAndJiraIdTest() {
-		ExceptionManagement em = getTradeReportWithNullJiraId().getTradeReport().getExceptionManagement();
-		boolean value = autoAssignmentService.filterJiraReference(em, null, testJiraType);
-		Assert.assertTrue(value);
-	}
+        Assert.assertNotNull(result);
+        Assert.assertTrue(result.isEmpty());
+    }
 
-	@Test
-	public void filterJiraReferenceNullActionValueTypeAndJiraTypeTest() {
-		ExceptionManagement em = getTradeReportWithNullJiraType().getTradeReport().getExceptionManagement();
-		boolean value = autoAssignmentService.filterJiraReference(em, testJiraId, null);
-		Assert.assertTrue(value);
-	}
+    @Test
+    public void testReTriggerRules_ReconWithSubExpression() throws StartableException {
+        JiraAssignmentTriggerEvent reconEvent = new JiraAssignmentTriggerEvent.Builder()
+                .withId("5")
+                .withPrimaryKey("Recon_Jira Assignment_GTR-3016_EMIRSFTR_GTR-3016")
+                .withExpression("reconType = 'Completeness'")
+                .withSubExpression("breakStatus = 'UNPAIRED'")
+                .withFlow(FlowType.RECONCILIATION.toString())
+                .withAction("Jira Assignment")
+                .withActionValue("GTR-3016")
+                .withActionValueType(IssueType.MIS_REPORTING.value())
+                .withIsActive(true)
+                .withLastSuccessDate("2021-11-02T06:38:10.841Z")
+                .withIndexHint("recon-type")
+                .withMaxVolume(10)
+                .create();
+        Mockito.when(taggingServiceRepository.searchRulesFromDf(Mockito.any()))
+                .thenReturn(Lists.newArrayList(reconEvent));
+        Mockito.when(dfReconciliationPersistManager.getAllRecords(Mockito.any()))
+                .thenReturn(Lists.newArrayList(getReconReportDocument()));
 
-	@Test
-	public void testFilterJiraReference_SameIssueTypeAndId() throws Exception {
-		// Using reflection to access the private constructor of Builder
-		Class<?> builderClass = Class.forName("com.nwm.tntr.commons.domain.persistence.entity.ExceptionManagement$Builder");
-		Constructor<?> builderConstructor = builderClass.getDeclaredConstructor();
-		builderConstructor.setAccessible(true);
+        List<AutoAssignResult> result = autoAssignmentService.reTriggerRules("dummyWhereClause");
 
-		Object builderInstance = builderConstructor.newInstance();
+        Assert.assertNotNull(result);
+        Assert.assertEquals(1, result.size());
+        Assert.assertEquals(Status.SUCCESS, result.get(0).getStatus());
+    }
 
-		// Now invoke the methods using reflection
-		Method withIssueTypeMethod = builderClass.getMethod("withIssueType", IssueType.class);
-		withIssueTypeMethod.invoke(builderInstance, IssueType.UNDER_REPORTING);
+    @Test
+    public void testUpdateTaggingBatchDf_InsertException() throws Exception {
+        JiraAssignmentTriggerEvent ob = getJiraAssignmentTriggerEvent().get(0);
+        JiraAssignmentResult result = new JiraAssignmentResult();
+        Mockito.doThrow(new InsertException("Insert error"))
+                .when(taggingServiceRepository)
+                .updateEntity(Mockito.any(), Mockito.any(), Mockito.anyInt(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
 
-		Method withIssueIdsMethod = builderClass.getMethod("withIssueIds", List.class);
-		withIssueIdsMethod.invoke(builderInstance, Collections.singletonList("TNTR-1234"));
+        Method method = AutoAssignmentServiceImpl.class.getDeclaredMethod("updateTaggingBatchDf", String.class, JiraAssignmentTriggerEvent.class, JiraAssignmentResult.class, Date.class);
+        method.setAccessible(true);
+        method.invoke(autoAssignmentService, "2021-11-02T06:38:10.841Z", ob, result, null);
 
-		Method buildMethod = builderClass.getMethod("build");
-		ExceptionManagement em = (ExceptionManagement) buildMethod.invoke(builderInstance);
+        // No assertion needed; verify no unhandled exception
+    }
 
-		boolean result = autoAssignmentService.filterJiraReference(em, "TNTR-1234", IssueType.UNDER_REPORTING.value());
+    @Test
+    public void testUpdateTaggingBatchDf_UpsertException() throws Exception {
+        JiraAssignmentTriggerEvent ob = getJiraAssignmentTriggerEvent().get(0);
+        JiraAssignmentResult result = new JiraAssignmentResult();
+        Mockito.doThrow(new UpsertException("Upsert error"))
+                .when(taggingServiceRepository)
+                .updateEntity(Mockito.any(), Mockito.any(), Mockito.anyInt(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
 
-		Assert.assertFalse(result); // Expect false since these ID and type already exist
-	}
+        Method method = AutoAssignmentServiceImpl.class.getDeclaredMethod("updateTaggingBatchDf", String.class, JiraAssignmentTriggerEvent.class, JiraAssignmentResult.class, Date.class);
+        method.setAccessible(true);
+        method.invoke(autoAssignmentService, "2021-11-02T06:38:10.841Z", ob, result, null);
 
-	@Test
-	public void testGetFilteredRulesForRetrigger_EmptyResult() throws Exception {
-		Method getFilteredRulesForRetriggerMethod = AutoAssignmentServiceImpl.class.getDeclaredMethod("getFilteredRulesForRetrigger", List.class, String.class);
-		getFilteredRulesForRetriggerMethod.setAccessible(true);
+        // No assertion needed; verify no unhandled exception
+    }
 
-		List filteredEvents = (List) getFilteredRulesForRetriggerMethod.invoke(autoAssignmentService, Collections.emptyList(), FlowType.RECONCILIATION.getValue());
+    @Test
+    public void testUpdateTaggingBatchDf_OptimisticLockException() throws Exception {
+        JiraAssignmentTriggerEvent ob = getJiraAssignmentTriggerEvent().get(0);
+        JiraAssignmentResult result = new JiraAssignmentResult();
+        Mockito.doThrow(new OptimisticLockException("Optimistic lock error"))
+                .when(taggingServiceRepository)
+                .updateEntity(Mockito.any(), Mockito.any(), Mockito.anyInt(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
 
-		Assert.assertTrue(filteredEvents.isEmpty());
-	}
+        Method method = AutoAssignmentServiceImpl.class.getDeclaredMethod("updateTaggingBatchDf", String.class, JiraAssignmentTriggerEvent.class, JiraAssignmentResult.class, Date.class);
+        method.setAccessible(true);
+        method.invoke(autoAssignmentService, "2021-11-02T06:38:10.841Z", ob, result, null);
 
-	@Test
-	public void filterJiraReferenceNullActionValueTypeAndSameJiraIdTest() {
-		ExceptionManagement em = getTradeReportWithNullJiraType().getTradeReport().getExceptionManagement();
-		boolean value = autoAssignmentService.filterJiraReference(em, "TNTR-1234", null);
-		Assert.assertFalse(value);
-	}
+        // No assertion needed; verify no unhandled exception
+    }
 
-	@Test
-	public void filterJiraReferenceNullActionValueAndSameJiraTypeTest() {
-		ExceptionManagement em = getTradeReportWithNullJiraId().getTradeReport().getExceptionManagement();
-		boolean value = autoAssignmentService.filterJiraReference(em, null, IssueType.UNDER_REPORTING.value());
-		Assert.assertFalse(value);
-	}
+    @Test
+    public void testUpdateTaggingBatchDf_DataFabricSerializerException() throws Exception {
+        JiraAssignmentTriggerEvent ob = getJiraAssignmentTriggerEvent().get(0);
+        JiraAssignmentResult result = new JiraAssignmentResult();
+        Mockito.doThrow(new DataFabricSerializerException("Serializer error"))
+                .when(taggingServiceRepository)
+                .updateEntity(Mockito.any(), Mockito.any(), Mockito.anyInt(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
 
-	@Test
-	public void filterJiraReferenceForSameJiraIDAndType() {
-		ExceptionManagement em = getTradeReportDocument().getTradeReport().getExceptionManagement();
-		boolean value = autoAssignmentService.filterJiraReference(em, "TNTR-1234", IssueType.MIS_REPORTING.value());
-		Assert.assertFalse(value);
-	}
+        Method method = AutoAssignmentServiceImpl.class.getDeclaredMethod("updateTaggingBatchDf", String.class, JiraAssignmentTriggerEvent.class, JiraAssignmentResult.class, Date.class);
+        method.setAccessible(true);
+        method.invoke(autoAssignmentService, "2021-11-02T06:38:10.841Z", ob, result, null);
 
-	@Test
-	public void filterJiraReferenceForDiffJiraID() {
-		ExceptionManagement em = getTradeReportDocument().getTradeReport().getExceptionManagement();
-		boolean value = autoAssignmentService.filterJiraReference(em, "TNTR-9234", IssueType.MIS_REPORTING.value());
-		Assert.assertTrue(value);
-	}
+        // No assertion needed; verify no unhandled exception
+    }
 
-	@Test
-	public void filterJiraReferenceForDiffJiraType() {
-		ExceptionManagement em = getTradeReportDocument().getTradeReport().getExceptionManagement();
-		boolean value = autoAssignmentService.filterJiraReference(em, "TNTR-1234", IssueType.OVER_REPORTING.value());
-		Assert.assertTrue(value);
-	}
+    @Test
+    public void testUpdateTaggingBatchDf_StartableException() throws Exception {
+        JiraAssignmentTriggerEvent ob = getJiraAssignmentTriggerEvent().get(0);
+        JiraAssignmentResult result = new JiraAssignmentResult();
+        Mockito.doThrow(new StartableException("Startable error"))
+                .when(taggingServiceRepository)
+                .updateEntity(Mockito.any(), Mockito.any(), Mockito.anyInt(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
 
-	@Test
-	public void filterJiraReferenceForDiffJiraIDAndType() {
-		ExceptionManagement em = getTradeReportDocument().getTradeReport().getExceptionManagement();
-		boolean value = autoAssignmentService.filterJiraReference(em, "TNTR-9234", IssueType.OVER_REPORTING.value());
-		Assert.assertTrue(value);
-	}
+        Method method = AutoAssignmentServiceImpl.class.getDeclaredMethod("updateTaggingBatchDf", String.class, JiraAssignmentTriggerEvent.class, JiraAssignmentResult.class, Date.class);
+        method.setAccessible(true);
+        method.invoke(autoAssignmentService, "2021-11-02T06:38:10.841Z", ob, result, null);
 
-	@Test
-	public void filterJiraReferenceForReconNullTest() {
-		BreakManagement em = getReconReportDocumentWithNullBreakManagement().getReconReport().getBreakManagement();
-		boolean value = autoAssignmentService.filterJiraReferenceForRecon(em, ActionType.JIRA_ASSIGNMENT.getValue(),
-				testJiraId, testJiraType);
-		Assert.assertTrue(value);
-	}
+        // No assertion needed; verify no unhandled exception
+    }
 
-	@Test
-	public void filterJiraReferenceForReconNullJiraIdTest() {
-		BreakManagement em = getReconReportDocumentWithNullJiraId().getReconReport().getBreakManagement();
-		boolean value = autoAssignmentService.filterJiraReferenceForRecon(em, ActionType.JIRA_ASSIGNMENT.getValue(),
-				testJiraId, testJiraType);
-		Assert.assertTrue(value);
-	}
+    @Test
+    public void testAssignTradeActions_EmptyRecords() {
+        JiraAssignmentTriggerEvent ob = getJiraAssignmentTriggerEvent().get(0);
+        List<AutoAssignResult> results = new ArrayList<>();
+        Mockito.when(dfTradePersistManager.getAllRecords(Mockito.any())).thenReturn(Collections.emptyList());
 
-	@Test
-	public void filterJiraReferenceForReconNullJiraTypeTest() {
-		BreakManagement em = getReconReportDocumentWithNullJiraType().getReconReport().getBreakManagement();
-		boolean value = autoAssignmentService.filterJiraReferenceForRecon(em, ActionType.JIRA_ASSIGNMENT.getValue(),
-				testJiraId, testJiraType);
-		Assert.assertTrue(value);
-	}
+        Method method;
+        try {
+            method = AutoAssignmentServiceImpl.class.getDeclaredMethod("assignTradeActions", String.class, JiraAssignmentTriggerEvent.class, List.class);
+            method.setAccessible(true);
+            method.invoke(autoAssignmentService, "2021-11-02T06:38:10.841Z", ob, results);
+        } catch (Exception e) {
+            Assert.fail("Exception during reflection: " + e.getMessage());
+        }
 
-	@Test
-	public void filterJiraReferenceForReconNullActionValueAndJiraIdTest() {
-		BreakManagement em = getReconReportDocumentWithNullJiraId().getReconReport().getBreakManagement();
-		boolean value = autoAssignmentService.filterJiraReferenceForRecon(em, ActionType.JIRA_ASSIGNMENT.getValue(),
-				null, testJiraType);
-		Assert.assertTrue(value);
-	}
+        Assert.assertEquals(1, results.size());
+        Assert.assertEquals(Status.FAILED, results.get(0).getStatus());
+        Assert.assertEquals(0, results.get(0).getRecordsModified());
+    }
 
-	@Test
-	public void filterJiraReferenceForReconNullActionValueTypeAndJiraTypeTest() {
-		BreakManagement em = getReconReportDocumentWithNullJiraType().getReconReport().getBreakManagement();
-		boolean value = autoAssignmentService.filterJiraReferenceForRecon(em, ActionType.JIRA_ASSIGNMENT.getValue(),
-				testJiraId, null);
-		Assert.assertTrue(value);
-	}
+    @Test
+    public void testAssignTradeActions_RecordsExceedMaxVolume() {
+        JiraAssignmentTriggerEvent ob = getJiraAssignmentTriggerEvent().get(0);
+        List<AutoAssignResult> results = new ArrayList<>();
+        List<TradeReportDocument> largeList = new ArrayList<>();
+        for (int i = 0; i < 11; i++) {
+            largeList.add(getTradeReportDocument());
+        }
+        Mockito.when(dfTradePersistManager.getAllRecords(Mockito.any())).thenReturn(largeList);
 
-	@Test
-	public void filterJiraReferenceForReconNullActionValueTypeAndSameJiraIdTest() {
-		BreakManagement em = getReconReportDocument().getReconReport().getBreakManagement();
-		boolean value = autoAssignmentService.filterJiraReferenceForRecon(em, ActionType.JIRA_ASSIGNMENT.getValue(),
-				"TTR-1010", null);
-		Assert.assertFalse(value);
-	}
+        Method method;
+        try {
+            method = AutoAssignmentServiceImpl.class.getDeclaredMethod("assignTradeActions", String.class, JiraAssignmentTriggerEvent.class, List.class);
+            method.setAccessible(true);
+            method.invoke(autoAssignmentService, "2021-11-02T06:38:10.841Z", ob, results);
+        } catch (Exception e) {
+            Assert.fail("Exception during reflection: " + e.getMessage());
+        }
 
-	@Test
-	public void filterJiraReferenceForReconNullActionValueAndSameJiraTypeTest() {
-		BreakManagement em = getReconReportDocument().getReconReport().getBreakManagement();
-		boolean value = autoAssignmentService.filterJiraReferenceForRecon(em, ActionType.JIRA_ASSIGNMENT.getValue(),
-				null, "Under Reporting");
-		Assert.assertFalse(value);
-	}
+        Assert.assertEquals(1, results.size());
+        Assert.assertEquals(Status.FAILED, results.get(0).getStatus());
+        Assert.assertTrue(results.get(0).getComment().contains("Total records found are more than maxVolume"));
+    }
 
-	@Test
-	public void filterJiraReferenceForReconForSameJiraIDAndType() {
-		BreakManagement em = getReconReportDocument().getReconReport().getBreakManagement();
-		boolean value = autoAssignmentService.filterJiraReferenceForRecon(em, ActionType.JIRA_ASSIGNMENT.getValue(),
-				"TTR-1010", "Under Reporting");
-		Assert.assertFalse(value);
-	}
+    @Test
+    public void testAssignTradeActions_FetchException() {
+        JiraAssignmentTriggerEvent ob = getJiraAssignmentTriggerEvent().get(0);
+        List<AutoAssignResult> results = new ArrayList<>();
+        Mockito.when(dfTradePersistManager.getAllRecords(Mockito.any()))
+                .thenThrow(new RuntimeException("Fetch error"));
 
-	@Test
-	public void filterJiraReferenceForReconForDiffJiraID() {
-		BreakManagement em = getReconReportDocument().getReconReport().getBreakManagement();
-		boolean value = autoAssignmentService.filterJiraReferenceForRecon(em, ActionType.JIRA_ASSIGNMENT.getValue(),
-				"TNTR-9234", "Under Reporting");
-		Assert.assertTrue(value);
-	}
+        Method method;
+        try {
+            method = AutoAssignmentServiceImpl.class.getDeclaredMethod("assignTradeActions", String.class, JiraAssignmentTriggerEvent.class, List.class);
+            method.setAccessible(true);
+            method.invoke(autoAssignmentService, "2021-11-02T06:38:10.841Z", ob, results);
+        } catch (Exception e) {
+            Assert.fail("Exception during reflection: " + e.getMessage());
+        }
 
-	@Test
-	public void filterJiraReferenceForReconForDiffJiraType() {
-		BreakManagement em = getReconReportDocument().getReconReport().getBreakManagement();
-		boolean value = autoAssignmentService.filterJiraReferenceForRecon(em, ActionType.JIRA_ASSIGNMENT.getValue(),
-				"TNTR-1010", "Over Reporting");
-		Assert.assertTrue(value);
-	}
+        Assert.assertEquals(1, results.size());
+        Assert.assertEquals(Status.FAILED, results.get(0).getStatus());
+        Assert.assertTrue(results.get(0).getComment().contains("Fetch error"));
+    }
 
-	@Test
-	public void filterJiraReferenceForReconForDiffJiraIDAndType() {
-		BreakManagement em = getReconReportDocument().getReconReport().getBreakManagement();
-		boolean value = autoAssignmentService.filterJiraReferenceForRecon(em, ActionType.JIRA_ASSIGNMENT.getValue(),
-				"TNTR-1234", "Over Reporting");
-		Assert.assertTrue(value);
-	}
+    @Test
+    public void testAssignValuationActions_EmptyRecords() {
+        JiraAssignmentTriggerEvent ob = getJiraAssignmentTriggerEvent().get(1);
+        List<AutoAssignResult> results = new ArrayList<>();
+        Mockito.when(dfValuationPersistManager.getAllRecords(Mockito.any())).thenReturn(Collections.emptyList());
 
-	@Test
-	public void filterJiraReferenceForReconNullAction() {
-		BreakManagement em = getReconReportDocument().getReconReport().getBreakManagement();
-		boolean value = autoAssignmentService.filterJiraReferenceForRecon(em, null, "TNTR-1234", "Over Reporting");
-		Assert.assertFalse(value);
-	}
+        Method method;
+        try {
+            method = AutoAssignmentServiceImpl.class.getDeclaredMethod("assignValuationActions", String.class, JiraAssignmentTriggerEvent.class, List.class);
+            method.setAccessible(true);
+            method.invoke(autoAssignmentService, "2021-11-02T06:38:10.841Z", ob, results);
+        } catch (Exception e) {
+            Assert.fail("Exception during reflection: " + e.getMessage());
+        }
 
-	@Test
-	public void filterJiraReferenceForReconWithNewComment() {
-		BreakManagement em = getReconReportDocumentWithNullComments().getReconReport().getBreakManagement();
-		boolean value = autoAssignmentService.filterJiraReferenceForRecon(em, ActionType.ADD_COMMENT.getValue(),
-				"Test Comment", null);
-		Assert.assertTrue(value);
-	}
+        Assert.assertEquals(1, results.size());
+        Assert.assertEquals(Status.FAILED, results.get(0).getStatus());
+        Assert.assertEquals(0, results.get(0).getRecordsModified());
+    }
 
-	@Test
-	public void filterJiraReferenceForReconWithExistingComment() {
-		BreakManagement em = getReconReportDocumentWithExistingComment().getReconReport().getBreakManagement();
-		boolean value = autoAssignmentService.filterJiraReferenceForRecon(em, ActionType.ADD_COMMENT.getValue(),
-				"New Test Comment", null);
-		Assert.assertTrue(value);
-	}
+    @Test
+    public void testAssignCollateralActions_EmptyRecords() {
+        JiraAssignmentTriggerEvent ob = getJiraAssignmentTriggerEvent().get(2);
+        List<AutoAssignResult> results = new ArrayList<>();
+        Mockito.when(dfCollateralPersistManager.getAllRecords(Mockito.any())).thenReturn(Collections.emptyList());
 
-	@Test
-	public void filterJiraReferenceForReconWithNullComment() {
-		BreakManagement em = getReconReportDocumentWithExistingComment().getReconReport().getBreakManagement();
-		boolean value = autoAssignmentService.filterJiraReferenceForRecon(em, ActionType.ADD_COMMENT.getValue(), null,
-				null);
-		Assert.assertFalse(value);
-	}
+        Method method;
+        try {
+            method = AutoAssignmentServiceImpl.class.getDeclaredMethod("assignCollateralActions", String.class, JiraAssignmentTriggerEvent.class, List.class);
+            method.setAccessible(true);
+            method.invoke(autoAssignmentService, "2021-11-02T06:38:10.841Z", ob, results);
+        } catch (Exception e) {
+            Assert.fail("Exception during reflection: " + e.getMessage());
+        }
 
-	private List<JiraAssignmentTriggerEvent> getJiraAssignmentTriggerEvent() {
-		List<JiraAssignmentTriggerEvent> ob = Lists.newArrayList();
-		JiraAssignmentTriggerEvent obTrade = new JiraAssignmentTriggerEvent.Builder().withId("1")
-				.withPrimaryKey("Trade Report_Jira Assignment_GTR-3012_EMIRSFTR_GTR-3012")
-				.withExpression(
-						"subjectIdentifier.transactionId = '135705760' and subjectIdentifier.sourceSystem = 'GDS GBLO'")
-				.withFlow("Trade Report").withAction("Jira Assignment").withActionValue("GTR-3012")
-				.withActionValueType(IssueType.OVER_REPORTING.value()).withIsActive(true)
-				.withLastSuccessDate("2021-11-02T06:38:10.841Z").withIndexHint("blotter-tradeId").withMaxVolume(10)
-				.create();
+        Assert.assertEquals(1, results.size());
+        Assert.assertEquals(Status.FAILED, results.get(0).getStatus());
+        Assert.assertEquals(0, results.get(0).getRecordsModified());
+    }
 
-		JiraAssignmentTriggerEvent obValuation = new JiraAssignmentTriggerEvent.Builder().withId("2")
+    @Test
+    public void testAssignCollateralLinkActions_EmptyRecords() {
+        JiraAssignmentTriggerEvent ob = getJiraAssignmentTriggerEvent().get(3);
+        List<AutoAssignResult> results = new ArrayList<>();
+        Mockito.when(dfCollateralLinkPersistManager.getAllRecords(Mockito.any())).thenReturn(Collections.emptyList());
+
+        Method method;
+        try {
+            method = AutoAssignmentServiceImpl.class.getDeclaredMethod("assignCollateralLinkActions", String.class, JiraAssignmentTriggerEvent.class, List.class);
+            method.setAccessible(true);
+            method.invoke(autoAssignmentService, "2021-11-02T06:38:10.841Z", ob, results);
+        } catch (Exception e) {
+            Assert.fail("Exception during reflection: " + e.getMessage());
+        }
+
+        Assert.assertEquals(1, results.size());
+        Assert.assertEquals(Status.FAILED, results.get(0).getStatus());
+        Assert.assertEquals(0, results.get(0).getRecordsModified());
+    }
+
+    @Test
+    public void testAssignReconActions_EmptyRecords() {
+        JiraAssignmentTriggerEvent ob = new JiraAssignmentTriggerEvent.Builder()
+                .withId("5")
+                .withPrimaryKey("Recon_Jira Assignment_GTR-3016_EMIRSFTR_GTR-3016")
+                .withExpression("reconType = 'Completeness'")
+                .withFlow(FlowType.RECONCILIATION.toString())
+                .withAction("Jira Assignment")
+                .withActionValue("GTR-3016")
+                .withActionValueType(IssueType.MIS_REPORTING.value())
+                .withIsActive(true)
+                .withLastSuccessDate("2021-11-02T06:38:10.841Z")
+                .withIndexHint("recon-type")
+                .withMaxVolume(10)
+                .create();
+        List<AutoAssignResult> results = new ArrayList<>();
+        Mockito.when(dfReconciliationPersistManager.getAllRecords(Mockito.any())).thenReturn(Collections.emptyList());
+
+        Method method;
+        try {
+            method = AutoAssignmentServiceImpl.class.getDeclaredMethod("assignReconActions", String.class, JiraAssignmentTriggerEvent.class, List.class);
+            method.setAccessible(true);
+            method.invoke(autoAssignmentService, "2021-11-02T06:38:10.841Z", ob, results);
+        } catch (Exception e) {
+            Assert.fail("Exception during reflection: " + e.getMessage());
+        }
+
+        Assert.assertEquals(1, results.size());
+        Assert.assertEquals(Status.FAILED, results.get(0).getStatus());
+        Assert.assertEquals(0, results.get(0).getRecordsModified());
+    }
+
+    @Test
+    public void testAssignReconActions_WithSubExpression() {
+        JiraAssignmentTriggerEvent ob = new JiraAssignmentTriggerEvent.Builder()
+                .withId("5")
+                .withPrimaryKey("Recon_Jira Assignment_GTR-3016_EMIRSFTR_GTR-3016")
+                .withExpression("reconType = 'Completeness'")
+                .withSubExpression("breakStatus = 'UNPAIRED'")
+                .withFlow(FlowType.RECONCILIATION.toString())
+                .withAction("Jira Assignment")
+                .withActionValue("GTR-3016")
+                .withActionValueType(IssueType.MIS_REPORTING.value())
+                .withIsActive(true)
+                .withLastSuccessDate("2021-11-02T06:38:10.841Z")
+                .withIndexHint("recon-type")
+                .withMaxVolume(10)
+                .create();
+        List<AutoAssignResult> results = new ArrayList<>();
+        Mockito.when(dfReconciliationPersistManager.getAllRecords(Mockito.any()))
+                .thenReturn(Lists.newArrayList(getReconReportDocument()));
+
+        Method method;
+        try {
+            method = AutoAssignmentServiceImpl.class.getDeclaredMethod("assignReconActions", String.class, JiraAssignmentTriggerEvent.class, List.class);
+            method.setAccessible(true);
+            method.invoke(autoAssignmentService, "2021-11-02T06:38:10.841Z", ob, results);
+        } catch (Exception e) {
+            Assert.fail("Exception during reflection: " + e.getMessage());
+        }
+
+        Assert.assertEquals(1, results.size());
+        Assert.assertEquals(Status.SUCCESS, results.get(0).getStatus());
+        Assert.assertEquals(1, results.get(0).getRecordsModified());
+    }
+
+    @Test
+    public void testGetFilteredRules() throws Exception {
+        List<JiraAssignmentTriggerEvent> events = getJiraAssignmentTriggerEvent();
+        Method method = AutoAssignmentServiceImpl.class.getDeclaredMethod("getFilteredRules", List.class, String.class);
+        method.setAccessible(true);
+        List<JiraAssignmentTriggerEvent> filtered = (List<JiraAssignmentTriggerEvent>) method.invoke(autoAssignmentService, events, FlowType.TRADE_REPORT.getValue());
+
+        Assert.assertEquals(1, filtered.size());
+        Assert.assertEquals("Trade Report", filtered.get(0).getFlow());
+    }
+
+    @Test
+    public void testGetFilteredRulesForRetrigger() throws Exception {
+        List<JiraAssignmentTriggerEvent> events = getJiraAssignmentTriggerEvent();
+        Method method = AutoAssignmentServiceImpl.class.getDeclaredMethod("getFilteredRulesForRetrigger", List.class, String.class);
+        method.setAccessible(true);
+        List<JiraAssignmentTriggerEvent> filtered = (List<JiraAssignmentTriggerEvent>) method.invoke(autoAssignmentService, events, FlowType.RECONCILIATION.getValue());
+
+        Assert.assertTrue(filtered.isEmpty());
+    }
+
+    @Test
+    public void testGetWhereClause() throws Exception {
+        Method method = AutoAssignmentServiceImpl.class.getDeclaredMethod("getWhereClause", String.class, String.class);
+        method.setAccessible(true);
+        String result = (String) method.invoke(autoAssignmentService, "testExpression", "2021-11-02T06:38:10.841Z");
+
+        Assert.assertEquals("testExpression and _df.lifetimeFrom >= '2021-11-02T06:38:10.841Z' and _df.lifetimeTo >= 9223372036854775807L", result);
+    }
+
+    @Test
+    public void testGetWhereClauseForRecon() throws Exception {
+        Method method = AutoAssignmentServiceImpl.class.getDeclaredMethod("getWhereClauseForRecon", String.class);
+        method.setAccessible(true);
+        String result = (String) method.invoke(autoAssignmentService, "testExpression");
+
+        Assert.assertEquals("testExpression ", result);
+    }
+
+    @Test
+    public void testGetReportsWithExpectedBaseVersion() throws Exception {
+        TradeReportDocument doc = getTradeReportDocument();
+        TradeReport report = doc.getTradeReport();
+        Method method = AutoAssignmentServiceImpl.class.getDeclaredMethod("getReportsWithExpectedBaseVersion", TradeReportDocument.class, TradeReport.class);
+        method.setAccessible(true);
+        Pair<TradeReport, Long> result = (Pair<TradeReport, Long>) method.invoke(autoAssignmentService, doc, report);
+
+        Assert.assertEquals(report, result.getLeft());
+        Assert.assertEquals(Long.valueOf(1), result.getRight());
+    }
+
+    @Test
+    public void testAssignActionToTrade_Success() {
+        String jiraId = "TNTR-7845";
+        List<Pair<TradeReport, Long>> tradeReports = autoAssignmentService.assignActionToTrade(
+                Lists.newArrayList(getTradeReportDocument()), jiraId, IssueType.UNDER_REPORTING.value());
+
+        Assert.assertNotNull(tradeReports);
+        Assert.assertNotNull(tradeReports.get(0).getKey().getExceptionManagement());
+        Assert.assertEquals(IssueType.UNDER_REPORTING, tradeReports.get(0).getKey().getExceptionManagement().getIssueType());
+        Assert.assertEquals(3, tradeReports.get(0).getKey().getExceptionManagement().getIssueIds().size());
+        Assert.assertEquals(jiraId, tradeReports.get(0).getKey().getExceptionManagement().getIssueIds().get(2));
+    }
+
+    @Test
+    public void testAssignActionToTrade_ThrowsException() {
+        Mockito.when(dfTradePersistManager.getAllRecords(Mockito.any()))
+                .thenReturn(Lists.newArrayList(getTradeReportDocument()));
+        Mockito.doThrow(new RuntimeException("Update error")).when(exceptionManagmentUpdater)
+                .addJiraIdToException(Mockito.any(), Mockito.any(), Mockito.any());
+
+        try {
+            autoAssignmentService.assignActionToTrade(Lists.newArrayList(getTradeReportDocument()), "TNTR-7845", IssueType.UNDER_REPORTING.value());
+            Assert.fail("Expected TaggingServiceRunTimeException");
+        } catch (TaggingServiceRunTimeException e) {
+            Assert.assertTrue(e.getMessage().contains("Error occurred while adding jira in ExceptionManagement"));
+        }
+    }
+
+    @Test
+    public void testAssignActionToValuation_Success() {
+        String jiraId = "TNTR-7845";
+        List<Pair<ValuationReport, Long>> tradeReports = autoAssignmentService.assignActionToValuation(
+                Lists.newArrayList(getValReportDocument()), jiraId, IssueType.UNDER_REPORTING.value());
+
+        Assert.assertNotNull(tradeReports);
+        Assert.assertNotNull(tradeReports.get(0).getKey().getExceptionManagement());
+        Assert.assertEquals(IssueType.UNDER_REPORTING, tradeReports.get(0).getKey().getExceptionManagement().getIssueType());
+        Assert.assertEquals(3, tradeReports.get(0).getKey().getExceptionManagement().getIssueIds().size());
+        Assert.assertEquals(jiraId, tradeReports.get(0).getKey().getExceptionManagement().getIssueIds().get(2));
+    }
+
+    @Test
+    public void testAssignActionToCollateral_Success() {
+        String jiraId = "TNTR-7845";
+        List<Pair<CollateralReport, Long>> tradeReports = autoAssignmentService.assignActionToCollateral(
+                Lists.newArrayList(getColReportDocument()), jiraId, IssueType.OVER_REPORTING.value());
+
+        Assert.assertNotNull(tradeReports);
+        Assert.assertNotNull(tradeReports.get(0).getKey().getExceptionManagement());
+        Assert.assertEquals(IssueType.OVER_REPORTING, tradeReports.get(0).getKey().getExceptionManagement().getIssueType());
+        Assert.assertEquals(3, tradeReports.get(0).getKey().getExceptionManagement().getIssueIds().size());
+        Assert.assertEquals(jiraId, tradeReports.get(0).getKey().getExceptionManagement().getIssueIds().get(2));
+    }
+
+    @Test
+    public void testAssignActionToCollateralLink_Success() {
+        String jiraId = "TNTR-7845";
+        List<Pair<CollateralLinkReport, Long>> tradeReports = autoAssignmentService.assignActionToCollateralLink(
+                Lists.newArrayList(getColLinkReportDocument()), jiraId, IssueType.MIS_REPORTING.value());
+
+        Assert.assertNotNull(tradeReports);
+        Assert.assertNotNull(tradeReports.get(0).getKey().getExceptionManagement());
+        Assert.assertEquals(IssueType.MIS_REPORTING, tradeReports.get(0).getKey().getExceptionManagement().getIssueType());
+        Assert.assertEquals(3, tradeReports.get(0).getKey().getExceptionManagement().getIssueIds().size());
+        Assert.assertEquals(jiraId, tradeReports.get(0).getKey().getExceptionManagement().getIssueIds().get(2));
+    }
+
+    @Test
+    public void testAssignActionToRecon_Success() {
+        String jiraId = "TNTR-7845";
+        List<Pair<ReconReport, Long>> reconReports = autoAssignmentService.assignActionToRecon(
+                Lists.newArrayList(getReconReportDocument()), ActionType.JIRA_ASSIGNMENT.getValue(), jiraId,
+                IssueType.UNDER_REPORTING.value());
+
+        Assert.assertNotNull(reconReports);
+        Assert.assertNotNull(reconReports.get(0).getKey().getBreakManagement());
+        Assert.assertEquals(IssueType.UNDER_REPORTING.value(), reconReports.get(0).getKey().getBreakManagement().getIssueType());
+        Assert.assertEquals(2, reconReports.get(0).getKey().getBreakManagement().getIssueTrackingReferences().size());
+        Assert.assertEquals("philvdp", reconReports.get(0).getKey().getBreakManagement().getAssignedTo());
+        Assert.assertEquals("Test Comment", reconReports.get(0).getKey().getBreakManagement().getUserComment());
+    }
+
+    @Test
+    public void testAssignActionToRecon_ThrowsException() {
+        Mockito.when(dfReconciliationPersistManager.getAllRecords(Mockito.any()))
+                .thenReturn(Lists.newArrayList(getReconReportDocument()));
+        Mockito.doThrow(new RuntimeException("Update error")).when(reconBreakManagerUpdater)
+                .addActionToBreakManagement(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
+
+        try {
+            autoAssignmentService.assignActionToRecon(Lists.newArrayList(getReconReportDocument()),
+                    ActionType.JIRA_ASSIGNMENT.getValue(), "TNTR-7845", IssueType.UNDER_REPORTING.value());
+            Assert.fail("Expected TaggingServiceRunTimeException");
+        } catch (TaggingServiceRunTimeException e) {
+            Assert.assertTrue(e.getMessage().contains("Error occurred while adding"));
+        }
+    }
+
+    @Test
+    public void testFilterJiraReference_NullExceptionManagement() {
+        boolean value = autoAssignmentService.filterJiraReference(null, testJiraId, testJiraType);
+        Assert.assertTrue(value);
+    }
+
+    @Test
+    public void testFilterJiraReference_NullIssueIdsAndType() {
+        ExceptionManagement em = getTradeReportWithNullExceptionMgt().getTradeReport().getExceptionManagement();
+        boolean value = autoAssignmentService.filterJiraReference(em, testJiraId, testJiraType);
+        Assert.assertTrue(value);
+    }
+
+    @Test
+    public void testFilterJiraReference_NullIssueIds() {
+        ExceptionManagement em = getTradeReportWithNullJiraId().getTradeReport().getExceptionManagement();
+        boolean value = autoAssignmentService.filterJiraReference(em, testJiraId, testJiraType);
+        Assert.assertTrue(value);
+    }
+
+    @Test
+    public void testFilterJiraReference_NullIssueType() {
+        ExceptionManagement em = getTradeReportWithNullJiraType().getTradeReport().getExceptionManagement();
+        boolean value = autoAssignmentService.filterJiraReference(em, testJiraId, testJiraType);
+        Assert.assertTrue(value);
+    }
+
+    @Test
+    public void testFilterJiraReference_NullActionValue() {
+        ExceptionManagement em = getTradeReportWithNullJiraId().getTradeReport().getExceptionManagement();
+        boolean value = autoAssignmentService.filterJiraReference(em, null, testJiraType);
+        Assert.assertTrue(value);
+    }
+
+    @Test
+    public void testFilterJiraReference_NullActionValueType() {
+        ExceptionManagement em = getTradeReportWithNullJiraType().getTradeReport().getExceptionManagement();
+        boolean value = autoAssignmentService.filterJiraReference(em, testJiraId, null);
+        Assert.assertTrue(value);
+    }
+
+    @Test
+    public void testFilterJiraReference_SameIssueTypeAndId() throws Exception {
+        Class<?> builderClass = Class.forName("com.nwm.tntr.commons.domain.persistence.entity.ExceptionManagement$Builder");
+        Constructor<?> builderConstructor = builderClass.getDeclaredConstructor();
+        builderConstructor.setAccessible(true);
+        Object builderInstance = builderConstructor.newInstance();
+        Method withIssueTypeMethod = builderClass.getMethod("withIssueType", IssueType.class);
+        withIssueTypeMethod.invoke(builderInstance, IssueType.UNDER_REPORTING);
+        Method withIssueIdsMethod = builderClass.getMethod("withIssueIds", List.class);
+        withIssueIdsMethod.invoke(builderInstance, Collections.singletonList("TNTR-1234"));
+        Method buildMethod = builderClass.getMethod("build");
+        ExceptionManagement em = (ExceptionManagement) buildMethod.invoke(builderInstance);
+
+        boolean result = autoAssignmentService.filterJiraReference(em, "TNTR-1234", IssueType.UNDER_REPORTING.value());
+        Assert.assertFalse(result);
+    }
+
+    @Test
+    public void testFilterJiraReference_SameIssueId() {
+        ExceptionManagement em = getTradeReportWithNullJiraType().getTradeReport().getExceptionManagement();
+        boolean value = autoAssignmentService.filterJiraReference(em, "TNTR-1234", null);
+        Assert.assertFalse(value);
+    }
+
+    @Test
+    public void testFilterJiraReference_SameIssueType() {
+        ExceptionManagement em = getTradeReportWithNullJiraId().getTradeReport().getExceptionManagement();
+        boolean value = autoAssignmentService.filterJiraReference(em, null, IssueType.UNDER_REPORTING.value());
+        Assert.assertFalse(value);
+    }
+
+    @Test
+    public void testFilterJiraReference_DifferentIssueIdAndType() {
+        ExceptionManagement em = getTradeReportDocument().getTradeReport().getExceptionManagement();
+        boolean value = autoAssignmentService.filterJiraReference(em, "TNTR-9234", IssueType.OVER_REPORTING.value());
+        Assert.assertTrue(value);
+    }
+
+    @Test
+    public void testFilterJiraReferenceForRecon_NullBreakManagement() {
+        boolean value = autoAssignmentService.filterJiraReferenceForRecon(null, ActionType.JIRA_ASSIGNMENT.getValue(),
+                testJiraId, testJiraType);
+        Assert.assertTrue(value);
+    }
+
+    @Test
+    public void testFilterJiraReferenceForRecon_NullIssueIdsAndType() {
+        BreakManagement em = getReconReportDocumentWithNullBreakManagement().getReconReport().getBreakManagement();
+        boolean value = autoAssignmentService.filterJiraReferenceForRecon(em, ActionType.JIRA_ASSIGNMENT.getValue(),
+                testJiraId, testJiraType);
+        Assert.assertTrue(value);
+    }
+
+    @Test
+    public void testFilterJiraReferenceForRecon_NullIssueIds() {
+        BreakManagement em = getReconReportDocumentWithNullJiraId().getReconReport().getBreakManagement();
+        boolean value = autoAssignmentService.filterJiraReferenceForRecon(em, ActionType.JIRA_ASSIGNMENT.getValue(),
+                testJiraId, testJiraType);
+        Assert.assertTrue(value);
+    }
+
+    @Test
+    public void testFilterJiraReferenceForRecon_NullIssueType() {
+        BreakManagement em = getReconReportDocumentWithNullJiraType().getReconReport().getBreakManagement();
+        boolean value = autoAssignmentService.filterJiraReferenceForRecon(em, ActionType.JIRA_ASSIGNMENT.getValue(),
+                testJiraId, testJiraType);
+        Assert.assertTrue(value);
+    }
+
+    @Test
+    public void testFilterJiraReferenceForRecon_NullActionValue() {
+        BreakManagement em = getReconReportDocumentWithNullJiraId().getReconReport().getBreakManagement();
+        boolean value = autoAssignmentService.filterJiraReferenceForRecon(em, ActionType.JIRA_ASSIGNMENT.getValue(),
+                null, testJiraType);
+        Assert.assertTrue(value);
+    }
+
+    @Test
+    public void testFilterJiraReferenceForRecon_NullActionValueType() {
+        BreakManagement em = getReconReportDocumentWithNullJiraType().getReconReport().getBreakManagement();
+        boolean value = autoAssignmentService.filterJiraReferenceForRecon(em, ActionType.JIRA_ASSIGNMENT.getValue(),
+                testJiraId, null);
+        Assert.assertTrue(value);
+    }
+
+    @Test
+    public void testFilterJiraReferenceForRecon_SameIssueId() {
+        BreakManagement em = getReconReportDocument().getReconReport().getBreakManagement();
+        boolean value = autoAssignmentService.filterJiraReferenceForRecon(em, ActionType.JIRA_ASSIGNMENT.getValue(),
+                "TTR-1010", null);
+        Assert.assertFalse(value);
+    }
+
+    @Test
+    public void testFilterJiraReferenceForRecon_SameIssueType() {
+        BreakManagement em = getReconReportDocument().getReconReport().getBreakManagement();
+        boolean value = autoAssignmentService.filterJiraReferenceForRecon(em, ActionType.JIRA_ASSIGNMENT.getValue(),
+                null, "Under Reporting");
+        Assert.assertFalse(value);
+    }
+
+    @Test
+    public void testFilterJiraReferenceForRecon_SameIssueIdAndType() {
+        BreakManagement em = getReconReportDocument().getReconReport().getBreakManagement();
+        boolean value = autoAssignmentService.filterJiraReferenceForRecon(em, ActionType.JIRA_ASSIGNMENT.getValue(),
+                "TTR-1010", "Under Reporting");
+        Assert.assertFalse(value);
+    }
+
+    @Test
+    public void testFilterJiraReferenceForRecon_DifferentIssueIdAndType() {
+        BreakManagement em = getReconReportDocument().getReconReport().getBreakManagement();
+        boolean value = autoAssignmentService.filterJiraReferenceForRecon(em, ActionType.JIRA_ASSIGNMENT.getValue(),
+                "TNTR-1234", "Over Reporting");
+        Assert.assertTrue(value);
+    }
+
+    @Test
+    public void testFilterJiraReferenceForRecon_NullAction() {
+        BreakManagement em = getReconReportDocument().getReconReport().getBreakManagement();
+        boolean value = autoAssignmentService.filterJiraReferenceForRecon(em, null, "TNTR-1234", "Over Reporting");
+        Assert.assertFalse(value);
+    }
+
+    @Test
+    public void testFilterJiraReferenceForRecon_NewComment() {
+        BreakManagement em = getReconReportDocumentWithNullComments().getReconReport().getBreakManagement();
+        boolean value = autoAssignmentService.filterJiraReferenceForRecon(em, ActionType.ADD_COMMENT.getValue(),
+                "Test Comment", null);
+        Assert.assertTrue(value);
+    }
+
+    @Test
+    public void testFilterJiraReferenceForRecon_ExistingComment() {
+        BreakManagement em = getReconReportDocumentWithExistingComment().getReconReport().getBreakManagement();
+        boolean value = autoAssignmentService.filterJiraReferenceForRecon(em, ActionType.ADD_COMMENT.getValue(),
+                "New Test Comment", null);
+        Assert.assertTrue(value);
+    }
+
+    @Test
+    public void testFilterJiraReferenceForRecon_NullComment() {
+        BreakManagement em = getReconReportDocumentWithExistingComment().getReconReport().getBreakManagement();
+        boolean value = autoAssignmentService.filterJiraReferenceForRecon(em, ActionType.ADD_COMMENT.getValue(), null,
+                null);
+        Assert.assertFalse(value);
+    }
+
+    @Test
+    public void testGetAllTradeRecords_EmptyList() {
+        Mockito.when(dfTradePersistManager.getAllRecords(Mockito.any())).thenReturn(Collections.emptyList());
+        List<TradeReportDocument> result = autoAssignmentService.getAllTradeRecords("testWhere", "indexHint", testJiraId, testJiraType);
+
+        Assert.assertNotNull(result);
+        Assert.assertTrue(result.isEmpty());
+    }
+
+    @Test
+    public void testGetAllValuationRecords_EmptyList() {
+        Mockito.when(dfValuationPersistManager.getAllRecords(Mockito.any())).thenReturn(Collections.emptyList());
+        List<ValuationReportDocument> result = autoAssignmentService.getAllValuationRecords("testWhere", "indexHint", testJiraId, testJiraType);
+
+        Assert.assertNotNull(result);
+        Assert.assertTrue(result.isEmpty());
+    }
+
+    @Test
+    public void testGetAllCollateralRecords_EmptyList() {
+        Mockito.when(dfCollateralPersistManager.getAllRecords(Mockito.any())).thenReturn(Collections.emptyList());
+        List<CollateralReportDocument> result = autoAssignmentService.getAllCollateralRecords("testWhere", "indexHint", testJiraId, testJiraType);
+
+        Assert.assertNotNull(result);
+        Assert.assertTrue(result.isEmpty());
+    }
+
+    @Test
+    public void testGetAllCollateralLinkRecords_EmptyList() {
+        Mockito.when(dfCollateralLinkPersistManager.getAllRecords(Mockito.any())).thenReturn(Collections.emptyList());
+        List<CollateralLinkReportDocument> result = autoAssignmentService.getAllCollateralLinkRecords("testWhere", "indexHint", testJiraId, testJiraType);
+
+        Assert.assertNotNull(result);
+        Assert.assertTrue(result.isEmpty());
+    }
+
+    @Test
+    public void testGetAllReconRecords_EmptyList() {
+        Mockito.when(dfReconciliationPersistManager.getAllRecords(Mockito.any())).thenReturn(Collections.emptyList());
+        List<ReconReportDocument> result = autoAssignmentService.getAllReconRecords("testWhere", "indexHint", ActionType.JIRA_ASSIGNMENT.getValue(), testJiraId, testJiraType);
+
+        Assert.assertNotNull(result);
+        Assert.assertTrue(result.isEmpty());
+    }
+
+    @Test
+    public void testAssignActionsToTradeRecords_EmptyResults() {
+        JiraAssignmentTriggerEvent ob = getJiraAssignmentTriggerEvent().get(0);
+        JiraAssignmentResult result = new JiraAssignmentResult();
+        List<TradeReportDocument> docs = Lists.newArrayList(getTradeReportDocument());
+        Mockito.when(dfTradePersistManager.saveAllRecords(Mockito.any())).thenReturn(Collections.emptyList());
+
+        Method method;
+        try {
+            method = AutoAssignmentServiceImpl.class.getDeclaredMethod("assignActionsToTradeRecords", JiraAssignmentTriggerEvent.class, JiraAssignmentResult.class, List.class, int.class);
+            method.setAccessible(true);
+            method.invoke(autoAssignmentService, ob, result, docs, 1);
+        } catch (Exception e) {
+            Assert.fail("Exception during reflection: " + e.getMessage());
+        }
+
+        Assert.assertEquals(0, result.getRecordModified());
+        Assert.assertEquals(Status.SUCCESS, result.getStatus());
+    }
+
+    @Test
+    public void testAssignActionsToValuationRecords_EmptyResults() {
+        JiraAssignmentTriggerEvent ob = getJiraAssignmentTriggerEvent().get(1);
+        JiraAssignmentResult result = new JiraAssignmentResult();
+        List<ValuationReportDocument> docs = Lists.newArrayList(getValReportDocument());
+        Mockito.when(dfValuationPersistManager.saveAllRecords(Mockito.any())).thenReturn(Collections.emptyList());
+
+        Method method;
+        try {
+            method = AutoAssignmentServiceImpl.class.getDeclaredMethod("assignActionsToValuationRecord", JiraAssignmentTriggerEvent.class, JiraAssignmentResult.class, List.class, int.class);
+            method.setAccessible(true);
+            method.invoke(autoAssignmentService, ob, result, docs, 1);
+        } catch (Exception e) {
+            Assert.fail("Exception during reflection: " + e.getMessage());
+        }
+
+        Assert.assertEquals(0, result.getRecordModified());
+        Assert.assertEquals(Status.SUCCESS, result.getStatus());
+    }
+
+    @Test
+    public void testAssignActionsToCollateralRecords_EmptyResults() {
+        JiraAssignmentTriggerEvent ob = getJiraAssignmentTriggerEvent().get(2);
+        JiraAssignmentResult result = new JiraAssignmentResult();
+        List<CollateralReportDocument> docs = Lists.newArrayList(getColReportDocument());
+        Mockito.when(dfCollateralPersistManager.saveAllRecords(Mockito.any())).thenReturn(Collections.emptyList());
+
+        Method method;
+        try {
+            method = AutoAssignmentServiceImpl.class.getDeclaredMethod("assignActionsToCollateralRecord", JiraAssignmentTriggerEvent.class, JiraAssignmentResult.class, List.class, int.class);
+            method.setAccessible(true);
+            method.invoke(autoAssignmentService, ob, result, docs, 1);
+        } catch (Exception e) {
+            Assert.fail("Exception during reflection: " + e.getMessage());
+        }
+
+        Assert.assertEquals(0, result.getRecordModified());
+        Assert.assertEquals(Status.SUCCESS, result.getStatus());
+    }
+
+    @Test
+    public void testAssignActionsToCollateralLinkRecords_EmptyResults() {
+        JiraAssignmentTriggerEvent ob = getJiraAssignmentTriggerEvent().get(3);
+        JiraAssignmentResult result = new JiraAssignmentResult();
+        List<CollateralLinkReportDocument> docs = Lists.newArrayList(getColLinkReportDocument());
+        Mockito.when(dfCollateralLinkPersistManager.saveAllRecords(Mockito.any())).thenReturn(Collections.emptyList());
+
+        Method method;
+        try {
+            method = AutoAssignmentServiceImpl.class.getDeclaredMethod("assignActionsToCollateralLinkRecord", JiraAssignmentTriggerEvent.class, JiraAssignmentResult.class, List.class, int.class);
+            method.setAccessible(true);
+            method.invoke(autoAssignmentService, ob, result, docs, 1);
+        } catch (Exception e) {
+            Assert.fail("Exception during reflection: " + e.getMessage());
+        }
+
+        Assert.assertEquals(0, result.getRecordModified());
+        Assert.assertEquals(Status.SUCCESS, result.getStatus());
+    }
+
+    @Test
+    public void testAssignActionsToReconRecords_EmptyResults() {
+        JiraAssignmentTriggerEvent ob = new JiraAssignmentTriggerEvent.Builder()
+                .withId("5")
+                .withPrimaryKey("Recon_Jira Assignment_GTR-3016_EMIRSFTR_GTR-3016")
+                .withExpression("reconType = 'Completeness'")
+                .withFlow(FlowType.RECONCILIATION.toString())
+                .withAction("Jira Assignment")
+                .withActionValue("GTR-3016")
+                .withActionValueType(IssueType.MIS_REPORTING.value())
+                .withIsActive(true)
+                .withLastSuccessDate("2021-11-02T06:38:10.841Z")
+                .withIndexHint("recon-type")
+                .withMaxVolume(10)
+                .create();
+        JiraAssignmentResult result = new JiraAssignmentResult();
+        List<ReconReportDocument> docs = Lists.newArrayList(getReconReportDocument());
+        Mockito.when(dfReconciliationPersistManager.saveAllRecords(Mockito.any())).thenReturn(Collections.emptyList());
+
+        Method method;
+        try {
+            method = AutoAssignmentServiceImpl.class.getDeclaredMethod("assignActionsToReconRecords", JiraAssignmentTriggerEvent.class, JiraAssignmentResult.class, List.class, int.class);
+            method.setAccessible(true);
+            method.invoke(autoAssignmentService, ob, result, docs, 1);
+        } catch (Exception e) {
+            Assert.fail("Exception during reflection: " + e.getMessage());
+        }
+
+        Assert.assertEquals(0, result.getRecordModified());
+        Assert.assertEquals(Status.SUCCESS, result.getStatus());
+    }
+
+    @Test
+    public void testAssignActionsPerFlow_DefaultCase() throws Exception {
+        List<JiraAssignmentTriggerEvent> events = Lists.newArrayList(new JiraAssignmentTriggerEvent.Builder()
+                .withId("6")
+                .withPrimaryKey("Unknown_Jira Assignment_GTR-3017")
+                .withExpression("testExpression")
+                .withFlow("Unknown Flow")
+                .withAction("Jira Assignment")
+                .withActionValue("GTR-3017")
+                .withActionValueType(IssueType.MIS_REPORTING.value())
+                .withIsActive(true)
+                .withLastSuccessDate("2021-11-02T06:38:10.841Z")
+                .withIndexHint("index-hint")
+                .withMaxVolume(10)
+                .create());
+        Method method = AutoAssignmentServiceImpl.class.getDeclaredMethod("assignActionsPerFlow", List.class, String.class, FlowType.class);
+        method.setAccessible(true);
+        List<AutoAssignResult> results = (List<AutoAssignResult>) method.invoke(autoAssignmentService, events, "2021-11-02T06:38:10.841Z", FlowType.UNKNOWN);
+
+        Assert.assertTrue(results.isEmpty());
+    }
+
+    private List<JiraAssignmentTriggerEvent> getJiraAssignmentTriggerEvent() {
+        List<JiraAssignmentTriggerEvent> ob = Lists.newArrayList();
+        JiraAssignmentTriggerEvent obTrade = new JiraAssignmentTriggerEvent.Builder().withId("1")
+                .withPrimaryKey("Trade Report_Jira Assignment_GTR-3012_EMIRSFTR_GTR-3012")
+                .withExpression(
+                        "subjectIdentifier.transactionId = '135705760' and subjectIdentifier.sourceSystem = 'GDS GBLO'")
+                .withFlow("Trade Report").withAction("Jira Assignment").withActionValue("GTR-3012")
+                .withActionValueType(IssueType.OVER_REPORTING.value()).withIsActive(true)
+                .withLastSuccessDate("2021-11-02T06:38:10.841Z").withIndexHint("blotter-tradeId").withMaxVolume(10)
+                .create();
+
+        JiraAssignmentTriggerEvent obValuation = new JiraAssignmentTriggerEvent.Builder().withId("2")
                 .withPrimaryKey("Valuation Report_Jira Assignment_GTR-3013_EMIRSFTR_GTR-3013")
                 .withExpression(
                         "subjectIdentifier.transactionId = '135705761' and subjectIdentifier.sourceSystem = 'GDS GBLO'")
@@ -1195,407 +1083,213 @@ public class AutoAssignmentServiceImplTest {
         ob.add(obCollateral);
         ob.add(obCollateralLink);
 
-		return ob;
-	}
+        return ob;
+    }
 
-	private TradeReportDocument getTradeReportWithNullExceptionMgt() {
-		DocumentId documentId = DocumentId.from("TradeReportId_123", 1L);
-		DocumentLifetime documentLifetime = DocumentLifetime.from(ZonedDateTime.now(ZoneOffset.UTC),
-				ZonedDateTime.now(ZoneOffset.UTC));
-		TradeReport tradeReport = TradeReport.newBuilder()
-				.withTradeReportId(TradeReportId.newBuilder().withTradeSourceSystemTransactionId("TradeReportId_123")
-						.withTradeSourceSystemId(SourceSystemId.ANVIL_GBLO_LDN).withTradeDocumentVersion(1)
-						.withReportingRegime(ReportingRegime.SECURITIES_FINANCING_TRANSACTION_REGULATION_SELF_REPORTING)
-						.withReportingRegulatoryAuthority(
-								ReportingRegulatoryAuthority.EUROPEAN_SECURITIES_AND_MARKETS_AUTHORITY_EUROPEAN_UNION)
-						.withRegimeImpactType(RegimeImpactType.TRANSACTION_REPORTING)
-						.withReportTriggerType(ReportTriggerType.TRANSACTION_LIFECYCLE)
-						.withReportSubmissionType(ReportSubmissionType.SNAPSHOT).build())
-				.withExceptionManagement(ExceptionManagement.newBuilder().build())
-				.withNonReportableData(NonReportableData.newBuilder().withLatestVersion(true).build()).build();
-		TradeReportDocument tradeReportDocument = TradeReportDocument.from(documentId, documentLifetime, tradeReport);
+    private TradeReportDocument getTradeReportWithNullExceptionMgt() {
+        DocumentId documentId = DocumentId.from("TradeReportId_123", 1L);
+        DocumentLifetime documentLifetime = DocumentLifetime.from(ZonedDateTime.now(ZoneOffset.UTC),
+                ZonedDateTime.now(ZoneOffset.UTC));
+        TradeReport tradeReport = TradeReport.newBuilder()
+                .withTradeReportId(TradeReportId.newBuilder().withTradeSourceSystemTransactionId("TradeReportId_123")
+                        .withTradeSourceSystemId(SourceSystemId.ANVIL_GBLO_LDN).withTradeDocumentVersion(1)
+                        .withReportingRegime(ReportingRegime.SECURITIES_FINANCING_TRANSACTION_REGULATION_SELF_REPORTING)
+                        .withReportingRegulatoryAuthority(
+                                ReportingRegulatoryAuthority.EUROPEAN_SECURITIES_AND_MARKETS_AUTHORITY_EUROPEAN_UNION)
+                        .withRegimeImpactType(RegimeImpactType.TRANSACTION_REPORTING)
+                        .withReportTriggerType(ReportTriggerType.TRANSACTION_LIFECYCLE)
+                        .withReportSubmissionType(ReportSubmissionType.SNAPSHOT).build())
+                .withExceptionManagement(ExceptionManagement.newBuilder().build())
+                .withNonReportableData(NonReportableData.newBuilder().withLatestVersion(true).build()).build();
+        return TradeReportDocument.from(documentId, documentLifetime, tradeReport);
+    }
 
-		return tradeReportDocument;
-	}
+    private TradeReportDocument getTradeReportWithNullJiraId() {
+        DocumentId documentId = DocumentId.from("TradeReportId_123", 1L);
+        DocumentLifetime documentLifetime = DocumentLifetime.from(ZonedDateTime.now(ZoneOffset.UTC),
+                ZonedDateTime.now(ZoneOffset.UTC));
+        TradeReport tradeReport = TradeReport.newBuilder()
+                .withTradeReportId(TradeReportId.newBuilder().withTradeSourceSystemTransactionId("TradeReportId_123")
+                        .withTradeSourceSystemId(SourceSystemId.ANVIL_GBLO_LDN).withTradeDocumentVersion(1)
+                        .withReportingRegime(ReportingRegime.SECURITIES_FINANCING_TRANSACTION_REGULATION_SELF_REPORTING)
+                        .withReportingRegulatoryAuthority(
+                                ReportingRegulatoryAuthority.EUROPEAN_SECURITIES_AND_MARKETS_AUTHORITY_EUROPEAN_UNION)
+                        .withRegimeImpactType(RegimeImpactType.TRANSACTION_REPORTING)
+                        .withReportTriggerType(ReportTriggerType.TRANSACTION_LIFECYCLE)
+                        .withReportSubmissionType(ReportSubmissionType.SNAPSHOT).build())
+                .withExceptionManagement(ExceptionManagement.newBuilder().withApprovedBy("PERSON_1")
+                        .withAssignedTo("matbina")
+                        .withExceptionStatus(com.nwm.tntr.commons.domain.persistence.constant.ExceptionStatus.OPEN)
+                        .withApprovalStatus(ApprovalStatus.OPEN_REQUESTED).withIssueType(IssueType.UNDER_REPORTING)
+                        .withLastAction("Replay Edit").withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC))
+                        .withLastActionUser("USER_1").withLatestVersion(false)
+                        .withReportingDeadline(ZonedDateTime.now(ZoneOffset.UTC).plusDays(2))
+                        .withUserComment("COMMENT 1").build())
+                .withNonReportableData(NonReportableData.newBuilder().withLatestVersion(true).build()).build();
+        return TradeReportDocument.from(documentId, documentLifetime, tradeReport);
+    }
 
-	private TradeReportDocument getTradeReportWithNullJiraId() {
-		DocumentId documentId = DocumentId.from("TradeReportId_123", 1L);
-		DocumentLifetime documentLifetime = DocumentLifetime.from(ZonedDateTime.now(ZoneOffset.UTC),
-				ZonedDateTime.now(ZoneOffset.UTC));
-		TradeReport tradeReport = TradeReport.newBuilder()
-				.withTradeReportId(TradeReportId.newBuilder().withTradeSourceSystemTransactionId("TradeReportId_123")
-						.withTradeSourceSystemId(SourceSystemId.ANVIL_GBLO_LDN).withTradeDocumentVersion(1)
-						.withReportingRegime(ReportingRegime.SECURITIES_FINANCING_TRANSACTION_REGULATION_SELF_REPORTING)
-						.withReportingRegulatoryAuthority(
-								ReportingRegulatoryAuthority.EUROPEAN_SECURITIES_AND_MARKETS_AUTHORITY_EUROPEAN_UNION)
-						.withRegimeImpactType(RegimeImpactType.TRANSACTION_REPORTING)
-						.withReportTriggerType(ReportTriggerType.TRANSACTION_LIFECYCLE)
-						.withReportSubmissionType(ReportSubmissionType.SNAPSHOT).build())
-				.withExceptionManagement(ExceptionManagement.newBuilder().withApprovedBy("PERSON_1")
-						.withAssignedTo("matbina")
-						.withExceptionStatus(com.nwm.tntr.commons.domain.persistence.constant.ExceptionStatus.OPEN)
-						.withApprovalStatus(ApprovalStatus.OPEN_REQUESTED).withIssueType(IssueType.UNDER_REPORTING)
-						.withLastAction("Replay Edit").withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC))
-						.withLastActionUser("USER_1").withLatestVersion(false)
-						.withReportingDeadline(ZonedDateTime.now(ZoneOffset.UTC).plusDays(2))
-						.withUserComment("COMMENT 1").build())
-				.withNonReportableData(NonReportableData.newBuilder().withLatestVersion(true).build()).build();
-		TradeReportDocument tradeReportDocument = TradeReportDocument.from(documentId, documentLifetime, tradeReport);
+    private TradeReportDocument getTradeReportWithNullJiraType() {
+        DocumentId documentId = DocumentId.from("TradeReportId_123", 1L);
+        DocumentLifetime documentLifetime = DocumentLifetime.from(ZonedDateTime.now(ZoneOffset.UTC),
+                ZonedDateTime.now(ZoneOffset.UTC));
+        TradeReport tradeReport = TradeReport.newBuilder()
+                .withTradeReportId(TradeReportId.newBuilder().withTradeSourceSystemTransactionId("TradeReportId_123")
+                        .withTradeSourceSystemId(SourceSystemId.ANVIL_GBLO_LDN).withTradeDocumentVersion(1)
+                        .withReportingRegime(ReportingRegime.SECURITIES_FINANCING_TRANSACTION_REGULATION_SELF_REPORTING)
+                        .withReportingRegulatoryAuthority(
+                                ReportingRegulatoryAuthority.EUROPEAN_SECURITIES_AND_MARKETS_AUTHORITY_EUROPEAN_UNION)
+                        .withRegimeImpactType(RegimeImpactType.TRANSACTION_REPORTING)
+                        .withReportTriggerType(ReportTriggerType.TRANSACTION_LIFECYCLE)
+                        .withReportSubmissionType(ReportSubmissionType.SNAPSHOT).build())
+                .withExceptionManagement(ExceptionManagement.newBuilder().withApprovedBy("PERSON_1")
+                        .withAssignedTo("matbina").withIssueIds(Lists.newArrayList("TNTR-1234", "TNTR-9875"))
+                        .withExceptionStatus(com.nwm.tntr.commons.domain.persistence.constant.ExceptionStatus.OPEN)
+                        .withApprovalStatus(ApprovalStatus.OPEN_REQUESTED).withLastAction("Replay Edit")
+                        .withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC)).withLastActionUser("USER_1")
+                        .withLatestVersion(false).withReportingDeadline(ZonedDateTime.now(ZoneOffset.UTC).plusDays(2))
+                        .withUserComment("COMMENT 1").build())
+                .withNonReportableData(NonReportableData.newBuilder().withLatestVersion(true).build()).build();
+        return TradeReportDocument.from(documentId, documentLifetime, tradeReport);
+    }
 
-		return tradeReportDocument;
-	}
+    private TradeReportDocument getTradeReportDocument() {
+        DocumentId documentId = DocumentId.from("TradeReportId_123", 1L);
+        DocumentLifetime documentLifetime = DocumentLifetime.from(ZonedDateTime.now(ZoneOffset.UTC),
+                ZonedDateTime.now(ZoneOffset.UTC));
+        TradeReport tradeReport = TradeReport.newBuilder()
+                .withTradeReportId(TradeReportId.newBuilder().withTradeSourceSystemTransactionId("TradeReportId_123")
+                        .withTradeSourceSystemId(SourceSystemId.ANVIL_GBLO_LDN).withTradeDocumentVersion(1)
+                        .withReportingRegime(ReportingRegime.SECURITIES_FINANCING_TRANSACTION_REGULATION_SELF_REPORTING)
+                        .withReportingRegulatoryAuthority(
+                                ReportingRegulatoryAuthority.EUROPEAN_SECURITIES_AND_MARKETS_AUTHORITY_EUROPEAN_UNION)
+                        .withRegimeImpactType(RegimeImpactType.TRANSACTION_REPORTING)
+                        .withReportTriggerType(ReportTriggerType.TRANSACTION_LIFECYCLE)
+                        .withReportSubmissionType(ReportSubmissionType.SNAPSHOT).build())
+                .withTransactionReportingStatus(TransactionReportingStatus.newBuilder()
+                        .withSourceSystemId(SourceSystemId.TN_TR)
+                        .withStateTransitionDateTime(ZonedDateTime.now(ZoneOffset.UTC))
+                        .withStateTransitionEffectiveDateTime(ZonedDateTime.now(ZoneOffset.UTC))
+                        .withTransactionStateValue(TransactionStateValue.SUBMITTED)
+                        .withReportSubmissionRepository(SourceSystemId.DTCC).withCommentary("Test TradeReport").build())
+                .withExceptionManagement(ExceptionManagement.newBuilder().withApprovedBy("PERSON_1")
+                        .withAssignedTo("matbina")
+                        .withExceptionStatus(com.nwm.tntr.commons.domain.persistence.constant.ExceptionStatus.OPEN)
+                        .withApprovalStatus(ApprovalStatus.OPEN_REQUESTED)
+                        .withIssueIds(Lists.newArrayList("TNTR-1234", "TNTR-9875"))
+                        .withIssueType(IssueType.MIS_REPORTING).withLastAction("Replay Edit")
+                        .withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC)).withLastActionUser("USER_1")
+                        .withLatestVersion(false).withReportingDeadline(ZonedDateTime.now(ZoneOffset.UTC).plusDays(2))
+                        .withUserComment("COMMENT 1").build())
+                .withNonReportableData(NonReportableData.newBuilder().withLatestVersion(true).build()).build();
+        return TradeReportDocument.from(documentId, documentLifetime, tradeReport);
+    }
 
-	private TradeReportDocument getTradeReportWithNullJiraType() {
-		DocumentId documentId = DocumentId.from("TradeReportId_123", 1L);
-		DocumentLifetime documentLifetime = DocumentLifetime.from(ZonedDateTime.now(ZoneOffset.UTC),
-				ZonedDateTime.now(ZoneOffset.UTC));
-		TradeReport tradeReport = TradeReport.newBuilder()
-				.withTradeReportId(TradeReportId.newBuilder().withTradeSourceSystemTransactionId("TradeReportId_123")
-						.withTradeSourceSystemId(SourceSystemId.ANVIL_GBLO_LDN).withTradeDocumentVersion(1)
-						.withReportingRegime(ReportingRegime.SECURITIES_FINANCING_TRANSACTION_REGULATION_SELF_REPORTING)
-						.withReportingRegulatoryAuthority(
-								ReportingRegulatoryAuthority.EUROPEAN_SECURITIES_AND_MARKETS_AUTHORITY_EUROPEAN_UNION)
-						.withRegimeImpactType(RegimeImpactType.TRANSACTION_REPORTING)
-						.withReportTriggerType(ReportTriggerType.TRANSACTION_LIFECYCLE)
-						.withReportSubmissionType(ReportSubmissionType.SNAPSHOT).build())
-				.withExceptionManagement(ExceptionManagement.newBuilder().withApprovedBy("PERSON_1")
-						.withAssignedTo("matbina").withIssueIds(Lists.newArrayList("TNTR-1234", "TNTR-9875"))
-						.withExceptionStatus(com.nwm.tntr.commons.domain.persistence.constant.ExceptionStatus.OPEN)
-						.withApprovalStatus(ApprovalStatus.OPEN_REQUESTED).withLastAction("Replay Edit")
-						.withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC)).withLastActionUser("USER_1")
-						.withLatestVersion(false).withReportingDeadline(ZonedDateTime.now(ZoneOffset.UTC).plusDays(2))
-						.withUserComment("COMMENT 1").build())
-				.withNonReportableData(NonReportableData.newBuilder().withLatestVersion(true).build()).build();
-		TradeReportDocument tradeReportDocument = TradeReportDocument.from(documentId, documentLifetime, tradeReport);
+    private ValuationReportDocument getValReportDocument() {
+        DocumentId documentId = DocumentId.from("ValReportId_123", 1L);
+        DocumentLifetime documentLifetime = DocumentLifetime.from(ZonedDateTime.now(ZoneOffset.UTC),
+                ZonedDateTime.now(ZoneOffset.UTC));
+        ValuationReport tradeReport = ValuationReport.newBuilder()
+                .withValuationReportId(ValuationReportId.newBuilder()
+                        .withTradeSourceSystemTransactionId("ValReportId_123")
+                        .withTradeSourceSystemId(SourceSystemId.ANVIL_GBLO_LDN).withTradeDocumentVersion(1)
+                        .withReportingRegime(ReportingRegime.SECURITIES_FINANCING_TRANSACTION_REGULATION_SELF_REPORTING)
+                        .withReportingRegulatoryAuthority(
+                                ReportingRegulatoryAuthority.EUROPEAN_SECURITIES_AND_MARKETS_AUTHORITY_EUROPEAN_UNION)
+                        .withRegimeImpactType(RegimeImpactType.TRANSACTION_REPORTING)
+                        .withReportTriggerType(ReportTriggerType.VALUATION_UPDATE)
+                        .withReportSubmissionType(ReportSubmissionType.SNAPSHOT)
+                        .withBusinessDate(ZonedDateTime.parse("2021-09-07T00:00:00.000Z").toLocalDate()).build())
+                .withTransactionReportingStatus(TransactionReportingStatus.newBuilder()
+                        .withSourceSystemId(SourceSystemId.TN_TR)
+                        .withStateTransitionDateTime(ZonedDateTime.now(ZoneOffset.UTC))
+                        .withStateTransitionEffectiveDateTime(ZonedDateTime.now(ZoneOffset.UTC))
+                        .withTransactionStateValue(TransactionStateValue.SUBMITTED)
+                        .withReportSubmissionRepository(SourceSystemId.DTCC).withCommentary("Test ValReport").build())
+                .withExceptionManagement(ExceptionManagement.newBuilder().withApprovedBy("PERSON_3")
+                        .withAssignedTo("matbina")
+                        .withExceptionStatus(com.nwm.tntr.commons.domain.persistence.constant.ExceptionStatus.OPEN)
+                        .withApprovalStatus(ApprovalStatus.OPEN_REQUESTED)
+                        .withIssueIds(Lists.newArrayList("TNTR-1235", "TNTR-9876"))
+                        .withIssueType(IssueType.MIS_REPORTING).withLastAction("Replay Edit")
+                        .withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC)).withLastActionUser("USER_1")
+                        .withLatestVersion(true).withReportingDeadline(ZonedDateTime.now(ZoneOffset.UTC).plusDays(2))
+                        .withUserComment("COMMENT 1").build())
+                .withNonReportableData(NonReportableData.newBuilder().withLatestVersion(true).build()).build();
+        return ValuationReportDocument.from(documentId, documentLifetime, tradeReport);
+    }
 
-		return tradeReportDocument;
-	}
+    private CollateralReportDocument getColReportDocument() {
+        DocumentId documentId = DocumentId.from("CollateralReportId_123", 1L);
+        DocumentLifetime documentLifetime = DocumentLifetime.from(ZonedDateTime.now(ZoneOffset.UTC),
+                ZonedDateTime.now(ZoneOffset.UTC));
+        CollateralReport tradeReport = CollateralReport.newBuilder()
+                .withCollateralReportId(CollateralReportId.newBuilder().withTradeParty1Id("tp1")
+                        .withTradeParty2Id("tp2").withCollateralPortfolioGroup("CollateralReportId_123")
+                        .withReportingRegime(ReportingRegime.SECURITIES_FINANCING_TRANSACTION_REGULATION_SELF_REPORTING)
+                        .withReportingRegulatoryAuthority(
+                                ReportingRegulatoryAuthority.EUROPEAN_SECURITIES_AND_MARKETS_AUTHORITY_EUROPEAN_UNION)
+                        .withRegimeImpactType(RegimeImpactType.TRANSACTION_REPORTING)
+                        .withReportSubmissionType(ReportSubmissionType.SNAPSHOT)
+                        .withBusinessDate(ZonedDateTime.parse("2021-09-07T00:00:00.000Z").toLocalDate()).build())
+                .withTransactionReportingStatus(TransactionReportingStatus.newBuilder()
+                        .withSourceSystemId(SourceSystemId.TN_TR)
+                        .withStateTransitionDateTime(ZonedDateTime.now(ZoneOffset.UTC))
+                        .withStateTransitionEffectiveDateTime(ZonedDateTime.now(ZoneOffset.UTC))
+                        .withTransactionStateValue(TransactionStateValue.SUBMITTED)
+                        .withReportSubmissionRepository(SourceSystemId.DTCC).withCommentary("Test ValReport").build())
+                .withExceptionManagement(ExceptionManagement.newBuilder().withApprovedBy("PERSON_3")
+                        .withAssignedTo("matbina")
+                        .withExceptionStatus(com.nwm.tntr.commons.domain.persistence.constant.ExceptionStatus.OPEN)
+                        .withApprovalStatus(ApprovalStatus.OPEN_REQUESTED)
+                        .withIssueIds(Lists.newArrayList("TNTR-1235", "TNTR-9876"))
+                        .withIssueType(IssueType.MIS_REPORTING).withLastAction("Replay Edit")
+                        .withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC)).withLastActionUser("USER_1")
+                        .withLatestVersion(true).withReportingDeadline(ZonedDateTime.now(ZoneOffset.UTC).plusDays(2))
+                        .withUserComment("COMMENT 1").build())
+                .withNonReportableData(NonReportableData.newBuilder().withLatestVersion(true).build()).build();
+        return CollateralReportDocument.from(documentId, documentLifetime, tradeReport);
+    }
 
-	private TradeReportDocument getTradeReportDocument() {
-		DocumentId documentId = DocumentId.from("TradeReportId_123", 1L);
-		DocumentLifetime documentLifetime = DocumentLifetime.from(ZonedDateTime.now(ZoneOffset.UTC),
-				ZonedDateTime.now(ZoneOffset.UTC));
-		TradeReport tradeReport = TradeReport.newBuilder()
-				.withTradeReportId(TradeReportId.newBuilder().withTradeSourceSystemTransactionId("TradeReportId_123")
-						.withTradeSourceSystemId(SourceSystemId.ANVIL_GBLO_LDN).withTradeDocumentVersion(1)
-						.withReportingRegime(ReportingRegime.SECURITIES_FINANCING_TRANSACTION_REGULATION_SELF_REPORTING)
-						.withReportingRegulatoryAuthority(
-								ReportingRegulatoryAuthority.EUROPEAN_SECURITIES_AND_MARKETS_AUTHORITY_EUROPEAN_UNION)
-						.withRegimeImpactType(RegimeImpactType.TRANSACTION_REPORTING)
-						.withReportTriggerType(ReportTriggerType.TRANSACTION_LIFECYCLE)
-						.withReportSubmissionType(ReportSubmissionType.SNAPSHOT).build())
-				.withTransactionReportingStatus(TransactionReportingStatus.newBuilder()
-						.withSourceSystemId(SourceSystemId.TN_TR)
-						.withStateTransitionDateTime(ZonedDateTime.now(ZoneOffset.UTC))
-						.withStateTransitionEffectiveDateTime(ZonedDateTime.now(ZoneOffset.UTC))
-						.withTransactionStateValue(TransactionStateValue.SUBMITTED)
-						.withReportSubmissionRepository(SourceSystemId.DTCC).withCommentary("Test TradeReport").build())
-				.withExceptionManagement(ExceptionManagement.newBuilder().withApprovedBy("PERSON_1")
-						.withAssignedTo("matbina")
-						.withExceptionStatus(com.nwm.tntr.commons.domain.persistence.constant.ExceptionStatus.OPEN)
-						.withApprovalStatus(ApprovalStatus.OPEN_REQUESTED)
-						.withIssueIds(Lists.newArrayList("TNTR-1234", "TNTR-9875"))
-						.withIssueType(IssueType.MIS_REPORTING).withLastAction("Replay Edit")
-						.withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC)).withLastActionUser("USER_1")
-						.withLatestVersion(false).withReportingDeadline(ZonedDateTime.now(ZoneOffset.UTC).plusDays(2))
-						.withUserComment("COMMENT 1").build())
-				.withNonReportableData(NonReportableData.newBuilder().withLatestVersion(true).build()).build();
-		TradeReportDocument tradeReportDocument = TradeReportDocument.from(documentId, documentLifetime, tradeReport);
+    private CollateralLinkReportDocument getColLinkReportDocument() {
+        DocumentId documentId = DocumentId.from("CollateralLinkReportId_123", 1L);
+        DocumentLifetime documentLifetime = DocumentLifetime.from(ZonedDateTime.now(ZoneOffset.UTC),
+                ZonedDateTime.now(ZoneOffset.UTC));
+        CollateralLinkReport tradeReport = CollateralLinkReport.newBuilder()
+                .withCollateralLinkReportId(CollateralLinkReportId.newBuilder()
+                        .withBusinessDate(LocalDate.of(2021, 8, 1))
+                        .withTradeSourceSystemTransactionId("CollateralLinkReportId_123")
+                        .withTradeSourceSystemId(SourceSystemId.SYSTEM_X).withTradeDocumentVersion(1)
+                        .withReportingRegime(ReportingRegime.EUROPEAN_MARKETS_INFRASTRUCTURE_REGULATION)
+                        .withReportingRegulatoryAuthority(
+                                ReportingRegulatoryAuthority.EUROPEAN_SECURITIES_AND_MARKETS_AUTHORITY_EUROPEAN_UNION)
+                        .withRegimeImpactType(RegimeImpactType.TRANSACTION_REPORTING)
+                        .withReportTriggerType(ReportTriggerType.COLLATERAL_UPDATE)
+                        .withReportSubmissionType(ReportSubmissionType.COLLATERAL_VALUE).build())
+                .withTransactionReportingStatus(TransactionReportingStatus.newBuilder()
+                        .withSourceSystemId(SourceSystemId.TN_TR)
+                        .withStateTransitionDateTime(ZonedDateTime.now(ZoneOffset.UTC))
+                        .withStateTransitionEffectiveDateTime(ZonedDateTime.now(ZoneOffset.UTC))
+                        .withTransactionStateValue(TransactionStateValue.SUBMITTED)
+                        .withReportSubmissionRepository(SourceSystemId.DTCC).withCommentary("Test ValReport").build())
+                .withExceptionManagement(ExceptionManagement.newBuilder().withApprovedBy("PERSON_3")
+                        .withAssignedTo("matbina")
+                        .withExceptionStatus(com.nwm.tntr.commons.domain.persistence.constant.ExceptionStatus.OPEN)
+                        .withApprovalStatus(ApprovalStatus.OPEN_REQUESTED)
+                        .withIssueIds(Lists.newArrayList("TNTR-1235", "TNTR-9876"))
+                        .withIssueType(IssueType.MIS_REPORTING).withLastAction("Replay Edit")
+                        .withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC)).withLastActionUser("USER_1")
+                        .withLatestVersion(true).withReportingDeadline(ZonedDateTime.now(ZoneOffset.UTC).plusDays(2))
+                        .withUserComment("COMMENT 1").build())
+                .withNonReportableData(NonReportableData.newBuilder().withLatestVersion(true).build()).build();
+        return CollateralLinkReportDocument.from(documentId, documentLifetime, tradeReport);
+    }
 
-		return tradeReportDocument;
-	}
-
-	private ValuationReportDocument getValReportDocument() {
-		DocumentId documentId = DocumentId.from("ValReportId_123", 1L);
-		DocumentLifetime documentLifetime = DocumentLifetime.from(ZonedDateTime.now(ZoneOffset.UTC),
-				ZonedDateTime.now(ZoneOffset.UTC));
-		ValuationReport tradeReport = ValuationReport.newBuilder()
-				.withValuationReportId(ValuationReportId.newBuilder()
-						.withTradeSourceSystemTransactionId("ValReportId_123")
-						.withTradeSourceSystemId(SourceSystemId.ANVIL_GBLO_LDN).withTradeDocumentVersion(1)
-						.withReportingRegime(ReportingRegime.SECURITIES_FINANCING_TRANSACTION_REGULATION_SELF_REPORTING)
-						.withReportingRegulatoryAuthority(
-								ReportingRegulatoryAuthority.EUROPEAN_SECURITIES_AND_MARKETS_AUTHORITY_EUROPEAN_UNION)
-						.withRegimeImpactType(RegimeImpactType.TRANSACTION_REPORTING)
-						.withReportTriggerType(ReportTriggerType.VALUATION_UPDATE)
-						.withReportSubmissionType(ReportSubmissionType.SNAPSHOT)
-						.withBusinessDate(ZonedDateTime.parse("2021-09-07T00:00:00.000Z").toLocalDate()).build())
-				.withTransactionReportingStatus(TransactionReportingStatus.newBuilder()
-						.withSourceSystemId(SourceSystemId.TN_TR)
-						.withStateTransitionDateTime(ZonedDateTime.now(ZoneOffset.UTC))
-						.withStateTransitionEffectiveDateTime(ZonedDateTime.now(ZoneOffset.UTC))
-						.withTransactionStateValue(TransactionStateValue.SUBMITTED)
-						.withReportSubmissionRepository(SourceSystemId.DTCC).withCommentary("Test ValReport").build())
-				.withExceptionManagement(ExceptionManagement.newBuilder().withApprovedBy("PERSON_3")
-						.withAssignedTo("matbina")
-						.withExceptionStatus(com.nwm.tntr.commons.domain.persistence.constant.ExceptionStatus.OPEN)
-						.withApprovalStatus(ApprovalStatus.OPEN_REQUESTED)
-						.withIssueIds(Lists.newArrayList("TNTR-1235", "TNTR-9876"))
-						.withIssueType(IssueType.MIS_REPORTING).withLastAction("Replay Edit")
-						.withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC)).withLastActionUser("USER_1")
-						.withLatestVersion(true).withReportingDeadline(ZonedDateTime.now(ZoneOffset.UTC).plusDays(2))
-						.withUserComment("COMMENT 1").build())
-				.withNonReportableData(NonReportableData.newBuilder().withLatestVersion(true).build()).build();
-		ValuationReportDocument tradeReportDocument = ValuationReportDocument.from(documentId, documentLifetime,
-				tradeReport);
-
-		return tradeReportDocument;
-	}
-
-	private CollateralReportDocument getColReportDocument() {
-		DocumentId documentId = DocumentId.from("CollateralReportId_123", 1L);
-		DocumentLifetime documentLifetime = DocumentLifetime.from(ZonedDateTime.now(ZoneOffset.UTC),
-				ZonedDateTime.now(ZoneOffset.UTC));
-		CollateralReport tradeReport = CollateralReport.newBuilder()
-				.withCollateralReportId(CollateralReportId.newBuilder().withTradeParty1Id("tp1")
-						.withTradeParty2Id("tp2").withCollateralPortfolioGroup("CollateralReportId_123")
-						.withReportingRegime(ReportingRegime.SECURITIES_FINANCING_TRANSACTION_REGULATION_SELF_REPORTING)
-						.withReportingRegulatoryAuthority(
-								ReportingRegulatoryAuthority.EUROPEAN_SECURITIES_AND_MARKETS_AUTHORITY_EUROPEAN_UNION)
-						.withRegimeImpactType(RegimeImpactType.TRANSACTION_REPORTING)
-						.withReportSubmissionType(ReportSubmissionType.SNAPSHOT)
-						.withBusinessDate(ZonedDateTime.parse("2021-09-07T00:00:00.000Z").toLocalDate()).build())
-				.withTransactionReportingStatus(TransactionReportingStatus.newBuilder()
-						.withSourceSystemId(SourceSystemId.TN_TR)
-						.withStateTransitionDateTime(ZonedDateTime.now(ZoneOffset.UTC))
-						.withStateTransitionEffectiveDateTime(ZonedDateTime.now(ZoneOffset.UTC))
-						.withTransactionStateValue(TransactionStateValue.SUBMITTED)
-						.withReportSubmissionRepository(SourceSystemId.DTCC).withCommentary("Test ValReport").build())
-				.withExceptionManagement(ExceptionManagement.newBuilder().withApprovedBy("PERSON_3")
-						.withAssignedTo("matbina")
-						.withExceptionStatus(com.nwm.tntr.commons.domain.persistence.constant.ExceptionStatus.OPEN)
-						.withApprovalStatus(ApprovalStatus.OPEN_REQUESTED)
-						.withIssueIds(Lists.newArrayList("TNTR-1235", "TNTR-9876"))
-						.withIssueType(IssueType.MIS_REPORTING).withLastAction("Replay Edit")
-						.withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC)).withLastActionUser("USER_1")
-						.withLatestVersion(true).withReportingDeadline(ZonedDateTime.now(ZoneOffset.UTC).plusDays(2))
-						.withUserComment("COMMENT 1").build())
-				.withNonReportableData(NonReportableData.newBuilder().withLatestVersion(true).build()).build();
-		CollateralReportDocument tradeReportDocument = CollateralReportDocument.from(documentId, documentLifetime,
-				tradeReport);
-
-		return tradeReportDocument;
-	}
-
-	private CollateralLinkReportDocument getColLinkReportDocument() {
-		DocumentId documentId = DocumentId.from("CollateralLinkReportId_123", 1L);
-		DocumentLifetime documentLifetime = DocumentLifetime.from(ZonedDateTime.now(ZoneOffset.UTC),
-				ZonedDateTime.now(ZoneOffset.UTC));
-		CollateralLinkReport tradeReport = CollateralLinkReport.newBuilder()
-				.withCollateralLinkReportId(CollateralLinkReportId.newBuilder()
-						.withBusinessDate(LocalDate.of(2021, 8, 1))
-						.withTradeSourceSystemTransactionId("CollateralLinkReportId_123")
-						.withTradeSourceSystemId(SourceSystemId.SYSTEM_X).withTradeDocumentVersion(1)
-						.withReportingRegime(ReportingRegime.EUROPEAN_MARKETS_INFRASTRUCTURE_REGULATION)
-						.withReportingRegulatoryAuthority(
-								ReportingRegulatoryAuthority.EUROPEAN_SECURITIES_AND_MARKETS_AUTHORITY_EUROPEAN_UNION)
-						.withRegimeImpactType(RegimeImpactType.TRANSACTION_REPORTING)
-						.withReportTriggerType(ReportTriggerType.COLLATERAL_UPDATE)
-						.withReportSubmissionType(ReportSubmissionType.COLLATERAL_VALUE).build())
-				.withTransactionReportingStatus(TransactionReportingStatus.newBuilder()
-						.withSourceSystemId(SourceSystemId.TN_TR)
-						.withStateTransitionDateTime(ZonedDateTime.now(ZoneOffset.UTC))
-						.withStateTransitionEffectiveDateTime(ZonedDateTime.now(ZoneOffset.UTC))
-						.withTransactionStateValue(TransactionStateValue.SUBMITTED)
-						.withReportSubmissionRepository(SourceSystemId.DTCC).withCommentary("Test ValReport").build())
-				.withExceptionManagement(ExceptionManagement.newBuilder().withApprovedBy("PERSON_3")
-						.withAssignedTo("matbina")
-						.withExceptionStatus(com.nwm.tntr.commons.domain.persistence.constant.ExceptionStatus.OPEN)
-						.withApprovalStatus(ApprovalStatus.OPEN_REQUESTED)
-						.withIssueIds(Lists.newArrayList("TNTR-1235", "TNTR-9876"))
-						.withIssueType(IssueType.MIS_REPORTING).withLastAction("Replay Edit")
-						.withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC)).withLastActionUser("USER_1")
-						.withLatestVersion(true).withReportingDeadline(ZonedDateTime.now(ZoneOffset.UTC).plusDays(2))
-						.withUserComment("COMMENT 1").build())
-				.withNonReportableData(NonReportableData.newBuilder().withLatestVersion(true).build()).build();
-		CollateralLinkReportDocument tradeReportDocument = CollateralLinkReportDocument.from(documentId,
-				documentLifetime, tradeReport);
-
-		return tradeReportDocument;
-	}
-
-	private ReconReportDocument getReconReportDocument() {
-		DocumentId documentId = DocumentId.from("ReconReportId_123", 1L);
-		DocumentLifetime documentLifetime = DocumentLifetime.from(ZonedDateTime.now(ZoneOffset.UTC),
-				ZonedDateTime.now(ZoneOffset.UTC));
-		ReconReport reconReport = ReconReport.newBuilder()
-				.withReconReportId(ReconReportId.newBuilder()
-						.withSourceSystemMatchingKeyId(
-								"RR3QWICWWIPCS8A4S074|VVB4WGB|1030272448CDDDEC541D8672AECDB4CC7EE06FE6D4")
-						.withSourceSystemId(SourceSystemId.GLOBAL_FX_GBLO).withReconType("Completeness")
-						.withReconRuleId("EmirPositionRates").build())
-				.withBreakManagement(BreakManagement.newBuilder().withUserComment("Test Comment")
-						.withIssueType("Under Reporting").withIssueTrackingReference("TTR-1010")
-						.withLastActionDate(ZonedDateTime.now(ZoneOffset.UTC)).withLastActionUser("tagging-service")
-						.withAssignedTo("philvdp").withActionPerformed("addJira")
-						.withLastBreakOccurrenceDate(ZonedDateTime.now(ZoneOffset.UTC))
-						.withLastBreakStatus(ReconStatus.TARGET_UNPAIRED).withUserWorkflow("addJira").build())
-				.build();
-		ReconReportDocument reconReportDocument = ReconReportDocument.from(documentId, documentLifetime, reconReport);
-
-		return reconReportDocument;
-	}
-
-	private ReconReportDocument getReconReportDocumentWithNullBreakManagement() {
-		DocumentId documentId = DocumentId.from("ReconReportId_123", 1L);
-		DocumentLifetime documentLifetime = DocumentLifetime.from(ZonedDateTime.now(ZoneOffset.UTC),
-				ZonedDateTime.now(ZoneOffset.UTC));
-		ReconReport reconReport = ReconReport.newBuilder()
-				.withReconReportId(ReconReportId.newBuilder()
-						.withSourceSystemMatchingKeyId(
-								"RR3QWICWWIPCS8A4S074|VVB4WGB|1030272448CDDDEC541D8672AECDB4CC7EE06FE6D4")
-						.withSourceSystemId(SourceSystemId.GLOBAL_FX_GBLO).withReconType("Completeness")
-						.withReconRuleId("EmirPositionRates").build())
-				.withBreakManagement(BreakManagement.newBuilder().build()).build();
-		ReconReportDocument reconReportDocument = ReconReportDocument.from(documentId, documentLifetime, reconReport);
-
-		return reconReportDocument;
-	}
-
-	private ReconReportDocument getReconReportDocumentWithNullJiraId() {
-		DocumentId documentId = DocumentId.from("ReconReportId_123", 1L);
-		DocumentLifetime documentLifetime = DocumentLifetime.from(ZonedDateTime.now(ZoneOffset.UTC),
-				ZonedDateTime.now(ZoneOffset.UTC));
-		ReconReport reconReport = ReconReport.newBuilder()
-				.withReconReportId(ReconReportId.newBuilder()
-						.withSourceSystemMatchingKeyId(
-								"RR3QWICWWIPCS8A4S074|VVB4WGB|1030272448CDDDEC541D8672AECDB4CC7EE06FE6D4")
-						.withSourceSystemId(SourceSystemId.GLOBAL_FX_GBLO).withReconType("Completeness")
-						.withReconRuleId("EmirPositionRates").build())
-				.withBreakManagement(BreakManagement.newBuilder().withUserComment("Test Comment")
-						.withIssueType("Under Reporting").withLastActionDate(ZonedDateTime.now(ZoneOffset.UTC))
-						.withLastActionUser("tagging-service").withAssignedTo("philvdp").withActionPerformed("addJira")
-						.withLastBreakOccurrenceDate(ZonedDateTime.now(ZoneOffset.UTC))
-						.withLastBreakStatus(ReconStatus.TARGET_UNPAIRED).withUserWorkflow("addJira").build())
-				.build();
-		ReconReportDocument reconReportDocument = ReconReportDocument.from(documentId, documentLifetime, reconReport);
-
-		return reconReportDocument;
-	}
-
-	private ReconReportDocument getReconReportDocumentWithNullJiraType() {
-		DocumentId documentId = DocumentId.from("ReconReportId_123", 1L);
-		DocumentLifetime documentLifetime = DocumentLifetime.from(ZonedDateTime.now(ZoneOffset.UTC),
-				ZonedDateTime.now(ZoneOffset.UTC));
-		ReconReport reconReport = ReconReport.newBuilder()
-				.withReconReportId(ReconReportId.newBuilder()
-						.withSourceSystemMatchingKeyId(
-								"RR3QWICWWIPCS8A4S074|VVB4WGB|1030272448CDDDEC541D8672AECDB4CC7EE06FE6D4")
-						.withSourceSystemId(SourceSystemId.GLOBAL_FX_GBLO).withReconType("Completeness")
-						.withReconRuleId("EmirPositionRates").build())
-				.withBreakManagement(BreakManagement.newBuilder().withUserComment("Test Comment")
-						.withIssueTrackingReference("TTR-1010").withLastActionDate(ZonedDateTime.now(ZoneOffset.UTC))
-						.withLastActionUser("tagging-service").withAssignedTo("philvdp").withActionPerformed("addJira")
-						.withLastBreakOccurrenceDate(ZonedDateTime.now(ZoneOffset.UTC))
-						.withLastBreakStatus(ReconStatus.TARGET_UNPAIRED).withUserWorkflow("addJira").build())
-				.build();
-		ReconReportDocument reconReportDocument = ReconReportDocument.from(documentId, documentLifetime, reconReport);
-
-		return reconReportDocument;
-	}
-
-	private ReconReportDocument getReconReportDocumentWithNullComments() {
-		DocumentId documentId = DocumentId.from("ReconReportId_123", 1L);
-		DocumentLifetime documentLifetime = DocumentLifetime.from(ZonedDateTime.now(ZoneOffset.UTC),
-				ZonedDateTime.now(ZoneOffset.UTC));
-		ReconReport reconReport = ReconReport.newBuilder()
-				.withReconReportId(ReconReportId.newBuilder()
-						.withSourceSystemMatchingKeyId(
-								"RR3QWICWWIPCS8A4S074|VVB4WGB|1030272448CDDDEC541D8672AECDB4CC7EE06FE6D4")
-						.withSourceSystemId(SourceSystemId.GLOBAL_FX_GBLO).withReconType("Completeness")
-						.withReconRuleId("EmirPositionRates").build())
-				.withBreakManagement(BreakManagement.newBuilder().withIssueTrackingReference("TTR-1010")
-						.withLastActionDate(ZonedDateTime.now(ZoneOffset.UTC)).withLastActionUser("tagging-service")
-						.withAssignedTo("philvdp").withActionPerformed("addJira")
-						.withLastBreakOccurrenceDate(ZonedDateTime.now(ZoneOffset.UTC))
-						.withLastBreakStatus(ReconStatus.TARGET_UNPAIRED).withUserWorkflow("addJira").build())
-				.build();
-		ReconReportDocument reconReportDocument = ReconReportDocument.from(documentId, documentLifetime, reconReport);
-
-		return reconReportDocument;
-	}
-
-	private ReconReportDocument getReconReportDocumentWithExistingComment() {
-		DocumentId documentId = DocumentId.from("ReconReportId_123", 1L);
-		DocumentLifetime documentLifetime = DocumentLifetime.from(ZonedDateTime.now(ZoneOffset.UTC),
-				ZonedDateTime.now(ZoneOffset.UTC));
-		ReconReport reconReport = ReconReport.newBuilder()
-				.withReconReportId(ReconReportId.newBuilder()
-						.withSourceSystemMatchingKeyId(
-								"RR3QWICWWIPCS8A4S074|VVB4WGB|1030272448CDDDEC541D8672AECDB4CC7EE06FE6D4")
-						.withSourceSystemId(SourceSystemId.GLOBAL_FX_GBLO).withReconType("Completeness")
-						.withReconRuleId("EmirPositionRates").build())
-				.withBreakManagement(BreakManagement.newBuilder().withUserComment("Existing Test Comment")
-						.withIssueType(IssueType.UNDER_REPORTING.value()).withIssueTrackingReference("TTR-1010")
-						.withLastActionDate(ZonedDateTime.now(ZoneOffset.UTC)).withLastActionUser("tagging-service")
-						.withAssignedTo("philvdp").withActionPerformed("addJira")
-						.withLastBreakOccurrenceDate(ZonedDateTime.now(ZoneOffset.UTC))
-						.withLastBreakStatus(ReconStatus.TARGET_UNPAIRED).withUserWorkflow("addJira").build())
-				.build();
-		ReconReportDocument reconReportDocument = ReconReportDocument.from(documentId, documentLifetime, reconReport);
-
-		return reconReportDocument;
-	}
-
-	
-	private List<WriteResult<TradeReport>> getWriteResults() {
-		return Lists.newArrayList(WriteResult.forSuccess(DocumentId.from("TradeReportId_123", 1L),
-				getTradeReportDocument().getTradeReport()));
-	}
-
-	private List<WriteResult<ValuationReport>> getValWriteResults() {
-		return Lists.newArrayList(WriteResult.forSuccess(DocumentId.from("ValReportId_123", 1L),
-				getValReportDocument().getValuationReport()));
-	}
-
-	private List<WriteResult<CollateralReport>> getColWriteResults() {
-		return Lists.newArrayList(WriteResult.forSuccess(DocumentId.from("CollateralReportId_123", 1L),
-				getColReportDocument().getCollateralReport()));
-	}
-
-	private List<WriteResult<CollateralLinkReport>> getColLinkWriteResults() {
-		return Lists.newArrayList(WriteResult.forSuccess(DocumentId.from("CollateralLinkReportId_123", 1L),
-				getColLinkReportDocument().getCollateralLinkReport()));
-	}
-
-	private List<WriteResult<ReconReport>> getReconWriteResults() {
-		return Lists.newArrayList(WriteResult.forSuccess(DocumentId.from("ReconReportId_123", 1L),
-				getReconReportDocument().getReconReport()));
-	}
-
-	@Test
-	public void testAutoAssignWithNoActiveRules() throws StartableException {
-		Mockito.when(taggingServiceRepository.searchRulesFromDf(Mockito.any()))
-				.thenReturn(Lists.newArrayList());
-
-		List<AutoAssignResult> result = autoAssignmentService.autoAssign("dummyWhereClause");
-
-		Assert.assertNotNull(result);
-		Assert.assertTrue(result.isEmpty());
-	}
-
-	@Test
-	public void testAutoAssignWithEmptyEventList() throws StartableException {
-		Mockito.when(taggingServiceRepository.searchRulesFromDf(Mockito.any()))
-				.thenReturn(getJiraAssignmentTriggerEvent());
-
-		// Mock empty future results
-		Mockito.when(dfTradePersistManager.getAllRecords(Mockito.any())).thenReturn(Lists.newArrayList());
-
-		List<AutoAssignResult> result = autoAssignmentService.autoAssign("dummyWhereClause");
-
-		Assert.assertNotNull(result);
-	}
-
-	@Test
-	public void testReTriggerRulesWithNoMatchingRules() throws StartableException {
-		Mockito.when(taggingServiceRepository.searchRulesFromDf(Mockito.any()))
-				.thenReturn(Lists.newArrayList());
-
-		List<AutoAssignResult> result = autoAssignmentService.reTriggerRules("dummyWhereClause");
-
-		Assert.assertNotNull(result);
-		Assert.assertTrue(result.isEmpty());
-	}
-
-}
+    private ReconReportDocument getReconReportDocument() {
+        DocumentId documentId = DocumentId.from("ReconReportId_123", 1L);
+        DocumentLifetime documentLifetime = DocumentLifetime.from(ZonedDateTime.now(ZoneOffset.UTC),
+                ZonedDateTime.now(ZoneOffset.UTC));
+        ReconReport reconReport = ReconReport.newBuilder()
+                .withReconReportId(ReconReportId.newBuilder()
+                        .withSourceSystemMatchingKeyId(
+                                "RR3QWIC
