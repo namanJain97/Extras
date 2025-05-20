@@ -1,33 +1,21 @@
-Could you write all the test cases for below java class to cover all the scenarios or methods and make the test coverage or code coverage as 100% using junit 4 and old mockito version and java 8:
-
 package com.rbs.tntr.business.taggingService.service.common;
 
+import static org.junit.Assert.*;
+import static org.mockito.Matchers.*;
+import static org.mockito.Mockito.*;
+
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.TimeZone;
 import java.util.function.Consumer;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
-import org.springframework.http.client.ClientHttpResponse;
-import org.springframework.stereotype.Component;
-import org.springframework.web.client.HttpClientErrorException;
-import org.springframework.web.client.HttpServerErrorException;
-import org.springframework.web.client.ResponseExtractor;
-import org.springframework.web.client.RestTemplate;
-import org.springframework.web.client.UnknownHttpStatusCodeException;
-
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.base.Preconditions;
 import com.nwm.tntr.configuration.ItrConfiguration;
 import com.nwm.tntr.itr.IQuery;
 import com.nwm.tntr.utiil.RequestIdGenerator;
@@ -35,162 +23,25 @@ import com.rbs.tntr.business.taggingService.configuration.TaggingAuthenticationS
 import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.Itr2Query;
 import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.exceptions.TaggingServiceRunTimeException;
 
-@Component
-public class ItrClientImpl implements ItrClient {
-    private static final Logger logger= LoggerFactory.getLogger(ItrClientImpl.class);
-    final RestTemplate restTemplate;
-    final TaggingAuthenticationService authenticationService;
-    final ItrConfiguration itrConfiguration;
-
-    static final ObjectMapper objectMapper ;
-    static {
-        objectMapper= new ObjectMapper();
-        objectMapper.setTimeZone(TimeZone.getDefault());
-    }
-
-    @Autowired
-    public ItrClientImpl(RestTemplate restTemplate,
-                         TaggingAuthenticationService authenticationService,
-                         ItrConfiguration itrConfiguration) {
-        this.restTemplate = restTemplate;
-        this.authenticationService = authenticationService;
-        this.itrConfiguration = itrConfiguration;
-    }
-
-    @Override
-    public <T> List<T> fetch(URL url, Itr2Query query,Class<T> tClass) {
-        String requestId = RequestIdGenerator.getRequestId();
-        String jsonBody = getJsonBody(query);
-        logger.info("fetch reqeuestId:{} url:{}  body:{}",requestId,url,jsonBody);
-        HttpEntity<String> httpEntity = new HttpEntity<>(jsonBody, getHeaderWithSso(requestId));
-        ResponseEntity<List<T>> response = executeRestCall(url, tClass, requestId, httpEntity);
-        return  response.getBody();
-    }
-
-    @Override
-    public <T> List<T> fetch(String url, Itr2Query query, Consumer<InputStream> streamConsumer) {
-        String requestId = RequestIdGenerator.getRequestId();
-        String jsonBody = getJsonBody(query);
-        logger.info("fetch reqeuestId:{} url:{}  body:{}", requestId, url, jsonBody);
-        HttpEntity<Itr2Query> httpEntity = new HttpEntity<>(query, getHeaderWithSso(requestId));
-
-        final ResponseExtractor<List<T>> responseExtractor =
-                (ClientHttpResponse clientHttpResponse) -> {
-                    streamConsumer.accept(clientHttpResponse.getBody());
-                    return null;
-                };
-
-        return executeRestCallWithoutBuffering(url,requestId,httpEntity,responseExtractor);
-    }
-
-    @Override
-    public <T> List<T> fetch(String url, IQuery query, Consumer<InputStream> streamConsumer) {
-        String requestId = RequestIdGenerator.getRequestId();
-        String jsonBody = getJsonBody(query);
-        logger.info("fetch reqeuestId:{} url:{}  body:{}", requestId, url, jsonBody);
-        HttpEntity<IQuery> httpEntity = new HttpEntity<>(query, getHeaderWithSso(requestId));
-
-        final ResponseExtractor<List<T>> responseExtractor =
-                (ClientHttpResponse clientHttpResponse) -> {
-                    streamConsumer.accept(clientHttpResponse.getBody());
-                    return null;
-                };
-
-        return executeRestCallWithoutBuffering(url,requestId,httpEntity,responseExtractor);
-    }
-
-    private <T> List<T> executeRestCallWithoutBuffering( String url,
-                                                         String requestId,
-                                                         HttpEntity httpEntity,
-                                                         ResponseExtractor<List<T>> responseExtractor) {
-        try {
-
-            List<T> result = restTemplate.execute(url,
-                    HttpMethod.POST,
-                    JsonRequestCallback.createFor(httpEntity),
-                    responseExtractor);
-            return result;
-        } catch (HttpClientErrorException | HttpServerErrorException | UnknownHttpStatusCodeException httpException) {
-            String response = httpException.getResponseBodyAsString();
-            String message = httpException.getMessage();
-            logger.error("fetch reqeuestId:{} error:{}  response:{}", requestId, message, response);
-            throw httpException;
-        } catch (Exception ex) {
-            logger.error(ex.getMessage(), ex);
-            throw ex;
-        }
-    }
-
-    private <T> ResponseEntity<List<T>> executeRestCall(URL url, Class<T> tClass, String requestId, HttpEntity<String> httpEntity) {
-        try {
-            ResponseEntity<List<T>> response = restTemplate.exchange(
-                    url.toString(),
-                    HttpMethod.POST,
-                    httpEntity,
-                    ParameterizedTypeReferenceBuilder.getListTypeReference(tClass)
-            );
-            Preconditions.checkState(
-                    response.getStatusCode().equals(HttpStatus.OK),
-                    "Unable to fetch data from Itr");
-            logger.info("fetch reqeuestId:{} recordCount:{}", requestId, response.getBody().size());
-            return response;
-        }
-        catch (HttpClientErrorException|HttpServerErrorException|UnknownHttpStatusCodeException httpException){
-            String response= httpException.getResponseBodyAsString();
-            String message = httpException.getMessage();
-            logger.error("fetch reqeuestId:{} error:{}  response:{}", requestId, message,response);
-            throw  httpException;
-        }
-        catch (Exception ex){
-          logger.error(ex.getMessage(),ex);
-          throw  ex;
-        }
-    }
-
-    private String getJsonBody(Object query)  {
-        try {
-            return objectMapper.writeValueAsString(query);
-        } catch (JsonProcessingException e) {
-			throw new TaggingServiceRunTimeException(e);
-        }
-    }
-
-    private HttpHeaders getHeaderWithSso(String requestId) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        String ssoToken =
-                authenticationService.getApplicationSsoToken(
-                        itrConfiguration.getItr2SsoPermission()
-                );
-        headers.set("sso-token",ssoToken);
-        headers.set("RequestId",requestId);
-        return headers;
-    }
-}
-
-
-Existing test class:
-
-package com.rbs.tntr.business.taggingService.service.common;
-
-import static org.junit.Assert.*;
-import java.io.InputStream;
-import java.net.URL;
-import java.util.List;
-import java.util.function.Consumer;
-
-import com.nwm.tntr.configuration.ItrConfiguration;
-import com.rbs.tntr.business.taggingService.configuration.TaggingAuthenticationService;
-import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.Itr2Query;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import org.mockito.Spy;
+import org.mockito.invocation.InvocationOnMock;
 import org.mockito.runners.MockitoJUnitRunner;
+import org.mockito.stubbing.Answer;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.*;
+import org.springframework.http.client.ClientHttpResponse;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.ResponseExtractor;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.UnknownHttpStatusCodeException;
 
 @RunWith(MockitoJUnitRunner.class)
 public class ItrClientImplTest {
@@ -207,25 +58,450 @@ public class ItrClientImplTest {
     @InjectMocks
     private ItrClientImpl itrClientImpl;
 
+    @Mock
+    private ClientHttpResponse clientHttpResponse;
+
     private URL url;
     private Itr2Query itr2Query;
+    private IQuery iQuery;
+    private final String TEST_URL = "http://test-url.com";
+    private final String TEST_SSO_TOKEN = "test-sso-token";
+    private final String TEST_SSO_PERMISSION = "test-sso-permission";
+    private final String TEST_REQUEST_ID = "test-request-id";
 
     @Before
     public void setUp() throws Exception {
         MockitoAnnotations.initMocks(this);
-        url = new URL("http://test-url.com");// Assume this is properly set up
+        url = new URL(TEST_URL);
+        
+        // Setup mock objects
+        itr2Query = mock(Itr2Query.class);
+        iQuery = mock(IQuery.class);
+        
+        // Mock RequestIdGenerator to return a predictable value
+        mockStatic(RequestIdGenerator.class);
+        when(RequestIdGenerator.getRequestId()).thenReturn(TEST_REQUEST_ID);
+        
+        // Mock authentication service
+        when(itrConfiguration.getItr2SsoPermission()).thenReturn(TEST_SSO_PERMISSION);
+        when(authenticationService.getApplicationSsoToken(TEST_SSO_PERMISSION)).thenReturn(TEST_SSO_TOKEN);
+    }
+
+    // Helper method to mock static methods (for RequestIdGenerator)
+    private static void mockStatic(Class<?> classToMock) {
+        // This is a placeholder for PowerMockito.mockStatic
+        // In actual implementation with PowerMock, this would be:
+        // PowerMockito.mockStatic(classToMock);
     }
 
     @Test
-    public void testFetchWithStreamConsumer() {
+    public void testFetch_WithUrl_Success() throws Exception {
         // Setup
-        Consumer<InputStream> streamConsumer = inputStream -> {};
-        HttpEntity<Itr2Query> httpEntity = new HttpEntity<>(itr2Query);
-
+        List<String> expectedResponse = Arrays.asList("item1", "item2");
+        ResponseEntity<List<String>> responseEntity = new ResponseEntity<>(expectedResponse, HttpStatus.OK);
+        
+        // Mock RestTemplate.exchange to return the expected response
+        when(restTemplate.exchange(
+                eq(url.toString()),
+                eq(HttpMethod.POST),
+                any(HttpEntity.class),
+                any(ParameterizedTypeReference.class)
+        )).thenReturn(responseEntity);
+        
         // Execute
-        List<String> result = itrClientImpl.fetch("http://test-url.com", itr2Query, streamConsumer);
-
+        List<String> result = itrClientImpl.fetch(url, itr2Query, String.class);
+        
         // Verify
-        assertNull(result); // Adjust as needed based on method implementation
+        assertNotNull(result);
+        assertEquals(expectedResponse, result);
+        assertEquals(2, result.size());
+        
+        // Verify that exchange was called with correct parameters
+        verify(restTemplate).exchange(
+                eq(url.toString()),
+                eq(HttpMethod.POST),
+                any(HttpEntity.class),
+                any(ParameterizedTypeReference.class)
+        );
+    }
+
+    @Test(expected = IllegalStateException.class)
+    public void testFetch_WithUrl_NonOkResponse() throws Exception {
+        // Setup
+        List<String> response = new ArrayList<>();
+        ResponseEntity<List<String>> responseEntity = new ResponseEntity<>(response, HttpStatus.BAD_REQUEST);
+        
+        // Mock RestTemplate.exchange to return a non-OK response
+        when(restTemplate.exchange(
+                eq(url.toString()),
+                eq(HttpMethod.POST),
+                any(HttpEntity.class),
+                any(ParameterizedTypeReference.class)
+        )).thenReturn(responseEntity);
+        
+        // Execute - should throw IllegalStateException
+        itrClientImpl.fetch(url, itr2Query, String.class);
+    }
+
+    @Test(expected = HttpClientErrorException.class)
+    public void testFetch_WithUrl_HttpClientErrorException() throws Exception {
+        // Setup
+        HttpClientErrorException exception = new HttpClientErrorException(HttpStatus.BAD_REQUEST, "Bad Request");
+        
+        // Mock RestTemplate.exchange to throw HttpClientErrorException
+        when(restTemplate.exchange(
+                eq(url.toString()),
+                eq(HttpMethod.POST),
+                any(HttpEntity.class),
+                any(ParameterizedTypeReference.class)
+        )).thenThrow(exception);
+        
+        // Execute - should throw HttpClientErrorException
+        itrClientImpl.fetch(url, itr2Query, String.class);
+    }
+
+    @Test(expected = HttpServerErrorException.class)
+    public void testFetch_WithUrl_HttpServerErrorException() throws Exception {
+        // Setup
+        HttpServerErrorException exception = new HttpServerErrorException(HttpStatus.INTERNAL_SERVER_ERROR, "Server Error");
+        
+        // Mock RestTemplate.exchange to throw HttpServerErrorException
+        when(restTemplate.exchange(
+                eq(url.toString()),
+                eq(HttpMethod.POST),
+                any(HttpEntity.class),
+                any(ParameterizedTypeReference.class)
+        )).thenThrow(exception);
+        
+        // Execute - should throw HttpServerErrorException
+        itrClientImpl.fetch(url, itr2Query, String.class);
+    }
+
+    @Test(expected = UnknownHttpStatusCodeException.class)
+    public void testFetch_WithUrl_UnknownHttpStatusCodeException() throws Exception {
+        // Setup
+        UnknownHttpStatusCodeException exception = new UnknownHttpStatusCodeException(999, "Unknown Status", HttpHeaders.EMPTY, new byte[0], null);
+        
+        // Mock RestTemplate.exchange to throw UnknownHttpStatusCodeException
+        when(restTemplate.exchange(
+                eq(url.toString()),
+                eq(HttpMethod.POST),
+                any(HttpEntity.class),
+                any(ParameterizedTypeReference.class)
+        )).thenThrow(exception);
+        
+        // Execute - should throw UnknownHttpStatusCodeException
+        itrClientImpl.fetch(url, itr2Query, String.class);
+    }
+
+    @Test(expected = RuntimeException.class)
+    public void testFetch_WithUrl_GenericException() throws Exception {
+        // Setup
+        RuntimeException exception = new RuntimeException("Generic Error");
+        
+        // Mock RestTemplate.exchange to throw RuntimeException
+        when(restTemplate.exchange(
+                eq(url.toString()),
+                eq(HttpMethod.POST),
+                any(HttpEntity.class),
+                any(ParameterizedTypeReference.class)
+        )).thenThrow(exception);
+        
+        // Execute - should throw RuntimeException
+        itrClientImpl.fetch(url, itr2Query, String.class);
+    }
+
+    @Test
+    public void testFetch_WithStringUrl_Itr2Query_Success() throws Exception {
+        // Setup
+        final ByteArrayInputStream inputStream = new ByteArrayInputStream("test data".getBytes());
+        final boolean[] streamConsumerCalled = {false};
+        
+        Consumer<InputStream> streamConsumer = stream -> {
+            streamConsumerCalled[0] = true;
+            try {
+                assertEquals("test data", new String(stream.readAllBytes()));
+            } catch (IOException e) {
+                fail("Exception in stream consumer: " + e.getMessage());
+            }
+        };
+        
+        // Mock ClientHttpResponse
+        when(clientHttpResponse.getBody()).thenReturn(inputStream);
+        
+        // Mock RestTemplate.execute to invoke the ResponseExtractor
+        when(restTemplate.execute(
+                eq(TEST_URL),
+                eq(HttpMethod.POST),
+                any(JsonRequestCallback.class),
+                any(ResponseExtractor.class)
+        )).thenAnswer(new Answer<Object>() {
+            @Override
+            public Object answer(InvocationOnMock invocation) throws Throwable {
+                ResponseExtractor<?> extractor = invocation.getArgumentAt(3, ResponseExtractor.class);
+                extractor.extractData(clientHttpResponse);
+                return null;
+            }
+        });
+        
+        // Execute
+        List<String> result = itrClientImpl.fetch(TEST_URL, itr2Query, streamConsumer);
+        
+        // Verify
+        assertNull(result);
+        assertTrue(streamConsumerCalled[0]);
+        
+        // Verify that execute was called with correct parameters
+        verify(restTemplate).execute(
+                eq(TEST_URL),
+                eq(HttpMethod.POST),
+                any(JsonRequestCallback.class),
+                any(ResponseExtractor.class)
+        );
+    }
+
+    @Test(expected = HttpClientErrorException.class)
+    public void testFetch_WithStringUrl_Itr2Query_HttpClientErrorException() throws Exception {
+        // Setup
+        Consumer<InputStream> streamConsumer = stream -> {};
+        HttpClientErrorException exception = new HttpClientErrorException(HttpStatus.BAD_REQUEST, "Bad Request");
+        
+        // Mock RestTemplate.execute to throw HttpClientErrorException
+        when(restTemplate.execute(
+                eq(TEST_URL),
+                eq(HttpMethod.POST),
+                any(JsonRequestCallback.class),
+                any(ResponseExtractor.class)
+        )).thenThrow(exception);
+        
+        // Execute - should throw HttpClientErrorException
+        itrClientImpl.fetch(TEST_URL, itr2Query, streamConsumer);
+    }
+
+    @Test(expected = HttpServerErrorException.class)
+    public void testFetch_WithStringUrl_Itr2Query_HttpServerErrorException() throws Exception {
+        // Setup
+        Consumer<InputStream> streamConsumer = stream -> {};
+        HttpServerErrorException exception = new HttpServerErrorException(HttpStatus.INTERNAL_SERVER_ERROR, "Server Error");
+        
+        // Mock RestTemplate.execute to throw HttpServerErrorException
+        when(restTemplate.execute(
+                eq(TEST_URL),
+                eq(HttpMethod.POST),
+                any(JsonRequestCallback.class),
+                any(ResponseExtractor.class)
+        )).thenThrow(exception);
+        
+        // Execute - should throw HttpServerErrorException
+        itrClientImpl.fetch(TEST_URL, itr2Query, streamConsumer);
+    }
+
+    @Test(expected = UnknownHttpStatusCodeException.class)
+    public void testFetch_WithStringUrl_Itr2Query_UnknownHttpStatusCodeException() throws Exception {
+        // Setup
+        Consumer<InputStream> streamConsumer = stream -> {};
+        UnknownHttpStatusCodeException exception = new UnknownHttpStatusCodeException(999, "Unknown Status", HttpHeaders.EMPTY, new byte[0], null);
+        
+        // Mock RestTemplate.execute to throw UnknownHttpStatusCodeException
+        when(restTemplate.execute(
+                eq(TEST_URL),
+                eq(HttpMethod.POST),
+                any(JsonRequestCallback.class),
+                any(ResponseExtractor.class)
+        )).thenThrow(exception);
+        
+        // Execute - should throw UnknownHttpStatusCodeException
+        itrClientImpl.fetch(TEST_URL, itr2Query, streamConsumer);
+    }
+
+    @Test(expected = RuntimeException.class)
+    public void testFetch_WithStringUrl_Itr2Query_GenericException() throws Exception {
+        // Setup
+        Consumer<InputStream> streamConsumer = stream -> {};
+        RuntimeException exception = new RuntimeException("Generic Error");
+        
+        // Mock RestTemplate.execute to throw RuntimeException
+        when(restTemplate.execute(
+                eq(TEST_URL),
+                eq(HttpMethod.POST),
+                any(JsonRequestCallback.class),
+                any(ResponseExtractor.class)
+        )).thenThrow(exception);
+        
+        // Execute - should throw RuntimeException
+        itrClientImpl.fetch(TEST_URL, itr2Query, streamConsumer);
+    }
+
+    @Test
+    public void testFetch_WithStringUrl_IQuery_Success() throws Exception {
+        // Setup
+        final ByteArrayInputStream inputStream = new ByteArrayInputStream("test data".getBytes());
+        final boolean[] streamConsumerCalled = {false};
+        
+        Consumer<InputStream> streamConsumer = stream -> {
+            streamConsumerCalled[0] = true;
+            try {
+                assertEquals("test data", new String(stream.readAllBytes()));
+            } catch (IOException e) {
+                fail("Exception in stream consumer: " + e.getMessage());
+            }
+        };
+        
+        // Mock ClientHttpResponse
+        when(clientHttpResponse.getBody()).thenReturn(inputStream);
+        
+        // Mock RestTemplate.execute to invoke the ResponseExtractor
+        when(restTemplate.execute(
+                eq(TEST_URL),
+                eq(HttpMethod.POST),
+                any(JsonRequestCallback.class),
+                any(ResponseExtractor.class)
+        )).thenAnswer(new Answer<Object>() {
+            @Override
+            public Object answer(InvocationOnMock invocation) throws Throwable {
+                ResponseExtractor<?> extractor = invocation.getArgumentAt(3, ResponseExtractor.class);
+                extractor.extractData(clientHttpResponse);
+                return null;
+            }
+        });
+        
+        // Execute
+        List<String> result = itrClientImpl.fetch(TEST_URL, iQuery, streamConsumer);
+        
+        // Verify
+        assertNull(result);
+        assertTrue(streamConsumerCalled[0]);
+        
+        // Verify that execute was called with correct parameters
+        verify(restTemplate).execute(
+                eq(TEST_URL),
+                eq(HttpMethod.POST),
+                any(JsonRequestCallback.class),
+                any(ResponseExtractor.class)
+        );
+    }
+
+    @Test(expected = HttpClientErrorException.class)
+    public void testFetch_WithStringUrl_IQuery_HttpClientErrorException() throws Exception {
+        // Setup
+        Consumer<InputStream> streamConsumer = stream -> {};
+        HttpClientErrorException exception = new HttpClientErrorException(HttpStatus.BAD_REQUEST, "Bad Request");
+        
+        // Mock RestTemplate.execute to throw HttpClientErrorException
+        when(restTemplate.execute(
+                eq(TEST_URL),
+                eq(HttpMethod.POST),
+                any(JsonRequestCallback.class),
+                any(ResponseExtractor.class)
+        )).thenThrow(exception);
+        
+        // Execute - should throw HttpClientErrorException
+        itrClientImpl.fetch(TEST_URL, iQuery, streamConsumer);
+    }
+
+    @Test(expected = RuntimeException.class)
+    public void testFetch_WithStringUrl_IQuery_GenericException() throws Exception {
+        // Setup
+        Consumer<InputStream> streamConsumer = stream -> {};
+        RuntimeException exception = new RuntimeException("Generic Error");
+        
+        // Mock RestTemplate.execute to throw RuntimeException
+        when(restTemplate.execute(
+                eq(TEST_URL),
+                eq(HttpMethod.POST),
+                any(JsonRequestCallback.class),
+                any(ResponseExtractor.class)
+        )).thenThrow(exception);
+        
+        // Execute - should throw RuntimeException
+        itrClientImpl.fetch(TEST_URL, iQuery, streamConsumer);
+    }
+
+    @Test
+    public void testGetJsonBody_Success() throws Exception {
+        // Create a test object that we can serialize
+        TestObject testObject = new TestObject("test", 123);
+        
+        // Use reflection to test private method
+        java.lang.reflect.Method getJsonBodyMethod = ItrClientImpl.class.getDeclaredMethod("getJsonBody", Object.class);
+        getJsonBodyMethod.setAccessible(true);
+        
+        // Execute
+        String result = (String) getJsonBodyMethod.invoke(itrClientImpl, testObject);
+        
+        // Verify
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.setTimeZone(TimeZone.getDefault());
+        String expected = mapper.writeValueAsString(testObject);
+        assertEquals(expected, result);
+    }
+
+    @Test(expected = TaggingServiceRunTimeException.class)
+    public void testGetJsonBody_JsonProcessingException() throws Exception {
+        // Create a test object that will cause a JsonProcessingException
+        Object problematicObject = new Object() {
+            @Override
+            public String toString() {
+                throw new RuntimeException("Simulating a JsonProcessingException");
+            }
+        };
+        
+        // Use a spy to mock the ObjectMapper
+        ObjectMapper spyMapper = spy(new ObjectMapper());
+        when(spyMapper.writeValueAsString(any())).thenThrow(new JsonProcessingException("Test exception") {});
+        
+        // Set the spy using reflection
+        java.lang.reflect.Field objectMapperField = ItrClientImpl.class.getDeclaredField("objectMapper");
+        objectMapperField.setAccessible(true);
+        Object originalMapper = objectMapperField.get(null);
+        objectMapperField.set(null, spyMapper);
+        
+        try {
+            // Use reflection to test private method
+            java.lang.reflect.Method getJsonBodyMethod = ItrClientImpl.class.getDeclaredMethod("getJsonBody", Object.class);
+            getJsonBodyMethod.setAccessible(true);
+            
+            // Execute - should throw TaggingServiceRunTimeException
+            getJsonBodyMethod.invoke(itrClientImpl, problematicObject);
+            
+            fail("Expected TaggingServiceRunTimeException was not thrown");
+        } finally {
+            // Restore the original mapper
+            objectMapperField.set(null, originalMapper);
+        }
+    }
+
+    @Test
+    public void testGetHeaderWithSso() throws Exception {
+        // Use reflection to test private method
+        java.lang.reflect.Method getHeaderWithSsoMethod = ItrClientImpl.class.getDeclaredMethod("getHeaderWithSso", String.class);
+        getHeaderWithSsoMethod.setAccessible(true);
+        
+        // Execute
+        HttpHeaders result = (HttpHeaders) getHeaderWithSsoMethod.invoke(itrClientImpl, TEST_REQUEST_ID);
+        
+        // Verify
+        assertEquals(MediaType.APPLICATION_JSON, result.getContentType());
+        assertEquals(TEST_SSO_TOKEN, result.getFirst("sso-token"));
+        assertEquals(TEST_REQUEST_ID, result.getFirst("RequestId"));
+    }
+
+    // Helper class for testing JSON serialization
+    private static class TestObject {
+        private String name;
+        private int value;
+        
+        public TestObject(String name, int value) {
+            this.name = name;
+            this.value = value;
+        }
+        
+        public String getName() {
+            return name;
+        }
+        
+        public int getValue() {
+            return value;
+        }
     }
 }
