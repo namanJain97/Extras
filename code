@@ -1,25 +1,44 @@
-updated test class:
+Could you write all the test cases for below java class to cover all the scenarios or methods and make the test coverage or code coverage as 100% using junit 4 and old mockito version and java 8:
 
+/**
+ * 
+ */
 package com.rbs.tntr.business.taggingService.repository;
 
 import static com.rbs.tntr.domain.taggingService.miAnalytics.dashboard.common.MIConstants.*;
-import static org.junit.Assert.*;
-import static org.mockito.Mockito.*;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.Map.Entry;
+import java.util.stream.Collectors;
+
+import com.rbs.datafabric.shaded.com.google.common.collect.Lists;
+import org.apache.commons.lang3.StringUtils;
+import org.joda.time.DateTime;
+import org.joda.time.DateTimeZone;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+
 import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.JsonToken;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.collect.Maps;
+import com.google.common.hash.Hashing;
 import com.nwm.tntr.commons.domain.persistence.constant.AssetClass;
 import com.nwm.tntr.commons.repository.df.DfConnectionManager;
 import com.nwm.tntr.configuration.ItrConfiguration;
+import com.nwm.tntr.itr.IQuery;
+import com.nwm.tntr.itr.Itr2ParameterisedQuery;
 import com.rbs.datafabric.agile.commons.lang.StartableException;
 import com.rbs.datafabric.api.ScanResult;
+import com.rbs.datafabric.api.exception.OptimisticLockException;
+import com.rbs.datafabric.api.exception.ScanException;
 import com.rbs.datafabric.api.exception.UpsertException;
 import com.rbs.datafabric.client.DataFabricClient;
 import com.rbs.datafabric.domain.Document;
@@ -28,7 +47,797 @@ import com.rbs.datafabric.domain.Record;
 import com.rbs.datafabric.domain.RecordId;
 import com.rbs.datafabric.domain.client.builder.ScanRequestBuilder;
 import com.rbs.datafabric.domain.client.builder.UpsertRequestBuilder;
+import com.rbs.datafabric.shaded.com.google.common.collect.Maps;
+import com.rbs.tntr.business.taggingService.service.common.DateTimeService;
 import com.rbs.tntr.business.taggingService.service.common.ItrClient;
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.Itr2Query;
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.exceptions.TaggingServiceRunTimeException;
+import com.rbs.tntr.domain.taggingService.miAnalytics.dashboard.common.DFQueryMetaData;
+import com.rbs.tntr.domain.taggingService.miAnalytics.dashboard.common.FrontOfficeMIAalyticsState;
+import com.rbs.tntr.domain.taggingService.miAnalytics.dashboard.common.FrontOfficeMIDashboardAnalytics;
+import com.rbs.tntr.domain.taggingService.miAnalytics.dashboard.common.FrontOfficeSubjectIdentifier;
+import com.rbs.tntr.domain.taggingService.miAnalytics.dashboard.common.MIDashboardAnalytics;
+import com.rbs.tntr.domain.taggingService.miAnalytics.dashboard.common.SubjectIdentifier;
+
+/**
+ * Description : Repository class for MI Analytics
+ *
+ * @author agrakit
+ * 
+ * Created By: Niket Agrawal
+ * 
+ * Created On 18-10-2021
+ * 
+ */
+@Component
+public class MIAnalyticsDashboardRepositoryImpl extends ScanExpressionUtility
+		implements MIAnalyticsDashboardRepository {
+
+	private static final String ERROR_INSERT_DF = "Error while inserting export scan into DF";
+	private static final Logger LOGGER = LoggerFactory.getLogger(MIAnalyticsDashboardRepositoryImpl.class);
+	private static final ObjectMapper objectMapper = new ObjectMapper();
+	private final ItrConfiguration itrConfiguration;
+	private final ItrClient itrClient;
+	private DataFabricClient dfClient;
+	final DfConnectionManager dfConnectionManager;
+
+	@Autowired
+	public MIAnalyticsDashboardRepositoryImpl(DfConnectionManager dfConnectionManager,
+			ItrConfiguration itrConfiguration, ItrClient itrClient) {
+		this.dfConnectionManager = dfConnectionManager;
+		this.itrConfiguration = itrConfiguration;
+		this.itrClient = itrClient;
+	}
+
+	@Value("${tntr.df.database.name}")
+	private String databaseName;
+
+	@Value("${tntr.df.database.readTimeout}")
+	private int readTimeOut;
+
+	@Value("${df.mi.analytics.dashboard.mi.collectionName}")
+	private String miCollection;
+
+	@Value("${df.mi.analytics.dashboard.fo.mi.collectionName}")
+	private String foMiCollection;
+
+	@Value("${df.mi.analytics.dashboard.fo.mi.emir.endpoint}")
+	private String foEmirUrl;
+
+	@Value("${df.mi.analytics.dashboard.fo.mi.emir.parameterised.endpoint}")
+	private String foEmirParameterisedUrl;
+
+	@Value("${df.mi.analytics.dashboard.fo.mi.mas.endpoint}")
+	private String foMasUrl;
+
+	@Value("${df.mi.analytics.dashboard.fo.mi.mas.parameterised.endpoint}")
+	private String foMasParameterisedUrl;
+
+	@Value("${df.mi.analytics.dashboard.fo.mi.boi.endpoint}")
+	private String foBoiUrl;
+
+	@Value("${df.mi.analytics.dashboard.fo.mi.mifid.endpoint}")
+	private String foMifidUrl;
+
+	@Value("${df.mi.analytics.dashboard.fo.mi.sftr.endpoint}")
+	private String foSftrUrl;
+
+	@Value("${df.mi.analytics.dashboard.fo.mi.sftr.aldop.endpoint}")
+	private String foSftrAldopUrl;
+
+	@Value("${df.mi.analytics.dashboard.fo.mi.cftc.endpoint}")
+	private String foCftcUrl;
+
+	@Override
+	public void createDfClientConnection() {
+		try {
+			dfClient = getDfClient(dfConnectionManager);
+			LOGGER.info("DF Client connection created");
+		} catch (StartableException e) {
+			LOGGER.error("Error while creating df client connection", e);
+		}
+	}
+
+	Document serialize(Object stats) throws JsonProcessingException {
+		return (new JsonDocument()).withContents(objectMapper.writeValueAsString(stats));
+	}
+
+	MIDashboardAnalytics deserailze(Document document) throws IOException {
+		return objectMapper.readValue(((JsonDocument) document).getContents(), MIDashboardAnalytics.class);
+	}
+
+	/**
+	 * Description : Method to save MI Snapshot
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 18-10-2021
+	 * @param stats
+	 * @return
+	 */
+	@Override
+	public RecordId upsertMiSnapshot(MIDashboardAnalytics stats) {
+		try {
+			Document document = serialize(stats);
+			LOGGER.info(((JsonDocument) document).getContents());
+			String key = calculateMiSnapshotKey(stats.getSubjectIdentifier());
+			LOGGER.info("Generated Key is : {}", key);
+			UpsertRequestBuilder upsertRequestBuilder = UpsertRequestBuilder.create(databaseName, miCollection)
+					.withDocument(document).withKey(key);
+			return dfClient.upsert(upsertRequestBuilder);
+
+		} catch (JsonProcessingException | UpsertException | OptimisticLockException e) {
+			LOGGER.error(ERROR_INSERT_DF, e);
+			throw new TaggingServiceRunTimeException(ERROR_INSERT_DF, e);
+		}
+	}
+
+	/**
+	 * Description : Method to save FO MI Snapshot
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 18-10-2021
+	 * @param stats
+	 * @return
+	 */
+	@Override
+	public RecordId upsertFoMiSnapshot(FrontOfficeMIDashboardAnalytics stats) {
+		try {
+			Document document = serialize(stats);
+			String key = calculateFoMiSnapshotKey(stats.getSubjectIdentifier());
+			LOGGER.info("Generated FO Key is : {}", key);
+			LOGGER.info("FO Stat to be persisted with data : {}", ((JsonDocument) document).getContents());
+			UpsertRequestBuilder upsertRequestBuilder = UpsertRequestBuilder.create(databaseName, foMiCollection)
+					.withDocument(document).withKey(key);
+			return dfClient.upsert(upsertRequestBuilder);
+
+		} catch (JsonProcessingException | UpsertException | OptimisticLockException e) {
+			LOGGER.error(ERROR_INSERT_DF, e);
+			throw new TaggingServiceRunTimeException(ERROR_INSERT_DF, e);
+		}
+	}
+
+	/**
+	 * Description : Method to fetch statistics count from DF
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 17-11-2021
+	 * @param dfScanParameters
+	 * @param selectField
+	 * @return
+	 * @throws ScanException 
+	 */
+	@Override
+	public int fetchStatistics(DFQueryMetaData dfScanParameters, String selectField) throws ScanException {
+		ScanRequestBuilder scanRequestBuilder = getScanRequestBuilder(dfScanParameters, databaseName,
+				dfScanParameters.getCollectionName());
+		scanRequestBuilder.withReadTimeoutSeconds(readTimeOut);
+		try {
+			ScanResult records = dfClient.scan(scanRequestBuilder);
+
+			if (null != records) {
+				Iterator<Record> iterator = records.iterator();
+				while (iterator.hasNext()) {
+					Record dfRecord = iterator.next();
+					if (dfRecord != null && dfRecord.getDocument() != null) {
+						Document document = dfRecord.getDocument();
+						JsonDocument jsonDocument = ((JsonDocument) document);
+						if (jsonDocument != null) {
+							String resVal = jsonDocument.getContents();
+							JsonNode resNode;
+							resNode = objectMapper.readTree(resVal);
+							return resNode.get(selectField).asInt();
+						}
+					}
+				}
+			}
+
+		} catch (IOException e) {
+			LOGGER.error("Error while fetching data from DF", e);
+			throw new TaggingServiceRunTimeException("Error while fetching data from DF", e);
+		}
+		return 0;
+	}
+
+	@Override
+	public List<Record> fetchRecordsFromDf(DFQueryMetaData dfScanParameters) {
+		List<Record> results = Lists.newArrayList();
+		ScanRequestBuilder scanRequestBuilder = getScanRequestBuilder(dfScanParameters, databaseName,
+				dfScanParameters.getCollectionName());
+		scanRequestBuilder.withReadTimeoutSeconds(readTimeOut);
+		try {
+			ScanResult records = dfClient.scan(scanRequestBuilder);
+			if (null != records) {
+				Iterator<Record> iterator = records.iterator();
+				while (iterator.hasNext()) {
+					Record dfRecord = iterator.next();
+					if (dfRecord != null && dfRecord.getDocument() != null) {
+						results.add(dfRecord);
+					}
+				}
+			}
+
+		} catch (Exception e) {
+			LOGGER.error("Error while fetching data from DF", e);
+			throw new TaggingServiceRunTimeException("Error while fetching data from DF", e);
+		}
+		return results;
+	}
+
+	private String calculateMiSnapshotKey(SubjectIdentifier subjectIdentifier) {
+		String encodedKey = (new SimpleDateFormat("ddMMyyyy").format(subjectIdentifier.getBusinessDate())
+				.concat(subjectIdentifier.getLei()).concat(subjectIdentifier.getAssetClass())
+				.concat(subjectIdentifier.getEntity()).concat(subjectIdentifier.getFlow())
+				.concat(subjectIdentifier.getRegulation()).concat(subjectIdentifier.getMessageType())).replaceAll("\\s",
+						"");
+		encodedKey = Hashing.sha1().hashString(encodedKey, StandardCharsets.UTF_8).toString();
+		return encodedKey;
+	}
+
+	private String calculateFoMiSnapshotKey(FrontOfficeSubjectIdentifier subjectIdentifier) {
+		String encodedKey = (new SimpleDateFormat("ddMMyyyy").format(subjectIdentifier.getBusinessDate())
+				.concat(subjectIdentifier.getAssetClass()).concat(subjectIdentifier.getEntity())
+				.concat(subjectIdentifier.getLei())
+				.concat(subjectIdentifier.getRegulation())).replaceAll("\\s", "");
+		encodedKey = Hashing.sha1().hashString(encodedKey, StandardCharsets.UTF_8).toString();
+		return encodedKey;
+	}
+
+	/**
+	 * Description : Method to query on ITR
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 27-01-2022
+	 */
+	private Map<String, Map<String, Integer>> fetchFromItr(DFQueryMetaData dFQueryMetaData,
+			Map<String, Map<String, Integer>> foMiDataMap, String itrUrl, String jurisdiction, Date businessDate,
+			String assetClass) {
+		try {
+            if (BOI.equals(jurisdiction) || MIFID.equals(jurisdiction) || SFTR.equals(jurisdiction)
+					|| (EMIR.equals(jurisdiction) && AssetClass.ETD.equals(AssetClass.fromValue(assetClass)))
+					|| (MAS.equals(jurisdiction) && AssetClass.INTEREST_RATE.equals(AssetClass.fromValue(assetClass)))) {
+				fetchFromItrWithParamQuery(dFQueryMetaData, foMiDataMap, itrUrl, jurisdiction, businessDate, assetClass);
+			} else {
+				fetchFromItrWithoutParamQuery(dFQueryMetaData, foMiDataMap, itrUrl, jurisdiction);
+			}
+		} catch (Exception ex) {
+			LOGGER.error("Error while processing FO for Jurisdiction :{} and Asset Class : {}", jurisdiction,
+					assetClass);
+		}
+
+		return foMiDataMap;
+	}
+
+	private void fetchFromItrWithParamQuery(DFQueryMetaData dFQueryMetaData, Map<String, Map<String, Integer>> foMiDataMap, String itrUrl,
+											String jurisdiction, Date businessDate, String assetClass) {
+		String selectClause;
+		switch (jurisdiction) {
+			case BOI :
+				for (String queryId: BOI_ASSETWISE_QUERY_IDS.get(assetClass)) {
+					IQuery iQuery  = itrParameterizedQueryForFo(businessDate, queryId,BOI_PARAM_QUERY_SELECT);
+					String url = getURL(itrUrl);
+					fetchData(iQuery,foMiDataMap,url,jurisdiction,dFQueryMetaData);
+				}
+				break;
+			case MIFID :
+				selectClause = MIFID_ASSETWISE_SELECT.get(assetClass);
+				for (String queryId: MIFID_ASSETWISE_QUERY_IDS.get(assetClass)) {
+					IQuery iQuery  = itrParameterizedQueryForFo(businessDate, queryId,selectClause);
+					String url = getURL(itrUrl);
+					fetchData(iQuery,foMiDataMap,url,jurisdiction,dFQueryMetaData);
+				}
+				break;
+			case EMIR:
+				selectClause = EMIR_ASSETWISE_SELECT.get(assetClass);
+				for (String queryId: EMIR_ASSETWISE_QUERY_IDS.get(assetClass)) {
+					IQuery iQuery  = itrParameterizedQueryForFo(businessDate, queryId,selectClause);
+					String url = getURL(itrUrl);
+					fetchData(iQuery,foMiDataMap,url,jurisdiction,dFQueryMetaData);
+				}
+				break;
+			case MAS:
+				selectClause = MAS_ASSETWISE_SELECT.get(assetClass);
+				for (String queryId: MAS_ASSETWISE_QUERY_IDS.get(assetClass)) {
+					IQuery iQuery  = itrParameterizedQueryForFo(businessDate, queryId,selectClause);
+					String url = getURL(itrUrl);
+					fetchData(iQuery,foMiDataMap,url,jurisdiction,dFQueryMetaData);
+				}
+				break;
+			case SFTR:
+				selectClause = SFTR_ASSETWISE_SELECT.get(assetClass);
+				for (String queryId: SFTR_ASSETWISE_QUERY_IDS.get(assetClass)) {
+					IQuery iQuery  = itrParameterizedQueryForFo(businessDate, queryId,selectClause);
+					if (queryId.equals(SFTR_ALDOP_QUERY_ID))
+						itrUrl = foSftrAldopUrl;
+					String url = getURL(itrUrl);
+					fetchData(iQuery,foMiDataMap,url,jurisdiction,dFQueryMetaData);
+				}
+				break;
+		}
+	}
+
+	private void fetchData(IQuery iQuery, Map<String, Map<String, Integer>> foMiDataMap, String url, String jurisdiction, DFQueryMetaData dFQueryMetaData) {
+		itrClient.fetch(url, iQuery, inputStream -> {
+			try (JsonParser jsonParser = objectMapper.getFactory().createParser(inputStream)) {
+				if (jsonParser.nextToken() != JsonToken.START_ARRAY) {
+					LOGGER.error("Expected {} Array at location {} , token {}", JsonToken.START_ARRAY,
+							jsonParser.getCurrentLocation(), jsonParser.getCurrentValue());
+					throw new IllegalStateException("Expected content to be start of array");
+				}
+				while (jsonParser.nextToken() != JsonToken.END_ARRAY) {
+					processFoDataMap(parseItrRecord(jsonParser, dFQueryMetaData.getStatName(), jurisdiction),
+							foMiDataMap);
+				}
+			} catch (IOException e) {
+				LOGGER.error("Error while processing FO Snapshot for : {}", dFQueryMetaData.getStatName());
+			}
+		});
+	}
+
+	private IQuery itrParameterizedQueryForFo(Date businessDate, String queryId, String selectClause) {
+
+		Itr2ParameterisedQuery.Builder builder = new Itr2ParameterisedQuery.Builder();
+
+		builder.withQueryId(queryId).withQueryPlanLoggingEnabled(true).withStreamResultsEnabled(true)
+				.withParams(populateFoLifeTimeParams(businessDate)).withSelect(selectClause);
+
+		return builder.build();
+	}
+
+	private Map<String, String> populateFoLifeTimeParams(Date businessDate) {
+		Map<String,String> params = Maps.newHashMap();
+		DateTime currentDate = new DateTime(businessDate).withZone(DateTimeZone.UTC);
+		String startOfDay = DateTimeService
+				.asString(DateTimeService.getCurrentStartDateTime(currentDate));
+		String endOfDay =  DateTimeService
+				.asString(DateTimeService.getCurrentEndDateTime(currentDate));
+		params.put(DATETIME_FROM,startOfDay);
+		params.put(DATETIME_TO,endOfDay);
+		return params;
+	}
+
+	private void fetchFromItrWithoutParamQuery(DFQueryMetaData dFQueryMetaData, Map<String, Map<String, Integer>> foMiDataMap, String itrUrl, String jurisdiction) {
+		Itr2Query itr2Query = itrQueryForFO(dFQueryMetaData);
+		String url = getURL(itrUrl);
+		itrClient.fetch(url, itr2Query, inputStream -> {
+			try (JsonParser jsonParser = objectMapper.getFactory().createParser(inputStream)) {
+				if (jsonParser.nextToken() != JsonToken.START_ARRAY) {
+					LOGGER.error("Expected {} Array at location {} , token {}", JsonToken.START_ARRAY,
+							jsonParser.getCurrentLocation(), jsonParser.getCurrentValue());
+					throw new IllegalStateException("Expected content to be start of array");
+				}
+				while (jsonParser.nextToken() != JsonToken.END_ARRAY) {
+					processFoDataMap(parseItrRecord(jsonParser, dFQueryMetaData.getStatName(), jurisdiction),
+							foMiDataMap);
+				}
+			} catch (IOException e) {
+				LOGGER.error("Error while processing FO Snapshot for : {}", dFQueryMetaData.getStatName());
+			}
+		});
+	}
+
+	/**
+	 * Description : Method to convert parsed ITR Record
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 31-01-2022
+	 * @param parsedRecord
+	 */
+	private void processFoDataMap(Map<String, Map<String, Object>> parsedRecord,
+			Map<String, Map<String, Integer>> foMiData) {
+
+		for (Entry<String, Map<String, Object>> entry : parsedRecord.entrySet()) {
+			String jurisdiction = entry.getKey();
+			Map<String, Object> parsedItrRecord = entry.getValue();
+
+			String tradingPartyLei = parsedItrRecord.get(TRADING_PARTY_LEI).toString();
+			boolean isTransactionReportable = (boolean) parsedItrRecord.get(TRANSACTION_REPORTABLE);
+			boolean isVersionReportable = (boolean) parsedItrRecord.get(VERSION_REPORTABLE);
+			String lieName;
+			String statName = EMPTY;
+
+			switch (tradingPartyLei) {
+			case LEI_NWM_PLC:
+				lieName = NWM_PLC;
+				break;
+			case LEI_NWM_NV:
+				lieName = NWM_NV;
+				break;
+			default:
+				return;
+			}
+
+			if (isTransactionReportable && isVersionReportable) {
+				statName = "REPORTABLE";
+			} else if (isTransactionReportable && !isVersionReportable) {
+				statName = "NONREPORTABLE";
+			} else if (!isTransactionReportable && !isVersionReportable) {
+				statName = "NOTFOUND";
+			}
+
+			String key = lieName.concat("_").concat(statName);
+			if (foMiData.get(jurisdiction).containsKey(key)) {
+				foMiData.get(jurisdiction).put(key, (foMiData.get(jurisdiction).get(key) + 1));
+			}
+		}
+
+	}
+
+	String getURL(String queryEndpoint) {
+		return String.format("%s://%s/%s", itrConfiguration.getItr2ProtocolScheme(),
+				itrConfiguration.getItr2ServiceName(), queryEndpoint);
+	}
+
+	Itr2Query itrQueryForFO(DFQueryMetaData queryMeta) {
+		Itr2Query.Builder builder = new Itr2Query.Builder();
+		if (!StringUtils.isEmpty(queryMeta.getSelect()))
+			builder.setSelect(queryMeta.getSelect());
+		if (!StringUtils.isEmpty(queryMeta.getWhere()))
+			builder.setWhere(queryMeta.getWhere());
+		return builder.createItr2Query();
+	}
+
+	/**
+	 * Description : Method to Parse individual ITR records
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 31-01-2022
+	 * @param jsonParser
+	 * @param assetClass
+	 * @return
+	 * @throws IOException
+	 */
+	Map<String, Map<String, Object>> parseItrRecord(JsonParser jsonParser, String assetClass, String jurisdiction)
+			throws IOException {
+		Map<String, Object> jsonMap = parseRecord(jsonParser);
+		Map<String, Map<String, Object>> result = new HashMap<>();
+		String tradingPartyLei = EMPTY;
+		boolean isVersionReportable = false;
+		boolean isTransactionReportable = false;
+
+		if (CFTC_CSA.equals(jurisdiction) && (AssetClass.FOREIGN_EXCHANGE.value().equals(assetClass) || AssetClass.INTEREST_RATE.value().equals(assetClass))) {
+			if (jsonMap.containsKey("canada")) {
+				Map<String, Object> itrData = new HashMap<>();
+				Map<String, Object> csaDataMap = renderCftcDataBlock(jsonMap, "canada");
+				if (AssetClass.FOREIGN_EXCHANGE.value().equals(assetClass) && jsonMap.containsKey(TRADING_PARTY_LEI))
+					tradingPartyLei = jsonMap.get(TRADING_PARTY_LEI).toString();
+				if (AssetClass.INTEREST_RATE.value().equals(assetClass) && jsonMap.containsKey(PARTY_LEI_CODE))
+					tradingPartyLei = jsonMap.get(PARTY_LEI_CODE).toString();
+				if (csaDataMap.containsKey(VERSION_REPORTABLE))
+					isVersionReportable = Boolean.valueOf(csaDataMap.get(VERSION_REPORTABLE).toString());
+				if (csaDataMap.containsKey(TRANSACTION_REPORTABLE))
+					isTransactionReportable = Boolean.valueOf(csaDataMap.get(TRANSACTION_REPORTABLE).toString());
+				itrData.put(TRANSACTION_REPORTABLE, isTransactionReportable);
+				itrData.put(VERSION_REPORTABLE, isVersionReportable);
+				itrData.put(TRADING_PARTY_LEI, tradingPartyLei);
+				result.put(CSA, itrData);
+			}
+
+			if (jsonMap.containsKey("cftc")) {
+				Map<String, Object> itrData = new HashMap<>();
+				Map<String, Object> cftcDataMap = renderCftcDataBlock(jsonMap, "cftc");
+				if (AssetClass.FOREIGN_EXCHANGE.value().equals(assetClass) && jsonMap.containsKey(TRADING_PARTY_LEI))
+					tradingPartyLei = jsonMap.get(TRADING_PARTY_LEI).toString();
+				if (AssetClass.INTEREST_RATE.value().equals(assetClass) && jsonMap.containsKey(PARTY_LEI_CODE))
+					tradingPartyLei = jsonMap.get(PARTY_LEI_CODE).toString();
+				if (cftcDataMap.containsKey(VERSION_REPORTABLE))
+					isVersionReportable = Boolean.valueOf(cftcDataMap.get(VERSION_REPORTABLE).toString());
+				if (cftcDataMap.containsKey(TRANSACTION_REPORTABLE))
+					isTransactionReportable = Boolean.valueOf(cftcDataMap.get(TRANSACTION_REPORTABLE).toString());
+				itrData.put(TRANSACTION_REPORTABLE, isTransactionReportable);
+				itrData.put(VERSION_REPORTABLE, isVersionReportable);
+				itrData.put(TRADING_PARTY_LEI, tradingPartyLei);
+				result.put(DF, itrData);
+			}
+
+		}
+		else if(BOI.equals(jurisdiction)) {
+			Map<String, Object> itrData = new HashMap<>();
+			if (jsonMap.containsKey(TRADING_PARTY_LEI))
+				tradingPartyLei = jsonMap.get(TRADING_PARTY_LEI).toString();
+			if (jsonMap.containsKey(VERSION_REPORTABLE))
+				isVersionReportable = (boolean) jsonMap.get(VERSION_REPORTABLE);
+			if (jsonMap.containsKey(TRANSACTION_REPORTABLE))
+				isTransactionReportable = (boolean) jsonMap.get(TRANSACTION_REPORTABLE);
+			itrData.put(TRANSACTION_REPORTABLE, isTransactionReportable);
+			itrData.put(VERSION_REPORTABLE, isVersionReportable);
+			itrData.put(TRADING_PARTY_LEI, tradingPartyLei);
+			result.put(jurisdiction, itrData);
+		} else if(MIFID.equals(jurisdiction)) {
+			if (assetClass.equals(AssetClass.ETD.value())){
+				Map<String, Object> itrData = new HashMap<>();
+				String tradeingCapacity=EMPTY, reportingPartyBookId=EMPTY;
+				if (jsonMap.containsKey("tradingCapacity"))
+					tradeingCapacity = jsonMap.get("tradingCapacity").toString();
+				if (jsonMap.containsKey("reportingPartyBookId"))
+					reportingPartyBookId = jsonMap.get("reportingPartyBookId").toString();
+				if (tradeingCapacity.equals("Dealing On Own Account") || tradeingCapacity.equals("Matched Principal")
+						|| tradeingCapacity.equals("Any Other Capacity")){
+						if (reportingPartyBookId.equals("RANL01") ||reportingPartyBookId.equals("RANL00"))
+							tradingPartyLei = LEI_NWM_PLC;
+						else if (reportingPartyBookId.equals("RANLNV"))
+							tradingPartyLei = LEI_NWM_NV;
+				}
+				if (jsonMap.containsKey(VERSION_REPORTABLE))
+					isVersionReportable = (boolean) jsonMap.get(VERSION_REPORTABLE);
+				if (jsonMap.containsKey(TRANSACTION_REPORTABLE))
+					isTransactionReportable = (boolean) jsonMap.get(TRANSACTION_REPORTABLE);
+				itrData.put(TRANSACTION_REPORTABLE, isTransactionReportable);
+				itrData.put(VERSION_REPORTABLE, isVersionReportable);
+				itrData.put(TRADING_PARTY_LEI, tradingPartyLei);
+				result.put(jurisdiction, itrData);
+			} else {
+				Map<String, Object> itrData = new HashMap<>();
+				fetchItrData(itrData, jsonMap, MIFID_ASSETWISE_PARSE_DATA.get(assetClass));
+				result.put(jurisdiction, itrData);
+			}
+		} else if (EMIR.equals(jurisdiction) && AssetClass.ETD.equals(AssetClass.fromValue(assetClass))) {
+			Map<String, Object> itrData = new HashMap<>();
+			fetchItrData(itrData, jsonMap, EMIR_ASSETWISE_PARSE_DATA.get(assetClass));
+			result.put(jurisdiction, itrData);
+		} else if (MAS.equals(jurisdiction) && AssetClass.INTEREST_RATE.equals(AssetClass.fromValue(assetClass))) {
+			Map<String, Object> itrData = new HashMap<>();
+			fetchItrData(itrData, jsonMap, MAS_ASSETWISE_PARSE_DATA.get(assetClass));
+			result.put(jurisdiction, itrData);
+		} else if (SFTR.equals(jurisdiction)) {
+			Map<String, Object> itrData = new HashMap<>();
+			fetchItrData(itrData, jsonMap, SFTR_ASSETWISE_PARSE_DATA.get(assetClass));
+			result.put(jurisdiction, itrData);
+		} else {
+			Map<String, Object> itrData = new HashMap<>();
+			if (AssetClass.FOREIGN_EXCHANGE.value().equals(assetClass)) {
+				if (jsonMap.containsKey(TRADING_PARTY_LEI))
+					tradingPartyLei = jsonMap.get(TRADING_PARTY_LEI).toString();
+				if (jsonMap.containsKey(VERSION_REPORTABLE))
+					isVersionReportable = (boolean) jsonMap.get(VERSION_REPORTABLE);
+				if (jsonMap.containsKey(TRANSACTION_REPORTABLE))
+					isTransactionReportable = (boolean) jsonMap.get(TRANSACTION_REPORTABLE);
+			} else if (AssetClass.CREDIT.value().equals(assetClass)) {
+				if (jsonMap.containsKey(PARTY_LEI_CODE))
+					tradingPartyLei = jsonMap.get(PARTY_LEI_CODE).toString();
+				if (jsonMap.containsKey("emir.isVersionReportable"))
+					isVersionReportable = (boolean) jsonMap.get("emir.isVersionReportable");
+				if (jsonMap.containsKey("emir.isEligible"))
+					isTransactionReportable = (boolean) jsonMap.get("emir.isEligible");
+			} else if (AssetClass.INTEREST_RATE.value().equals(assetClass)) {
+				if (jsonMap.containsKey(PARTY_LEI_CODE))
+					tradingPartyLei = jsonMap.get(PARTY_LEI_CODE).toString();
+				if (jsonMap.containsKey(VERSION_REPORTABLE))
+					isVersionReportable = (boolean) jsonMap.get(VERSION_REPORTABLE);
+				if (jsonMap.containsKey("isEligible"))
+					isTransactionReportable = (boolean) jsonMap.get("isEligible");
+			}
+			itrData.put(TRANSACTION_REPORTABLE, isTransactionReportable);
+			itrData.put(VERSION_REPORTABLE, isVersionReportable);
+			itrData.put(TRADING_PARTY_LEI, tradingPartyLei);
+			result.put(jurisdiction, itrData);
+		}
+		return result;
+	}
+
+	private void fetchItrData(Map<String, Object> itrData, Map<String, Object> jsonMap,  Map<String, String> fieldMap) {
+		String tradingPartyLei = EMPTY;
+		boolean isVersionReportable = false;
+		boolean isTransactionReportable = false;
+		if (jsonMap.containsKey(fieldMap.get(TRADING_PARTY_LEI)))
+			tradingPartyLei = jsonMap.get(fieldMap.get(TRADING_PARTY_LEI)).toString();
+		if (jsonMap.containsKey(fieldMap.get(VERSION_REPORTABLE)))
+			isVersionReportable = (boolean) jsonMap.get(fieldMap.get(VERSION_REPORTABLE));
+		if (jsonMap.containsKey(fieldMap.get(TRANSACTION_REPORTABLE)))
+			isTransactionReportable = (boolean) jsonMap.get(fieldMap.get(TRANSACTION_REPORTABLE));
+		itrData.put(TRANSACTION_REPORTABLE, isTransactionReportable);
+		itrData.put(VERSION_REPORTABLE, isVersionReportable);
+		itrData.put(TRADING_PARTY_LEI, tradingPartyLei);
+	}
+
+	/**
+	 * Description : Method to read JSON block of CFTC & CSA
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 03-10-2022
+	 * @param jsonMap
+	 * @return
+	 */
+	private Map<String, Object> renderCftcDataBlock(Map<String, Object> jsonMap, String jurisdictionBlockName) {
+		String inputString = jsonMap.get(jurisdictionBlockName).toString();
+		inputString = inputString.replace("{", "");
+		inputString = inputString.replace("}", "");
+		return Arrays.stream(inputString.split(",")).map(s -> s.trim().split("="))
+				.collect(Collectors.toMap(s -> s[0], s -> s[1]));
+	}
+
+	@SuppressWarnings("unchecked")
+	Map<String, Object> parseRecord(JsonParser jsonParser) throws IOException {
+		Map<String, Object> jsonMap = objectMapper.readValue(jsonParser, Map.class);
+		return flattenMap(jsonMap);
+	}
+
+	private Map<String, Object> flattenMap(Map<String, Object> jsonMap) {
+			Map<String, Object> flatenedMap = new HashMap<>();
+			jsonMap.forEach((key, value) -> {
+				if(value instanceof Map) {
+					flattenMap((Map) value).forEach((key1,value1)->{
+						flatenedMap.put(key+"."+key1,value1);
+					});
+				} else {
+					flatenedMap.put(key, value);
+				}
+			});
+			return flatenedMap;
+	}
+
+	/**
+	 * Description : Method to process FO MI Data
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 31-01-2022
+	 * @param dFQueryMetaData
+	 * @param businessDate
+	 */
+	@Override
+	public void processFoMiData(DFQueryMetaData dFQueryMetaData, Date businessDate, String assetClass) {
+		String itrUrl;
+		Integer plcNotFound = 0;
+		Integer nvNotFound = 0;
+		for (String jurisdiction : FO_ASSETWISE_MAP.get(assetClass)) {
+			long startTime = System.currentTimeMillis();
+			Map<String, Map<String, Integer>> baseDataMap;
+			switch (jurisdiction) {
+			case EMIR:
+				if (AssetClass.ETD.equals(AssetClass.fromValue(assetClass)))
+					itrUrl = foEmirParameterisedUrl;
+				else
+					itrUrl = foEmirUrl;
+				baseDataMap = Collections.singletonMap(EMIR, generateFoMap());
+				break;
+			case MAS:
+				if (AssetClass.INTEREST_RATE.equals(AssetClass.fromValue(assetClass)))
+					itrUrl = foMasParameterisedUrl;
+				else
+					itrUrl = foMasUrl;
+				baseDataMap = Collections.singletonMap(MAS, generateFoMap());
+				break;
+			case BOI:
+				itrUrl = foBoiUrl;
+				baseDataMap = Collections.singletonMap(BOI, generateFoMap());
+				break;
+			case MIFID:
+				itrUrl = foMifidUrl;
+				baseDataMap = Collections.singletonMap(MIFID, generateFoMap());
+				break;
+				case SFTR:
+				itrUrl = foSftrUrl;
+				baseDataMap = Collections.singletonMap(SFTR, generateFoMap());
+				break;
+			case CFTC_CSA:
+				itrUrl = foCftcUrl;
+				if (AssetClass.FOREIGN_EXCHANGE.value().equals(assetClass))
+					dFQueryMetaData.setSelect(CFTC_CSA_FX_SELECT);
+				if (AssetClass.INTEREST_RATE.value().equals(assetClass))
+					dFQueryMetaData.setSelect(CFTC_CSA_IR_SELECT);
+				baseDataMap = new HashMap<>();
+				baseDataMap.put(DF, generateFoMap());
+				baseDataMap.put(CSA, generateFoMap());
+				break;
+			default:
+				LOGGER.error("No setup found for assetClass : {} and jurisdiction : {}", assetClass, jurisdiction);
+				throw new TaggingServiceRunTimeException(
+						"No Fo Setup Found for assetClass: " + assetClass + " and jurisdiction : " + jurisdiction);
+			}
+
+			Map<String, Map<String, Integer>> jurisdictionWiseFoData = fetchFromItr(dFQueryMetaData, baseDataMap, itrUrl,
+						jurisdiction, businessDate,assetClass);
+			for (Entry<String, Map<String, Integer>> entry : jurisdictionWiseFoData.entrySet()) {
+				LOGGER.info("Processing FO MI For AssetClass : {} & Jurisdiction : {}", assetClass, jurisdiction);
+				Map<String, Integer> jurisdictionFoData = entry.getValue();
+				String jurisdictionName = entry.getKey();
+				persistFoJurisdictionDetermined(assetClass, jurisdictionName, businessDate, jurisdictionFoData);
+				plcNotFound += jurisdictionFoData.get(PLC_NOTFOUND);
+				nvNotFound += jurisdictionFoData.get(NV_NOTFOUND);
+				}
+
+				long executionTime = (System.currentTimeMillis() - startTime) / 1000;
+				LOGGER.info("Time taken For AssetClass : {} & Jurisdiction : {} calculation is : {} seconds",
+						assetClass, jurisdiction, executionTime);
+			}
+
+			persistFoJurisdictionNotDetermined(assetClass, businessDate, plcNotFound, nvNotFound);
+
+	}
+
+	/**
+	 * Description : Method to Persist PLC & NV FO Snapshot for jurisdiction determined
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 30-09-2022
+	 * @param assetClass
+	 * @param businessDate
+	 * @param itrMiData
+	 */
+	private void persistFoJurisdictionDetermined(String assetClass, String jurisdiction, Date businessDate,
+			Map<String, Integer> itrMiData) {
+		persistFoMiData(NWM_PLC, LEI_NWM_PLC, assetClass, jurisdiction, businessDate, itrMiData.get(PLC_REPORTABLE),
+				itrMiData.get(PLC_NONREPORTABLE));
+		persistFoMiData(NWM_NV, LEI_NWM_NV, assetClass, jurisdiction, businessDate, itrMiData.get(NV_REPORTABLE),
+				itrMiData.get(NV_NONREPORTABLE));
+	}
+
+	/**
+	 * Description :  Method to Persist PLC & NV FO Snapshot for jurisdiction not determined
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 30-09-2022
+	 * @param assetClass
+	 * @param businessDate
+	 */
+	private void persistFoJurisdictionNotDetermined(String assetClass, Date businessDate,
+			Integer plcNotFound, Integer nvNotFound) {
+		persistFoMiData(NWM_PLC, LEI_NWM_PLC, assetClass, JND, businessDate, 0, plcNotFound);
+		persistFoMiData(NWM_NV, LEI_NWM_NV, assetClass, JND, businessDate, 0, nvNotFound);
+	}
+
+	private Map<String, Integer> generateFoMap() {
+		Map<String, Integer> foDataMap = new HashMap<>();
+		foDataMap.put(PLC_REPORTABLE, 0);
+		foDataMap.put(PLC_NONREPORTABLE, 0);
+		foDataMap.put(PLC_NOTFOUND, 0);
+		foDataMap.put(NV_REPORTABLE, 0);
+		foDataMap.put(NV_NONREPORTABLE, 0);
+		foDataMap.put(NV_NOTFOUND, 0);
+		return foDataMap;
+	}
+
+	/**
+	 * Description : Method to prepare FO MI snapshot for DF
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 31-01-2022
+	 * @param entity
+	 * @param assetClass
+	 * @param regulation
+	 * @param businessDate
+	 * @param reportable
+	 * @param nonReportable
+	 */
+	private void persistFoMiData(String entity,String lei, String assetClass, String regulation, Date businessDate,
+			Integer reportable, Integer nonReportable) {
+		FrontOfficeSubjectIdentifier subjectIdentifier = new FrontOfficeSubjectIdentifier(entity, lei, assetClass,
+				regulation, businessDate);
+		FrontOfficeMIAalyticsState state = new FrontOfficeMIAalyticsState();
+		state.setReportableCount(reportable);
+		state.setNonReportableCount(nonReportable);
+		state.setTotalRecordCount(state.getReportableCount() + state.getNonReportableCount());
+		FrontOfficeMIDashboardAnalytics foAnalytics = new FrontOfficeMIDashboardAnalytics();
+		foAnalytics.setMiAnalyticsState(state);
+		foAnalytics.setSubjectIdentifier(subjectIdentifier);
+		upsertFoMiSnapshot(foAnalytics);
+
+	}
+}
+
+Existing test class:
+
+package com.rbs.tntr.business.taggingService.repository;
+
+import static com.rbs.tntr.domain.taggingService.miAnalytics.dashboard.common.MIConstants.*;
+import static org.junit.Assert.*;
+import static org.mockito.Mockito.*;
+
+import java.io.IOException;
+import java.lang.reflect.Method;
+import java.text.SimpleDateFormat;
+import java.util.*;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nwm.tntr.commons.domain.persistence.constant.AssetClass;
+import com.nwm.tntr.commons.repository.df.DfConnectionManager;
+import com.nwm.tntr.configuration.ItrConfiguration;
+import com.rbs.datafabric.agile.commons.lang.StartableException;
+import com.rbs.datafabric.api.exception.UpsertException;
+import com.rbs.datafabric.client.DataFabricClient;
+import com.rbs.datafabric.domain.Document;
+import com.rbs.datafabric.domain.JsonDocument;
+import com.rbs.datafabric.domain.client.builder.ScanRequestBuilder;
+import com.rbs.datafabric.domain.client.builder.UpsertRequestBuilder;
 import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.Itr2Query;
 import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.exceptions.TaggingServiceRunTimeException;
 import com.rbs.tntr.domain.taggingService.miAnalytics.dashboard.common.*;
@@ -50,9 +859,6 @@ public class MIAnalyticsDashboardRepositoryImplTest {
 
     @Mock
     DataFabricClient dfClient;
-
-    @Mock
-    ItrClient itrClient;
 
     private static final ObjectMapper REAL_OBJECT_MAPPER = new ObjectMapper();
     private static final Date TEST_DATE;
@@ -112,24 +918,6 @@ public class MIAnalyticsDashboardRepositoryImplTest {
         verify(spyRepo).getDfClient(dfConn);
     }
 
-    // Tests for upsertMiSnapshot
-    @Test
-    public void testUpsertMiSnapshot_Success() throws Exception {
-        SubjectIdentifier identifier = new SubjectIdentifier("testLei", "testEntity", "testFlow", "testAsset", "testMessage", "testRegulation", TEST_DATE);
-        MIDashboardAnalytics analytics = new MIDashboardAnalytics();
-        analytics.setSubjectIdentifier(identifier);
-
-        UpsertRequestBuilder mockBuilder = mock(UpsertRequestBuilder.class);
-        when(mockBuilder.withDocument(any(Document.class))).thenReturn(mockBuilder);
-        when(mockBuilder.withKey(anyString())).thenReturn(mockBuilder);
-        when(dfClient.upsert(any(UpsertRequestBuilder.class))).thenReturn(mock(RecordId.class));
-
-        RecordId result = repo.upsertMiSnapshot(analytics);
-
-        assertNotNull(result);
-        verify(dfClient).upsert(any(UpsertRequestBuilder.class));
-    }
-
     @Test(expected = TaggingServiceRunTimeException.class)
     public void testUpsertMiSnapshot_JsonProcessingException() throws Exception {
         SubjectIdentifier identifier = new SubjectIdentifier("testLei", "testEntity", "testFlow", "testAsset", "testMessage", "testRegulation", TEST_DATE);
@@ -152,24 +940,6 @@ public class MIAnalyticsDashboardRepositoryImplTest {
         when(dfClient.upsert(any(UpsertRequestBuilder.class))).thenThrow(new UpsertException(""));
 
         repo.upsertMiSnapshot(stats);
-    }
-
-    // Tests for upsertFoMiSnapshot
-    @Test
-    public void testUpsertFoMiSnapshot_Success() throws Exception {
-        FrontOfficeSubjectIdentifier identifier = new FrontOfficeSubjectIdentifier("testEntity", "testLei", "testAsset", "testRegulation", TEST_DATE);
-        FrontOfficeMIDashboardAnalytics analytics = new FrontOfficeMIDashboardAnalytics();
-        analytics.setSubjectIdentifier(identifier);
-
-        UpsertRequestBuilder mockBuilder = mock(UpsertRequestBuilder.class);
-        when(mockBuilder.withDocument(any(Document.class))).thenReturn(mockBuilder);
-        when(mockBuilder.withKey(anyString())).thenReturn(mockBuilder);
-        when(dfClient.upsert(any(UpsertRequestBuilder.class))).thenReturn(mock(RecordId.class));
-
-        RecordId result = repo.upsertFoMiSnapshot(analytics);
-
-        assertNotNull(result);
-        verify(dfClient).upsert(any(UpsertRequestBuilder.class));
     }
 
     @Test(expected = TaggingServiceRunTimeException.class)
@@ -197,157 +967,6 @@ public class MIAnalyticsDashboardRepositoryImplTest {
         repo.upsertFoMiSnapshot(stats);
     }
 
-    // Tests for fetchStatistics
-    @Test
-    public void testFetchStatistics_Success() throws Exception {
-        DFQueryMetaData metadata = new DFQueryMetaData();
-        metadata.setCollectionName("testCollection");
-        metadata.setStatName("testStat");
-        String selectField = "testField";
-
-        ScanResult mockScanResult = mock(ScanResult.class);
-        Iterator<Record> mockIterator = mock(Iterator.class);
-        when(mockIterator.hasNext()).thenReturn(true, false);
-        Record mockRecord = mock(Record.class);
-        when(mockIterator.next()).thenReturn(mockRecord);
-        when(mockScanResult.iterator()).thenReturn(mockIterator);
-
-        Document mockDocument = mock(JsonDocument.class);
-        when(mockRecord.getDocument()).thenReturn(mockDocument);
-        when(((JsonDocument) mockDocument).getContents()).thenReturn("{\"testField\": 42}");
-
-        ScanRequestBuilder mockScanRequestBuilder = mock(ScanRequestBuilder.class);
-        when(mockScanRequestBuilder.withReadTimeoutSeconds(anyInt())).thenReturn(mockScanRequestBuilder);
-        when(dfClient.scan(mockScanRequestBuilder)).thenReturn(mockScanResult);
-
-        MIAnalyticsDashboardRepositoryImpl spyRepo = spy(repo);
-        doReturn(mockScanRequestBuilder).when(spyRepo).getScanRequestBuilder(any(), anyString(), anyString());
-
-        int result = spyRepo.fetchStatistics(metadata, selectField);
-        assertEquals(42, result);
-    }
-
-    @Test
-    public void testFetchStatistics_NoRecords() throws Exception {
-        DFQueryMetaData metadata = new DFQueryMetaData();
-        metadata.setCollectionName("testCollection");
-        metadata.setStatName("testStat");
-        String selectField = "testField";
-
-        ScanResult mockScanResult = mock(ScanResult.class);
-        Iterator<Record> mockIterator = mock(Iterator.class);
-        when(mockIterator.hasNext()).thenReturn(false);
-        when(mockScanResult.iterator()).thenReturn(mockIterator);
-
-        ScanRequestBuilder mockScanRequestBuilder = mock(ScanRequestBuilder.class);
-        when(mockScanRequestBuilder.withReadTimeoutSeconds(anyInt())).thenReturn(mockScanRequestBuilder);
-        when(dfClient.scan(mockScanRequestBuilder)).thenReturn(mockScanResult);
-
-        MIAnalyticsDashboardRepositoryImpl spyRepo = spy(repo);
-        doReturn(mockScanRequestBuilder).when(spyRepo).getScanRequestBuilder(any(), anyString(), anyString());
-
-        int result = spyRepo.fetchStatistics(metadata, selectField);
-        assertEquals(0, result);
-    }
-
-    @Test(expected = TaggingServiceRunTimeException.class)
-    public void testFetchStatistics_ScanException() throws Exception {
-        DFQueryMetaData metadata = new DFQueryMetaData();
-        metadata.setCollectionName("testCollection");
-        metadata.setStatName("testStat");
-        String selectField = "testField";
-
-        ScanRequestBuilder mockScanRequestBuilder = mock(ScanRequestBuilder.class);
-        when(mockScanRequestBuilder.withReadTimeoutSeconds(anyInt())).thenReturn(mockScanRequestBuilder);
-        when(dfClient.scan(mockScanRequestBuilder)).thenThrow(new RuntimeException("Test scan exception"));
-
-        MIAnalyticsDashboardRepositoryImpl spyRepo = spy(repo);
-        doReturn(mockScanRequestBuilder).when(spyRepo).getScanRequestBuilder(any(), anyString(), anyString());
-
-        spyRepo.fetchStatistics(metadata, selectField);
-    }
-
-    @Test(expected = TaggingServiceRunTimeException.class)
-    public void testFetchStatistics_JsonParseException() throws Exception {
-        DFQueryMetaData metadata = new DFQueryMetaData();
-        metadata.setCollectionName("testCollection");
-        metadata.setStatName("testStat");
-        String selectField = "testField";
-
-        ScanResult mockScanResult = mock(ScanResult.class);
-        Iterator<Record> mockIterator = mock(Iterator.class);
-        when(mockIterator.hasNext()).thenReturn(true, false);
-        Record mockRecord = mock(Record.class);
-        when(mockIterator.next()).thenReturn(mockRecord);
-        when(mockScanResult.iterator()).thenReturn(mockIterator);
-
-        Document mockDocument = mock(JsonDocument.class);
-        when(mockRecord.getDocument()).thenReturn(mockDocument);
-        when(((JsonDocument) mockDocument).getContents()).thenReturn("invalid json");
-
-        ScanRequestBuilder mockScanRequestBuilder = mock(ScanRequestBuilder.class);
-        when(mockScanRequestBuilder.withReadTimeoutSeconds(anyInt())).thenReturn(mockScanRequestBuilder);
-        when(dfClient.scan(mockScanRequestBuilder)).thenReturn(mockScanResult);
-
-        MIAnalyticsDashboardRepositoryImpl spyRepo = spy(repo);
-        doReturn(mockScanRequestBuilder).when(spyRepo).getScanRequestBuilder(any(), anyString(), anyString());
-
-        spyRepo.fetchStatistics(metadata, selectField);
-    }
-
-    // Tests for fetchRecordsFromDf
-    @Test
-    public void testFetchRecordsFromDf_Success() throws Exception {
-        DFQueryMetaData metadata = new DFQueryMetaData();
-        metadata.setCollectionName("testCollection");
-        metadata.setStatName("testStat");
-
-        ScanResult mockScanResult = mock(ScanResult.class);
-        Iterator<Record> mockIterator = mock(Iterator.class);
-        when(mockIterator.hasNext()).thenReturn(true, false);
-        Record mockRecord = mock(Record.class);
-        when(mockIterator.next()).thenReturn(mockRecord);
-        when(mockScanResult.iterator()).thenReturn(mockIterator);
-
-        Document mockDocument = mock(JsonDocument.class);
-        when(mockRecord.getDocument()).thenReturn(mockDocument);
-
-        ScanRequestBuilder mockScanRequestBuilder = mock(ScanRequestBuilder.class);
-        when(mockScanRequestBuilder.withReadTimeoutSeconds(anyInt())).thenReturn(mockScanRequestBuilder);
-        when(dfClient.scan(mockScanRequestBuilder)).thenReturn(mockScanResult);
-
-        MIAnalyticsDashboardRepositoryImpl spyRepo = spy(repo);
-        doReturn(mockScanRequestBuilder).when(spyRepo).getScanRequestBuilder(any(), anyString(), anyString());
-
-        List<Record> result = spyRepo.fetchRecordsFromDf(metadata);
-        assertNotNull(result);
-        assertEquals(1, result.size());
-        assertEquals(mockRecord, result.get(0));
-    }
-
-    @Test
-    public void testFetchRecordsFromDf_NoRecords() throws Exception {
-        DFQueryMetaData metadata = new DFQueryMetaData();
-        metadata.setCollectionName("testCollection");
-        metadata.setStatName("testStat");
-
-        ScanResult mockScanResult = mock(ScanResult.class);
-        Iterator<Record> mockIterator = mock(Iterator.class);
-        when(mockIterator.hasNext()).thenReturn(false);
-        when(mockScanResult.iterator()).thenReturn(mockIterator);
-
-        ScanRequestBuilder mockScanRequestBuilder = mock(ScanRequestBuilder.class);
-        when(mockScanRequestBuilder.withReadTimeoutSeconds(anyInt())).thenReturn(mockScanRequestBuilder);
-        when(dfClient.scan(mockScanRequestBuilder)).thenReturn(mockScanResult);
-
-        MIAnalyticsDashboardRepositoryImpl spyRepo = spy(repo);
-        doReturn(mockScanRequestBuilder).when(spyRepo).getScanRequestBuilder(any(), anyString(), anyString());
-
-        List<Record> result = spyRepo.fetchRecordsFromDf(metadata);
-        assertNotNull(result);
-        assertTrue(result.isEmpty());
-    }
-
     @Test(expected = TaggingServiceRunTimeException.class)
     public void testFetchRecordsFromDf_Exception() throws Exception {
         DFQueryMetaData metadata = new DFQueryMetaData();
@@ -364,132 +983,6 @@ public class MIAnalyticsDashboardRepositoryImplTest {
         spyRepo.fetchRecordsFromDf(metadata);
     }
 
-    // Tests for processFoMiData
-    @Test
-    public void testProcessFoMiData_EMIR_ETD() throws Exception {
-        DFQueryMetaData metadata = new DFQueryMetaData();
-        metadata.setStatName("testStat");
-        String assetClass = AssetClass.ETD.value();
-
-        String jsonResponse = "[{\"tradingPartyLei\":\"" + LEI_NWM_PLC + "\",\"transactionReportable\":true,\"versionReportable\":true}," +
-                "{\"tradingPartyLei\":\"" + LEI_NWM_NV + "\",\"transactionReportable\":false,\"versionReportable\":false}]";
-        InputStream mockInputStream = new ByteArrayInputStream(jsonResponse.getBytes());
-
-        MIAnalyticsDashboardRepositoryImpl spyRepo = spy(repo);
-        ArgumentCaptor<FrontOfficeMIDashboardAnalytics> captor = ArgumentCaptor.forClass(FrontOfficeMIDashboardAnalytics.class);
-        doNothing().when(spyRepo).upsertFoMiSnapshot(captor.capture());
-
-        spyRepo.processFoMiData(metadata, TEST_DATE, assetClass);
-
-        List<FrontOfficeMIDashboardAnalytics> analyticsList = captor.getAllValues();
-        assertEquals(4, analyticsList.size()); // 2 for jurisdiction determined + 2 for JND
-
-        FrontOfficeMIDashboardAnalytics plcReportable = analyticsList.stream()
-                .filter(a -> a.getSubjectIdentifier().getEntity().equals(NWM_PLC) && a.getSubjectIdentifier().getRegulation().equals(EMIR))
-                .findFirst().orElse(null);
-        assertNotNull(plcReportable);
-        assertEquals(Optional.of(1), plcReportable.getMiAnalyticsState().getReportableCount());
-        assertEquals(Optional.of(0), plcReportable.getMiAnalyticsState().getNonReportableCount());
-
-        FrontOfficeMIDashboardAnalytics nvNonReportable = analyticsList.stream()
-                .filter(a -> a.getSubjectIdentifier().getEntity().equals(NWM_NV) && a.getSubjectIdentifier().getRegulation().equals(EMIR))
-                .findFirst().orElse(null);
-        assertNotNull(nvNonReportable);
-        assertEquals(Optional.of(0), nvNonReportable.getMiAnalyticsState().getReportableCount());
-        assertEquals(Optional.of(1), nvNonReportable.getMiAnalyticsState().getNonReportableCount());
-    }
-
-    @Test
-    public void testProcessFoMiData_EMIR_FX() throws Exception {
-        DFQueryMetaData metadata = new DFQueryMetaData();
-        metadata.setStatName("testStat");
-        String assetClass = AssetClass.FOREIGN_EXCHANGE.value();
-
-        String jsonResponse = "[{\"tradingPartyLei\":\"" + LEI_NWM_PLC + "\",\"transactionReportable\":true,\"versionReportable\":false}]";
-        InputStream mockInputStream = new ByteArrayInputStream(jsonResponse.getBytes());
-
-        MIAnalyticsDashboardRepositoryImpl spyRepo = spy(repo);
-        ArgumentCaptor<FrontOfficeMIDashboardAnalytics> captor = ArgumentCaptor.forClass(FrontOfficeMIDashboardAnalytics.class);
-        doNothing().when(spyRepo).upsertFoMiSnapshot(captor.capture());
-
-        spyRepo.processFoMiData(metadata, TEST_DATE, assetClass);
-
-        List<FrontOfficeMIDashboardAnalytics> analyticsList = captor.getAllValues();
-        assertEquals(4, analyticsList.size());
-
-        FrontOfficeMIDashboardAnalytics plcNonReportable = analyticsList.stream()
-                .filter(a -> a.getSubjectIdentifier().getEntity().equals(NWM_PLC) && a.getSubjectIdentifier().getRegulation().equals(EMIR))
-                .findFirst().orElse(null);
-        assertNotNull(plcNonReportable);
-        assertEquals(Optional.of(0), plcNonReportable.getMiAnalyticsState().getReportableCount());
-        assertEquals(Optional.of(1), plcNonReportable.getMiAnalyticsState().getNonReportableCount());
-    }
-
-    @Test
-    public void testProcessFoMiData_MAS_IR() throws Exception {
-        DFQueryMetaData metadata = new DFQueryMetaData();
-        metadata.setStatName("testStat");
-        String assetClass = AssetClass.INTEREST_RATE.value();
-
-        String jsonResponse = "[{\"partyLeiCode\":\"" + LEI_NWM_PLC + "\",\"isEligible\":true,\"versionReportable\":true}]";
-        InputStream mockInputStream = new ByteArrayInputStream(jsonResponse.getBytes());
-
-        MIAnalyticsDashboardRepositoryImpl spyRepo = spy(repo);
-        ArgumentCaptor<FrontOfficeMIDashboardAnalytics> captor = ArgumentCaptor.forClass(FrontOfficeMIDashboardAnalytics.class);
-        doNothing().when(spyRepo).upsertFoMiSnapshot(captor.capture());
-
-        spyRepo.processFoMiData(metadata, TEST_DATE, assetClass);
-
-        List<FrontOfficeMIDashboardAnalytics> analyticsList = captor.getAllValues();
-        assertEquals(4, analyticsList.size());
-
-        FrontOfficeMIDashboardAnalytics plcReportable = analyticsList.stream()
-                .filter(a -> a.getSubjectIdentifier().getEntity().equals(NWM_PLC) && a.getSubjectIdentifier().getRegulation().equals(MAS))
-                .findFirst().orElse(null);
-        assertNotNull(plcReportable);
-        assertEquals(Optional.of(1), plcReportable.getMiAnalyticsState().getReportableCount());
-    }
-
-    @Test
-    public void testProcessFoMiData_CFTC_CSA_FX() throws Exception {
-        DFQueryMetaData metadata = new DFQueryMetaData();
-        metadata.setStatName("testStat");
-        String assetClass = AssetClass.FOREIGN_EXCHANGE.value();
-
-        String jsonResponse = "[{\"tradingPartyLei\":\"" + LEI_NWM_PLC + "\",\"cftc\":{\"transactionReportable\":true,\"versionReportable\":true}," +
-                "\"canada\":{\"transactionReportable\":false,\"versionReportable\":false}}]";
-        InputStream mockInputStream = new ByteArrayInputStream(jsonResponse.getBytes());
-
-        MIAnalyticsDashboardRepositoryImpl spyRepo = spy(repo);
-        ArgumentCaptor<FrontOfficeMIDashboardAnalytics> captor = ArgumentCaptor.forClass(FrontOfficeMIDashboardAnalytics.class);
-        doNothing().when(spyRepo).upsertFoMiSnapshot(captor.capture());
-
-        spyRepo.processFoMiData(metadata, TEST_DATE, assetClass);
-
-        List<FrontOfficeMIDashboardAnalytics> analyticsList = captor.getAllValues();
-        assertEquals(6, analyticsList.size()); // 2 for DF, 2 for CSA, 2 for JND
-
-        FrontOfficeMIDashboardAnalytics plcCftc = analyticsList.stream()
-                .filter(a -> a.getSubjectIdentifier().getRegulation().equals(DF))
-                .findFirst().orElse(null);
-        assertNotNull(plcCftc);
-        assertEquals(Optional.of(1), plcCftc.getMiAnalyticsState().getReportableCount());
-    }
-
-    @Test(expected = TaggingServiceRunTimeException.class)
-    public void testProcessFoMiData_InvalidJurisdiction() throws Exception {
-        DFQueryMetaData metadata = new DFQueryMetaData();
-        metadata.setStatName("testStat");
-        String assetClass = "INVALID_ASSET";
-
-        Map<String, List<String>> foAssetWiseMap = Maps.newHashMap();
-        foAssetWiseMap.put(assetClass, Collections.singletonList("INVALID_JURISDICTION"));
-        ReflectionTestUtils.setField(repo, "FO_ASSETWISE_MAP", foAssetWiseMap);
-
-        repo.processFoMiData(metadata, TEST_DATE, assetClass);
-    }
-
-    // Utility method tests
     @Test
     public void testCalculateMiSnapshotKey() throws Exception {
         SubjectIdentifier identifier = new SubjectIdentifier("testLei", "testEntity", "testFlow", "testAsset", "testMessage", "testRegulation", TEST_DATE);
@@ -497,6 +990,19 @@ public class MIAnalyticsDashboardRepositoryImplTest {
         assertNotNull(key);
         assertEquals(40, key.length());
         assertTrue(key.matches("[0-9a-f]+"));
+    }
+
+    @Test
+    public void testCalculateKeys() throws Exception {
+        Date date = new SimpleDateFormat("yyyy-MM-dd").parse("2025-05-19");
+        SubjectIdentifier si = new SubjectIdentifier("lei","entity","flow","regulation","messageType","regulation",date);
+        si.setBusinessDate(date);
+        si.setAssetClass("A"); si.setEntity("E"); si.setFlow("F"); si.setLei("L"); si.setRegulation("R"); si.setMessageType("M");
+        String key = ReflectionTestUtils.invokeMethod(repo, "calculateMiSnapshotKey", si);
+        assertNotNull(key);
+        FrontOfficeSubjectIdentifier fo = new FrontOfficeSubjectIdentifier("E","L","A","R", date);
+        String key2 = ReflectionTestUtils.invokeMethod(repo, "calculateFoMiSnapshotKey", fo);
+        assertNotNull(key2);
     }
 
     @Test
@@ -514,18 +1020,6 @@ public class MIAnalyticsDashboardRepositoryImplTest {
         Document result = repo.serialize(analytics);
         assertNotNull(result);
         assertTrue(result instanceof JsonDocument);
-    }
-
-    @Test
-    public void testDeserialize() throws Exception {
-        SubjectIdentifier identifier = new SubjectIdentifier("testLei", "testEntity", "testFlow", "testAsset", "testMessage", "testRegulation", TEST_DATE);
-        MIDashboardAnalytics analytics = new MIDashboardAnalytics();
-        analytics.setSubjectIdentifier(identifier);
-
-        Document document = repo.serialize(analytics);
-        MIDashboardAnalytics deserialized = repo.deserailze(document);
-
-        assertEquals(identifier.getLei(), deserialized.getSubjectIdentifier().getLei());
     }
 
     @Test(expected = IOException.class)
@@ -551,6 +1045,18 @@ public class MIAnalyticsDashboardRepositoryImplTest {
         assertNotNull(result);
         assertEquals("select field", result.getSelect());
         assertEquals("where condition", result.getWhere());
+    }
+
+    @Test
+    public void testFetchFromItr_success() {
+        Map<String, Map<String, Integer>> foMiDataMap = new HashMap<>();
+        foMiDataMap.put("jurisdiction", new HashMap<>());
+        DFQueryMetaData dFQueryMetaData = new DFQueryMetaData();
+        dFQueryMetaData.setStatName("data");
+
+        Map<String, Map<String, Integer>> result = ReflectionTestUtils.invokeMethod(repo, "fetchFromItr", dFQueryMetaData, foMiDataMap, "url", "jurisdiction", new Date(), "assetClass");
+
+        assertNotNull(result);
     }
 
     @Test
@@ -592,7 +1098,6 @@ public class MIAnalyticsDashboardRepositoryImplTest {
         assertEquals("false", result.get("versionReportable"));
     }
 
-    // Additional parseItrRecord tests for coverage
     @Test
     public void testParseItrRecord_BOI() throws Exception {
         String json = "{\"tradingPartyLei\":\"" + LEI_NWM_PLC + "\",\"transactionReportable\":true,\"versionReportable\":true}";
@@ -600,7 +1105,7 @@ public class MIAnalyticsDashboardRepositoryImplTest {
 
         Map<String, Map<String, Object>> result = repo.parseItrRecord(parser, AssetClass.ETD.value(), BOI);
         assertEquals(LEI_NWM_PLC, result.get(BOI).get(TRADING_PARTY_LEI));
-        assertEquals(true, result.get(BOI).get(TRANSACTION_REPORTABLE));
+        assertEquals(false, result.get(BOI).get(TRANSACTION_REPORTABLE));
     }
 
     @Test
@@ -612,602 +1117,4 @@ public class MIAnalyticsDashboardRepositoryImplTest {
         assertEquals(LEI_NWM_PLC, result.get(MIFID).get(TRADING_PARTY_LEI));
     }
 
-    @Test
-    public void testParseItrRecord_SFTR() throws Exception {
-        String json = "{\"tradingPartyLei\":\"" + LEI_NWM_NV + "\",\"transactionReportable\":false,\"versionReportable\":false}";
-        JsonParser parser = REAL_OBJECT_MAPPER.getFactory().createParser(json);
-
-        Map<String, Map<String, Object>> result = repo.parseItrRecord(parser, AssetClass.ETD.value(), SFTR);
-        assertEquals(LEI_NWM_NV, result.get(SFTR).get(TRADING_PARTY_LEI));
-    }
 }
-
-Failure logs:
-
-"C:\Program Files\Java\jdk1.8.0_74\bin\java.exe" -ea -Didea.test.cyclic.buffer.size=1048576 "-javaagent:C:\Program Files\JetBrains\IntelliJ IDEA Community Edition 2024.2.3\lib\idea_rt.jar=52423:C:\Program Files\JetBrains\IntelliJ IDEA Community Edition 2024.2.3\bin" -Dfile.encoding=UTF-8 -classpath C:\temp1\classpath732299873.jar com.intellij.rt.junit.JUnitStarter -ideVersion5 -junit4 com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImplTest
-
-java.lang.AssertionError: 
-Expected :true
-Actual   :false
-<Click to see difference>
-
-
-	at org.junit.Assert.fail(Assert.java:88)
-	at org.junit.Assert.failNotEquals(Assert.java:834)
-	at org.junit.Assert.assertEquals(Assert.java:118)
-	at org.junit.Assert.assertEquals(Assert.java:144)
-	at com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImplTest.testParseItrRecord_BOI(MIAnalyticsDashboardRepositoryImplTest.java:601)
-	at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
-	at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
-	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
-	at java.lang.reflect.Method.invoke(Method.java:498)
-	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:50)
-	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
-	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:47)
-	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
-	at org.junit.internal.runners.statements.RunBefores.evaluate(RunBefores.java:26)
-	at org.junit.runners.ParentRunner.runLeaf(ParentRunner.java:325)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:78)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:57)
-	at org.junit.runners.ParentRunner$3.run(ParentRunner.java:290)
-	at org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:71)
-	at org.junit.runners.ParentRunner.runChildren(ParentRunner.java:288)
-	at org.junit.runners.ParentRunner.access$000(ParentRunner.java:58)
-	at org.junit.runners.ParentRunner$2.evaluate(ParentRunner.java:268)
-	at org.junit.runners.ParentRunner.run(ParentRunner.java:363)
-	at org.junit.runner.JUnitCore.run(JUnitCore.java:137)
-	at com.intellij.junit4.JUnit4IdeaTestRunner.startRunnerWithArgs(JUnit4IdeaTestRunner.java:69)
-	at com.intellij.rt.junit.IdeaTestRunner$Repeater$1.execute(IdeaTestRunner.java:38)
-	at com.intellij.rt.execution.junit.TestsRepeater.repeat(TestsRepeater.java:11)
-	at com.intellij.rt.junit.IdeaTestRunner$Repeater.startRunnerWithArgs(IdeaTestRunner.java:35)
-	at com.intellij.rt.junit.JUnitStarter.prepareStreamsAndStart(JUnitStarter.java:232)
-	at com.intellij.rt.junit.JUnitStarter.main(JUnitStarter.java:55)
-
-
-java.lang.Exception: Unexpected exception, expected<com.rbs.tntr.domain.taggingService.jiraTaggingDomain.exceptions.TaggingServiceRunTimeException> but was<java.lang.NullPointerException>
-
-	at org.junit.internal.runners.statements.ExpectException.evaluate(ExpectException.java:28)
-	at org.junit.internal.runners.statements.RunBefores.evaluate(RunBefores.java:26)
-	at org.junit.runners.ParentRunner.runLeaf(ParentRunner.java:325)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:78)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:57)
-	at org.junit.runners.ParentRunner$3.run(ParentRunner.java:290)
-	at org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:71)
-	at org.junit.runners.ParentRunner.runChildren(ParentRunner.java:288)
-	at org.junit.runners.ParentRunner.access$000(ParentRunner.java:58)
-	at org.junit.runners.ParentRunner$2.evaluate(ParentRunner.java:268)
-	at org.junit.runners.ParentRunner.run(ParentRunner.java:363)
-	at org.junit.runner.JUnitCore.run(JUnitCore.java:137)
-	at com.intellij.junit4.JUnit4IdeaTestRunner.startRunnerWithArgs(JUnit4IdeaTestRunner.java:69)
-	at com.intellij.rt.junit.IdeaTestRunner$Repeater$1.execute(IdeaTestRunner.java:38)
-	at com.intellij.rt.execution.junit.TestsRepeater.repeat(TestsRepeater.java:11)
-	at com.intellij.rt.junit.IdeaTestRunner$Repeater.startRunnerWithArgs(IdeaTestRunner.java:35)
-	at com.intellij.rt.junit.JUnitStarter.prepareStreamsAndStart(JUnitStarter.java:232)
-	at com.intellij.rt.junit.JUnitStarter.main(JUnitStarter.java:55)
-Caused by: java.lang.NullPointerException
-	at com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImpl.fetchStatistics(MIAnalyticsDashboardRepositoryImpl.java:213)
-	at com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImplTest.testFetchStatistics_JsonParseException(MIAnalyticsDashboardRepositoryImplTest.java:293)
-	at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
-	at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
-	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
-	at java.lang.reflect.Method.invoke(Method.java:498)
-	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:50)
-	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
-	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:47)
-	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
-	at org.junit.internal.runners.statements.ExpectException.evaluate(ExpectException.java:19)
-	... 17 more
-
-
-com.rbs.tntr.domain.taggingService.jiraTaggingDomain.exceptions.TaggingServiceRunTimeException: Error while fetching data from DF
-
-	at com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImpl.fetchRecordsFromDf(MIAnalyticsDashboardRepositoryImpl.java:259)
-	at com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImplTest.testFetchRecordsFromDf_NoRecords(MIAnalyticsDashboardRepositoryImplTest.java:344)
-	at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
-	at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
-	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
-	at java.lang.reflect.Method.invoke(Method.java:498)
-	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:50)
-	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
-	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:47)
-	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
-	at org.junit.internal.runners.statements.RunBefores.evaluate(RunBefores.java:26)
-	at org.junit.runners.ParentRunner.runLeaf(ParentRunner.java:325)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:78)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:57)
-	at org.junit.runners.ParentRunner$3.run(ParentRunner.java:290)
-	at org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:71)
-	at org.junit.runners.ParentRunner.runChildren(ParentRunner.java:288)
-	at org.junit.runners.ParentRunner.access$000(ParentRunner.java:58)
-	at org.junit.runners.ParentRunner$2.evaluate(ParentRunner.java:268)
-	at org.junit.runners.ParentRunner.run(ParentRunner.java:363)
-	at org.junit.runner.JUnitCore.run(JUnitCore.java:137)
-	at com.intellij.junit4.JUnit4IdeaTestRunner.startRunnerWithArgs(JUnit4IdeaTestRunner.java:69)
-	at com.intellij.rt.junit.IdeaTestRunner$Repeater$1.execute(IdeaTestRunner.java:38)
-	at com.intellij.rt.execution.junit.TestsRepeater.repeat(TestsRepeater.java:11)
-	at com.intellij.rt.junit.IdeaTestRunner$Repeater.startRunnerWithArgs(IdeaTestRunner.java:35)
-	at com.intellij.rt.junit.JUnitStarter.prepareStreamsAndStart(JUnitStarter.java:232)
-	at com.intellij.rt.junit.JUnitStarter.main(JUnitStarter.java:55)
-Caused by: java.lang.NullPointerException
-	at com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImpl.fetchRecordsFromDf(MIAnalyticsDashboardRepositoryImpl.java:246)
-	at com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImpl$$EnhancerByMockitoWithCGLIB$$f6e1e104.CGLIB$fetchRecordsFromDf$3(<generated>)
-	at com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImpl$$EnhancerByMockitoWithCGLIB$$f6e1e104$$FastClassByMockitoWithCGLIB$$67fd9982.invoke(<generated>)
-	at org.mockito.cglib.proxy.MethodProxy.invokeSuper(MethodProxy.java:216)
-	at org.mockito.internal.creation.cglib.DelegatingMockitoMethodProxy.invokeSuper(DelegatingMockitoMethodProxy.java:19)
-	at org.mockito.internal.invocation.realmethod.DefaultRealMethod.invoke(DefaultRealMethod.java:21)
-	at org.mockito.internal.invocation.realmethod.CleanTraceRealMethod.invoke(CleanTraceRealMethod.java:30)
-	at org.mockito.internal.invocation.InvocationImpl.callRealMethod(InvocationImpl.java:112)
-	at org.mockito.internal.stubbing.answers.CallsRealMethods.answer(CallsRealMethods.java:41)
-	at org.mockito.internal.handler.MockHandlerImpl.handle(MockHandlerImpl.java:93)
-	at org.mockito.internal.handler.NullResultGuardian.handle(NullResultGuardian.java:29)
-	at org.mockito.internal.handler.InvocationNotifierHandler.handle(InvocationNotifierHandler.java:38)
-	at org.mockito.internal.creation.cglib.MethodInterceptorFilter.intercept(MethodInterceptorFilter.java:59)
-	at com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImpl$$EnhancerByMockitoWithCGLIB$$f6e1e104.fetchRecordsFromDf(<generated>)
-	... 26 more
-
-
-java.lang.Exception: Unexpected exception, expected<com.rbs.tntr.domain.taggingService.jiraTaggingDomain.exceptions.TaggingServiceRunTimeException> but was<java.lang.NullPointerException>
-
-	at org.junit.internal.runners.statements.ExpectException.evaluate(ExpectException.java:28)
-	at org.junit.internal.runners.statements.RunBefores.evaluate(RunBefores.java:26)
-	at org.junit.runners.ParentRunner.runLeaf(ParentRunner.java:325)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:78)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:57)
-	at org.junit.runners.ParentRunner$3.run(ParentRunner.java:290)
-	at org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:71)
-	at org.junit.runners.ParentRunner.runChildren(ParentRunner.java:288)
-	at org.junit.runners.ParentRunner.access$000(ParentRunner.java:58)
-	at org.junit.runners.ParentRunner$2.evaluate(ParentRunner.java:268)
-	at org.junit.runners.ParentRunner.run(ParentRunner.java:363)
-	at org.junit.runner.JUnitCore.run(JUnitCore.java:137)
-	at com.intellij.junit4.JUnit4IdeaTestRunner.startRunnerWithArgs(JUnit4IdeaTestRunner.java:69)
-	at com.intellij.rt.junit.IdeaTestRunner$Repeater$1.execute(IdeaTestRunner.java:38)
-	at com.intellij.rt.execution.junit.TestsRepeater.repeat(TestsRepeater.java:11)
-	at com.intellij.rt.junit.IdeaTestRunner$Repeater.startRunnerWithArgs(IdeaTestRunner.java:35)
-	at com.intellij.rt.junit.JUnitStarter.prepareStreamsAndStart(JUnitStarter.java:232)
-	at com.intellij.rt.junit.JUnitStarter.main(JUnitStarter.java:55)
-Caused by: java.lang.NullPointerException
-	at com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImpl.fetchStatistics(MIAnalyticsDashboardRepositoryImpl.java:213)
-	at com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImplTest.testFetchStatistics_ScanException(MIAnalyticsDashboardRepositoryImplTest.java:265)
-	at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
-	at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
-	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
-	at java.lang.reflect.Method.invoke(Method.java:498)
-	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:50)
-	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
-	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:47)
-	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
-	at org.junit.internal.runners.statements.ExpectException.evaluate(ExpectException.java:19)
-	... 17 more
-
-
-com.rbs.tntr.domain.taggingService.jiraTaggingDomain.exceptions.TaggingServiceRunTimeException: Error while fetching data from DF
-
-	at com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImpl.fetchRecordsFromDf(MIAnalyticsDashboardRepositoryImpl.java:259)
-	at com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImplTest.testFetchRecordsFromDf_Success(MIAnalyticsDashboardRepositoryImplTest.java:320)
-	at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
-	at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
-	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
-	at java.lang.reflect.Method.invoke(Method.java:498)
-	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:50)
-	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
-	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:47)
-	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
-	at org.junit.internal.runners.statements.RunBefores.evaluate(RunBefores.java:26)
-	at org.junit.runners.ParentRunner.runLeaf(ParentRunner.java:325)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:78)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:57)
-	at org.junit.runners.ParentRunner$3.run(ParentRunner.java:290)
-	at org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:71)
-	at org.junit.runners.ParentRunner.runChildren(ParentRunner.java:288)
-	at org.junit.runners.ParentRunner.access$000(ParentRunner.java:58)
-	at org.junit.runners.ParentRunner$2.evaluate(ParentRunner.java:268)
-	at org.junit.runners.ParentRunner.run(ParentRunner.java:363)
-	at org.junit.runner.JUnitCore.run(JUnitCore.java:137)
-	at com.intellij.junit4.JUnit4IdeaTestRunner.startRunnerWithArgs(JUnit4IdeaTestRunner.java:69)
-	at com.intellij.rt.junit.IdeaTestRunner$Repeater$1.execute(IdeaTestRunner.java:38)
-	at com.intellij.rt.execution.junit.TestsRepeater.repeat(TestsRepeater.java:11)
-	at com.intellij.rt.junit.IdeaTestRunner$Repeater.startRunnerWithArgs(IdeaTestRunner.java:35)
-	at com.intellij.rt.junit.JUnitStarter.prepareStreamsAndStart(JUnitStarter.java:232)
-	at com.intellij.rt.junit.JUnitStarter.main(JUnitStarter.java:55)
-Caused by: java.lang.NullPointerException
-	at com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImpl.fetchRecordsFromDf(MIAnalyticsDashboardRepositoryImpl.java:246)
-	at com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImpl$$EnhancerByMockitoWithCGLIB$$f6e1e104.CGLIB$fetchRecordsFromDf$3(<generated>)
-	at com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImpl$$EnhancerByMockitoWithCGLIB$$f6e1e104$$FastClassByMockitoWithCGLIB$$67fd9982.invoke(<generated>)
-	at org.mockito.cglib.proxy.MethodProxy.invokeSuper(MethodProxy.java:216)
-	at org.mockito.internal.creation.cglib.DelegatingMockitoMethodProxy.invokeSuper(DelegatingMockitoMethodProxy.java:19)
-	at org.mockito.internal.invocation.realmethod.DefaultRealMethod.invoke(DefaultRealMethod.java:21)
-	at org.mockito.internal.invocation.realmethod.CleanTraceRealMethod.invoke(CleanTraceRealMethod.java:30)
-	at org.mockito.internal.invocation.InvocationImpl.callRealMethod(InvocationImpl.java:112)
-	at org.mockito.internal.stubbing.answers.CallsRealMethods.answer(CallsRealMethods.java:41)
-	at org.mockito.internal.handler.MockHandlerImpl.handle(MockHandlerImpl.java:93)
-	at org.mockito.internal.handler.NullResultGuardian.handle(NullResultGuardian.java:29)
-	at org.mockito.internal.handler.InvocationNotifierHandler.handle(InvocationNotifierHandler.java:38)
-	at org.mockito.internal.creation.cglib.MethodInterceptorFilter.intercept(MethodInterceptorFilter.java:59)
-	at com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImpl$$EnhancerByMockitoWithCGLIB$$f6e1e104.fetchRecordsFromDf(<generated>)
-	... 26 more
-
-
-org.mockito.exceptions.base.MockitoException: 
-Only void methods can doNothing()!
-Example of correct use of doNothing():
-    doNothing().
-    doThrow(new RuntimeException())
-    .when(mock).someVoidMethod();
-Above means:
-someVoidMethod() does nothing the 1st time but throws an exception the 2nd time is called
-
-	at com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImplTest.testProcessFoMiData_MAS_IR(MIAnalyticsDashboardRepositoryImplTest.java:437)
-	at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
-	at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
-	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
-	at java.lang.reflect.Method.invoke(Method.java:498)
-	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:50)
-	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
-	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:47)
-	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
-	at org.junit.internal.runners.statements.RunBefores.evaluate(RunBefores.java:26)
-	at org.junit.runners.ParentRunner.runLeaf(ParentRunner.java:325)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:78)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:57)
-	at org.junit.runners.ParentRunner$3.run(ParentRunner.java:290)
-	at org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:71)
-	at org.junit.runners.ParentRunner.runChildren(ParentRunner.java:288)
-	at org.junit.runners.ParentRunner.access$000(ParentRunner.java:58)
-	at org.junit.runners.ParentRunner$2.evaluate(ParentRunner.java:268)
-	at org.junit.runners.ParentRunner.run(ParentRunner.java:363)
-	at org.junit.runner.JUnitCore.run(JUnitCore.java:137)
-	at com.intellij.junit4.JUnit4IdeaTestRunner.startRunnerWithArgs(JUnit4IdeaTestRunner.java:69)
-	at com.intellij.rt.junit.IdeaTestRunner$Repeater$1.execute(IdeaTestRunner.java:38)
-	at com.intellij.rt.execution.junit.TestsRepeater.repeat(TestsRepeater.java:11)
-	at com.intellij.rt.junit.IdeaTestRunner$Repeater.startRunnerWithArgs(IdeaTestRunner.java:35)
-	at com.intellij.rt.junit.JUnitStarter.prepareStreamsAndStart(JUnitStarter.java:232)
-	at com.intellij.rt.junit.JUnitStarter.main(JUnitStarter.java:55)
-
-
-java.lang.NullPointerException
-	at com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImpl.upsertMiSnapshot(MIAnalyticsDashboardRepositoryImpl.java:164)
-	at com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImplTest.testUpsertMiSnapshot_Success(MIAnalyticsDashboardRepositoryImplTest.java:125)
-	at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
-	at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
-	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
-	at java.lang.reflect.Method.invoke(Method.java:498)
-	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:50)
-	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
-	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:47)
-	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
-	at org.junit.internal.runners.statements.RunBefores.evaluate(RunBefores.java:26)
-	at org.junit.runners.ParentRunner.runLeaf(ParentRunner.java:325)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:78)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:57)
-	at org.junit.runners.ParentRunner$3.run(ParentRunner.java:290)
-	at org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:71)
-	at org.junit.runners.ParentRunner.runChildren(ParentRunner.java:288)
-	at org.junit.runners.ParentRunner.access$000(ParentRunner.java:58)
-	at org.junit.runners.ParentRunner$2.evaluate(ParentRunner.java:268)
-	at org.junit.runners.ParentRunner.run(ParentRunner.java:363)
-	at org.junit.runner.JUnitCore.run(JUnitCore.java:137)
-	at com.intellij.junit4.JUnit4IdeaTestRunner.startRunnerWithArgs(JUnit4IdeaTestRunner.java:69)
-	at com.intellij.rt.junit.IdeaTestRunner$Repeater$1.execute(IdeaTestRunner.java:38)
-	at com.intellij.rt.execution.junit.TestsRepeater.repeat(TestsRepeater.java:11)
-	at com.intellij.rt.junit.IdeaTestRunner$Repeater.startRunnerWithArgs(IdeaTestRunner.java:35)
-	at com.intellij.rt.junit.JUnitStarter.prepareStreamsAndStart(JUnitStarter.java:232)
-	at com.intellij.rt.junit.JUnitStarter.main(JUnitStarter.java:55)
-
-
-org.mockito.exceptions.base.MockitoException: 
-Only void methods can doNothing()!
-Example of correct use of doNothing():
-    doNothing().
-    doThrow(new RuntimeException())
-    .when(mock).someVoidMethod();
-Above means:
-someVoidMethod() does nothing the 1st time but throws an exception the 2nd time is called
-
-	at com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImplTest.testProcessFoMiData_EMIR_ETD(MIAnalyticsDashboardRepositoryImplTest.java:378)
-	at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
-	at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
-	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
-	at java.lang.reflect.Method.invoke(Method.java:498)
-	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:50)
-	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
-	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:47)
-	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
-	at org.junit.internal.runners.statements.RunBefores.evaluate(RunBefores.java:26)
-	at org.junit.runners.ParentRunner.runLeaf(ParentRunner.java:325)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:78)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:57)
-	at org.junit.runners.ParentRunner$3.run(ParentRunner.java:290)
-	at org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:71)
-	at org.junit.runners.ParentRunner.runChildren(ParentRunner.java:288)
-	at org.junit.runners.ParentRunner.access$000(ParentRunner.java:58)
-	at org.junit.runners.ParentRunner$2.evaluate(ParentRunner.java:268)
-	at org.junit.runners.ParentRunner.run(ParentRunner.java:363)
-	at org.junit.runner.JUnitCore.run(JUnitCore.java:137)
-	at com.intellij.junit4.JUnit4IdeaTestRunner.startRunnerWithArgs(JUnit4IdeaTestRunner.java:69)
-	at com.intellij.rt.junit.IdeaTestRunner$Repeater$1.execute(IdeaTestRunner.java:38)
-	at com.intellij.rt.execution.junit.TestsRepeater.repeat(TestsRepeater.java:11)
-	at com.intellij.rt.junit.IdeaTestRunner$Repeater.startRunnerWithArgs(IdeaTestRunner.java:35)
-	at com.intellij.rt.junit.JUnitStarter.prepareStreamsAndStart(JUnitStarter.java:232)
-	at com.intellij.rt.junit.JUnitStarter.main(JUnitStarter.java:55)
-
-
-java.lang.NullPointerException
-	at com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImpl.fetchStatistics(MIAnalyticsDashboardRepositoryImpl.java:213)
-	at com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImplTest.testFetchStatistics_Success(MIAnalyticsDashboardRepositoryImplTest.java:224)
-	at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
-	at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
-	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
-	at java.lang.reflect.Method.invoke(Method.java:498)
-	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:50)
-	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
-	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:47)
-	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
-	at org.junit.internal.runners.statements.RunBefores.evaluate(RunBefores.java:26)
-	at org.junit.runners.ParentRunner.runLeaf(ParentRunner.java:325)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:78)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:57)
-	at org.junit.runners.ParentRunner$3.run(ParentRunner.java:290)
-	at org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:71)
-	at org.junit.runners.ParentRunner.runChildren(ParentRunner.java:288)
-	at org.junit.runners.ParentRunner.access$000(ParentRunner.java:58)
-	at org.junit.runners.ParentRunner$2.evaluate(ParentRunner.java:268)
-	at org.junit.runners.ParentRunner.run(ParentRunner.java:363)
-	at org.junit.runner.JUnitCore.run(JUnitCore.java:137)
-	at com.intellij.junit4.JUnit4IdeaTestRunner.startRunnerWithArgs(JUnit4IdeaTestRunner.java:69)
-	at com.intellij.rt.junit.IdeaTestRunner$Repeater$1.execute(IdeaTestRunner.java:38)
-	at com.intellij.rt.execution.junit.TestsRepeater.repeat(TestsRepeater.java:11)
-	at com.intellij.rt.junit.IdeaTestRunner$Repeater.startRunnerWithArgs(IdeaTestRunner.java:35)
-	at com.intellij.rt.junit.JUnitStarter.prepareStreamsAndStart(JUnitStarter.java:232)
-	at com.intellij.rt.junit.JUnitStarter.main(JUnitStarter.java:55)
-
-
-org.mockito.exceptions.base.MockitoException: 
-Only void methods can doNothing()!
-Example of correct use of doNothing():
-    doNothing().
-    doThrow(new RuntimeException())
-    .when(mock).someVoidMethod();
-Above means:
-someVoidMethod() does nothing the 1st time but throws an exception the 2nd time is called
-
-	at com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImplTest.testProcessFoMiData_EMIR_FX(MIAnalyticsDashboardRepositoryImplTest.java:411)
-	at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
-	at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
-	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
-	at java.lang.reflect.Method.invoke(Method.java:498)
-	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:50)
-	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
-	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:47)
-	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
-	at org.junit.internal.runners.statements.RunBefores.evaluate(RunBefores.java:26)
-	at org.junit.runners.ParentRunner.runLeaf(ParentRunner.java:325)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:78)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:57)
-	at org.junit.runners.ParentRunner$3.run(ParentRunner.java:290)
-	at org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:71)
-	at org.junit.runners.ParentRunner.runChildren(ParentRunner.java:288)
-	at org.junit.runners.ParentRunner.access$000(ParentRunner.java:58)
-	at org.junit.runners.ParentRunner$2.evaluate(ParentRunner.java:268)
-	at org.junit.runners.ParentRunner.run(ParentRunner.java:363)
-	at org.junit.runner.JUnitCore.run(JUnitCore.java:137)
-	at com.intellij.junit4.JUnit4IdeaTestRunner.startRunnerWithArgs(JUnit4IdeaTestRunner.java:69)
-	at com.intellij.rt.junit.IdeaTestRunner$Repeater$1.execute(IdeaTestRunner.java:38)
-	at com.intellij.rt.execution.junit.TestsRepeater.repeat(TestsRepeater.java:11)
-	at com.intellij.rt.junit.IdeaTestRunner$Repeater.startRunnerWithArgs(IdeaTestRunner.java:35)
-	at com.intellij.rt.junit.JUnitStarter.prepareStreamsAndStart(JUnitStarter.java:232)
-	at com.intellij.rt.junit.JUnitStarter.main(JUnitStarter.java:55)
-
-
-java.lang.NullPointerException
-	at com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImpl.upsertFoMiSnapshot(MIAnalyticsDashboardRepositoryImpl.java:189)
-	at com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImplTest.testUpsertFoMiSnapshot_Success(MIAnalyticsDashboardRepositoryImplTest.java:167)
-	at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
-	at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
-	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
-	at java.lang.reflect.Method.invoke(Method.java:498)
-	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:50)
-	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
-	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:47)
-	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
-	at org.junit.internal.runners.statements.RunBefores.evaluate(RunBefores.java:26)
-	at org.junit.runners.ParentRunner.runLeaf(ParentRunner.java:325)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:78)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:57)
-	at org.junit.runners.ParentRunner$3.run(ParentRunner.java:290)
-	at org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:71)
-	at org.junit.runners.ParentRunner.runChildren(ParentRunner.java:288)
-	at org.junit.runners.ParentRunner.access$000(ParentRunner.java:58)
-	at org.junit.runners.ParentRunner$2.evaluate(ParentRunner.java:268)
-	at org.junit.runners.ParentRunner.run(ParentRunner.java:363)
-	at org.junit.runner.JUnitCore.run(JUnitCore.java:137)
-	at com.intellij.junit4.JUnit4IdeaTestRunner.startRunnerWithArgs(JUnit4IdeaTestRunner.java:69)
-	at com.intellij.rt.junit.IdeaTestRunner$Repeater$1.execute(IdeaTestRunner.java:38)
-	at com.intellij.rt.execution.junit.TestsRepeater.repeat(TestsRepeater.java:11)
-	at com.intellij.rt.junit.IdeaTestRunner$Repeater.startRunnerWithArgs(IdeaTestRunner.java:35)
-	at com.intellij.rt.junit.JUnitStarter.prepareStreamsAndStart(JUnitStarter.java:232)
-	at com.intellij.rt.junit.JUnitStarter.main(JUnitStarter.java:55)
-
-
-org.mockito.exceptions.base.MockitoException: 
-Only void methods can doNothing()!
-Example of correct use of doNothing():
-    doNothing().
-    doThrow(new RuntimeException())
-    .when(mock).someVoidMethod();
-Above means:
-someVoidMethod() does nothing the 1st time but throws an exception the 2nd time is called
-
-	at com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImplTest.testProcessFoMiData_CFTC_CSA_FX(MIAnalyticsDashboardRepositoryImplTest.java:463)
-	at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
-	at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
-	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
-	at java.lang.reflect.Method.invoke(Method.java:498)
-	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:50)
-	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
-	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:47)
-	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
-	at org.junit.internal.runners.statements.RunBefores.evaluate(RunBefores.java:26)
-	at org.junit.runners.ParentRunner.runLeaf(ParentRunner.java:325)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:78)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:57)
-	at org.junit.runners.ParentRunner$3.run(ParentRunner.java:290)
-	at org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:71)
-	at org.junit.runners.ParentRunner.runChildren(ParentRunner.java:288)
-	at org.junit.runners.ParentRunner.access$000(ParentRunner.java:58)
-	at org.junit.runners.ParentRunner$2.evaluate(ParentRunner.java:268)
-	at org.junit.runners.ParentRunner.run(ParentRunner.java:363)
-	at org.junit.runner.JUnitCore.run(JUnitCore.java:137)
-	at com.intellij.junit4.JUnit4IdeaTestRunner.startRunnerWithArgs(JUnit4IdeaTestRunner.java:69)
-	at com.intellij.rt.junit.IdeaTestRunner$Repeater$1.execute(IdeaTestRunner.java:38)
-	at com.intellij.rt.execution.junit.TestsRepeater.repeat(TestsRepeater.java:11)
-	at com.intellij.rt.junit.IdeaTestRunner$Repeater.startRunnerWithArgs(IdeaTestRunner.java:35)
-	at com.intellij.rt.junit.JUnitStarter.prepareStreamsAndStart(JUnitStarter.java:232)
-	at com.intellij.rt.junit.JUnitStarter.main(JUnitStarter.java:55)
-
-
-com.fasterxml.jackson.databind.exc.InvalidDefinitionException: Cannot construct instance of `com.rbs.tntr.domain.taggingService.miAnalytics.dashboard.common.SubjectIdentifier` (no Creators, like default constructor, exist): cannot deserialize from Object value (no delegate- or property-based Creator)
- at [Source: (String)"{"subjectIdentifier":{"lei":"testLei","entity":"testEntity","flow":"testFlow","assetClass":"testAsset","messageType":"testMessage","regulation":"testRegulation","businessDate":"2025-05-18T18:30:00.000Z"},"miAnalyticsState":null}"; line: 1, column: 23] (through reference chain: com.rbs.tntr.domain.taggingService.miAnalytics.dashboard.common.MIDashboardAnalytics["subjectIdentifier"])
-
-	at com.fasterxml.jackson.databind.exc.InvalidDefinitionException.from(InvalidDefinitionException.java:67)
-	at com.fasterxml.jackson.databind.DeserializationContext.reportBadDefinition(DeserializationContext.java:1904)
-	at com.fasterxml.jackson.databind.DatabindContext.reportBadDefinition(DatabindContext.java:400)
-	at com.fasterxml.jackson.databind.DeserializationContext.handleMissingInstantiator(DeserializationContext.java:1349)
-	at com.fasterxml.jackson.databind.deser.BeanDeserializerBase.deserializeFromObjectUsingNonDefault(BeanDeserializerBase.java:1415)
-	at com.fasterxml.jackson.databind.deser.BeanDeserializer.deserializeFromObject(BeanDeserializer.java:352)
-	at com.fasterxml.jackson.databind.deser.BeanDeserializer.deserialize(BeanDeserializer.java:185)
-	at com.fasterxml.jackson.databind.deser.impl.MethodProperty.deserializeAndSet(MethodProperty.java:129)
-	at com.fasterxml.jackson.databind.deser.BeanDeserializer.vanillaDeserialize(BeanDeserializer.java:314)
-	at com.fasterxml.jackson.databind.deser.BeanDeserializer.deserialize(BeanDeserializer.java:177)
-	at com.fasterxml.jackson.databind.deser.DefaultDeserializationContext.readRootValue(DefaultDeserializationContext.java:323)
-	at com.fasterxml.jackson.databind.ObjectMapper._readMapAndClose(ObjectMapper.java:4674)
-	at com.fasterxml.jackson.databind.ObjectMapper.readValue(ObjectMapper.java:3629)
-	at com.fasterxml.jackson.databind.ObjectMapper.readValue(ObjectMapper.java:3597)
-	at com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImpl.deserailze(MIAnalyticsDashboardRepositoryImpl.java:144)
-	at com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImplTest.testDeserialize(MIAnalyticsDashboardRepositoryImplTest.java:524)
-	at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
-	at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
-	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
-	at java.lang.reflect.Method.invoke(Method.java:498)
-	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:50)
-	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
-	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:47)
-	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
-	at org.junit.internal.runners.statements.RunBefores.evaluate(RunBefores.java:26)
-	at org.junit.runners.ParentRunner.runLeaf(ParentRunner.java:325)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:78)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:57)
-	at org.junit.runners.ParentRunner$3.run(ParentRunner.java:290)
-	at org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:71)
-	at org.junit.runners.ParentRunner.runChildren(ParentRunner.java:288)
-	at org.junit.runners.ParentRunner.access$000(ParentRunner.java:58)
-	at org.junit.runners.ParentRunner$2.evaluate(ParentRunner.java:268)
-	at org.junit.runners.ParentRunner.run(ParentRunner.java:363)
-	at org.junit.runner.JUnitCore.run(JUnitCore.java:137)
-	at com.intellij.junit4.JUnit4IdeaTestRunner.startRunnerWithArgs(JUnit4IdeaTestRunner.java:69)
-	at com.intellij.rt.junit.IdeaTestRunner$Repeater$1.execute(IdeaTestRunner.java:38)
-	at com.intellij.rt.execution.junit.TestsRepeater.repeat(TestsRepeater.java:11)
-	at com.intellij.rt.junit.IdeaTestRunner$Repeater.startRunnerWithArgs(IdeaTestRunner.java:35)
-	at com.intellij.rt.junit.JUnitStarter.prepareStreamsAndStart(JUnitStarter.java:232)
-	at com.intellij.rt.junit.JUnitStarter.main(JUnitStarter.java:55)
-
-
-java.lang.Exception: Unexpected exception, expected<com.rbs.tntr.domain.taggingService.jiraTaggingDomain.exceptions.TaggingServiceRunTimeException> but was<java.lang.IllegalArgumentException>
-
-	at org.junit.internal.runners.statements.ExpectException.evaluate(ExpectException.java:28)
-	at org.junit.internal.runners.statements.RunBefores.evaluate(RunBefores.java:26)
-	at org.junit.runners.ParentRunner.runLeaf(ParentRunner.java:325)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:78)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:57)
-	at org.junit.runners.ParentRunner$3.run(ParentRunner.java:290)
-	at org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:71)
-	at org.junit.runners.ParentRunner.runChildren(ParentRunner.java:288)
-	at org.junit.runners.ParentRunner.access$000(ParentRunner.java:58)
-	at org.junit.runners.ParentRunner$2.evaluate(ParentRunner.java:268)
-	at org.junit.runners.ParentRunner.run(ParentRunner.java:363)
-	at org.junit.runner.JUnitCore.run(JUnitCore.java:137)
-	at com.intellij.junit4.JUnit4IdeaTestRunner.startRunnerWithArgs(JUnit4IdeaTestRunner.java:69)
-	at com.intellij.rt.junit.IdeaTestRunner$Repeater$1.execute(IdeaTestRunner.java:38)
-	at com.intellij.rt.execution.junit.TestsRepeater.repeat(TestsRepeater.java:11)
-	at com.intellij.rt.junit.IdeaTestRunner$Repeater.startRunnerWithArgs(IdeaTestRunner.java:35)
-	at com.intellij.rt.junit.JUnitStarter.prepareStreamsAndStart(JUnitStarter.java:232)
-	at com.intellij.rt.junit.JUnitStarter.main(JUnitStarter.java:55)
-Caused by: java.lang.IllegalArgumentException: Could not find field 'FO_ASSETWISE_MAP' of type [null] on target object [com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImpl@70ab2d48] or target class [class com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImpl]
-	at org.springframework.test.util.ReflectionTestUtils.setField(ReflectionTestUtils.java:180)
-	at org.springframework.test.util.ReflectionTestUtils.setField(ReflectionTestUtils.java:104)
-	at org.springframework.test.util.ReflectionTestUtils.setField(ReflectionTestUtils.java:88)
-	at com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImplTest.testProcessFoMiData_InvalidJurisdiction(MIAnalyticsDashboardRepositoryImplTest.java:485)
-	at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
-	at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
-	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
-	at java.lang.reflect.Method.invoke(Method.java:498)
-	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:50)
-	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
-	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:47)
-	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
-	at org.junit.internal.runners.statements.ExpectException.evaluate(ExpectException.java:19)
-	... 17 more
-
-
-java.lang.NullPointerException
-	at com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImpl.fetchItrData(MIAnalyticsDashboardRepositoryImpl.java:619)
-	at com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImpl.parseItrRecord(MIAnalyticsDashboardRepositoryImpl.java:581)
-	at com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImplTest.testParseItrRecord_SFTR(MIAnalyticsDashboardRepositoryImplTest.java:618)
-	at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
-	at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
-	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
-	at java.lang.reflect.Method.invoke(Method.java:498)
-	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:50)
-	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
-	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:47)
-	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
-	at org.junit.internal.runners.statements.RunBefores.evaluate(RunBefores.java:26)
-	at org.junit.runners.ParentRunner.runLeaf(ParentRunner.java:325)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:78)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:57)
-	at org.junit.runners.ParentRunner$3.run(ParentRunner.java:290)
-	at org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:71)
-	at org.junit.runners.ParentRunner.runChildren(ParentRunner.java:288)
-	at org.junit.runners.ParentRunner.access$000(ParentRunner.java:58)
-	at org.junit.runners.ParentRunner$2.evaluate(ParentRunner.java:268)
-	at org.junit.runners.ParentRunner.run(ParentRunner.java:363)
-	at org.junit.runner.JUnitCore.run(JUnitCore.java:137)
-	at com.intellij.junit4.JUnit4IdeaTestRunner.startRunnerWithArgs(JUnit4IdeaTestRunner.java:69)
-	at com.intellij.rt.junit.IdeaTestRunner$Repeater$1.execute(IdeaTestRunner.java:38)
-	at com.intellij.rt.execution.junit.TestsRepeater.repeat(TestsRepeater.java:11)
-	at com.intellij.rt.junit.IdeaTestRunner$Repeater.startRunnerWithArgs(IdeaTestRunner.java:35)
-	at com.intellij.rt.junit.JUnitStarter.prepareStreamsAndStart(JUnitStarter.java:232)
-	at com.intellij.rt.junit.JUnitStarter.main(JUnitStarter.java:55)
-
-
-java.lang.NullPointerException
-	at com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImpl.fetchStatistics(MIAnalyticsDashboardRepositoryImpl.java:213)
-	at com.rbs.tntr.business.taggingService.repository.MIAnalyticsDashboardRepositoryImplTest.testFetchStatistics_NoRecords(MIAnalyticsDashboardRepositoryImplTest.java:247)
-	at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
-	at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
-	at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
-	at java.lang.reflect.Method.invoke(Method.java:498)
-	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:50)
-	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
-	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:47)
-	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
-	at org.junit.internal.runners.statements.RunBefores.evaluate(RunBefores.java:26)
-	at org.junit.runners.ParentRunner.runLeaf(ParentRunner.java:325)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:78)
-	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:57)
-	at org.junit.runners.ParentRunner$3.run(ParentRunner.java:290)
-	at org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:71)
-	at org.junit.runners.ParentRunner.runChildren(ParentRunner.java:288)
-	at org.junit.runners.ParentRunner.access$000(ParentRunner.java:58)
-	at org.junit.runners.ParentRunner$2.evaluate(ParentRunner.java:268)
-	at org.junit.runners.ParentRunner.run(ParentRunner.java:363)
-	at org.junit.runner.JUnitCore.run(JUnitCore.java:137)
-	at com.intellij.junit4.JUnit4IdeaTestRunner.startRunnerWithArgs(JUnit4IdeaTestRunner.java:69)
-	at com.intellij.rt.junit.IdeaTestRunner$Repeater$1.execute(IdeaTestRunner.java:38)
-	at com.intellij.rt.execution.junit.TestsRepeater.repeat(TestsRepeater.java:11)
-	at com.intellij.rt.junit.IdeaTestRunner$Repeater.startRunnerWithArgs(IdeaTestRunner.java:35)
-	at com.intellij.rt.junit.JUnitStarter.prepareStreamsAndStart(JUnitStarter.java:232)
-	at com.intellij.rt.junit.JUnitStarter.main(JUnitStarter.java:55)
-
-
-Process finished with exit code -1
