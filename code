@@ -1,379 +1,169 @@
-package com.rbs.tntr.business.taggingService.service.common;
+Could you write all the test cases for below java class to cover all the scenarios or methods and make the test coverage or code coverage as 100% using junit 4 and old mockito version and java 8:
 
-import static org.junit.Assert.*;
-import static org.mockito.Matchers.*;
-import static org.mockito.Mockito.*;
+package com.rbs.tntr.business.taggingService.transformer;
 
-import java.io.ByteArrayInputStream;
-import java.io.InputStream;
-import java.net.URL;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.List;
-import java.util.function.Consumer;
+import java.util.Map;
+import java.util.Properties;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.nwm.tntr.configuration.ItrConfiguration;
-import com.nwm.tntr.itr.IQuery;
-import com.rbs.tntr.business.taggingService.configuration.TaggingAuthenticationService;
-import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.Itr2Query;
-import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.exceptions.TaggingServiceRunTimeException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
 
+import com.nwm.tntr.commons.domain.JiraReference;
+import com.nwm.tntr.commons.domain.WorkflowType;
+import com.nwm.tntr.commons.enums.ApiQueryFilter;
+import com.nwm.tntr.commons.enums.TntrCallerService;
+import com.nwm.tntr.commons.enums.TntrFieldsReadUpdateEnum;
+import com.nwm.tntr.commons.repository.domain.ReportingTemplate;
+import com.nwm.tntr.commons.repository.domain.RepositoryAction;
+import com.nwm.tntr.commons.repository.domain.TntrRepositoryReadCommandContext;
+import com.nwm.tntr.commons.repository.domain.TntrRepositoryReadCommandResult;
+import com.nwm.tntr.commons.repository.domain.TntrRepositoryUpdateCommandContext;
+import com.nwm.tntr.commons.repository.domain.TntrRepositoryUpdateCommandResult;
+import com.nwm.tntr.commons.repository.util.TntrTdxNodeBuilderUtil;
+import com.rbs.tntr.api.taggingService.service.jiraAssignement.TntrTradeTransformer;
+import com.rbs.tntr.business.taggingService.service.common.DateTimeService;
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.JiraTaggingDetail;
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.enums.FlowType;
+
+/**
+ * Created by matbina on 21/05/2020.
+ */
+@Component
+public class TntrTradeTransformerImpl implements TntrTradeTransformer {
+    private static final Logger LOGGER = LoggerFactory.getLogger(TntrTradeTransformerImpl.class);
+
+    private final static String TAGGING_SERVICE= "tagging-service";
+
+    @Override
+    public int getRecords(String whereExpression, FlowType workflowType, String indexHint, JiraReference jiraReference){
+        EnumMap<ApiQueryFilter, Object> apiQueryFilterMap = new EnumMap<>(ApiQueryFilter.class);
+        apiQueryFilterMap.put(ApiQueryFilter.WHERE, whereExpression);
+        apiQueryFilterMap.put(ApiQueryFilter.HISTORY, false);
+        apiQueryFilterMap.put(ApiQueryFilter.INDEX_HINT, indexHint);
+
+        ReportingTemplate reportingTemplate;
+        List<TntrFieldsReadUpdateEnum> attributes = new ArrayList<>();
+
+        if(workflowType.getValue().equalsIgnoreCase(FlowType.AGGREGATED_COLLATERAL.getValue())) {
+            reportingTemplate = ReportingTemplate.COLLATERAL;
+            attributes.add(TntrFieldsReadUpdateEnum.COLLATERAL_REPORTING_GRP);
+            attributes.add(TntrFieldsReadUpdateEnum.SUPPLEMENTARY_INFORMATION);
+        } else {
+            reportingTemplate = ReportingTemplate.TRADE;
+            attributes.add(TntrFieldsReadUpdateEnum.TRANSACTION_ID);
+            attributes.add(TntrFieldsReadUpdateEnum.SUPPLEMENTARY_INFORMATION);
+        }
+
+        TntrRepositoryReadCommandContext tntrTradeRepositoryReadCommandContext = new TntrRepositoryReadCommandContext(apiQueryFilterMap, attributes);
+        tntrTradeRepositoryReadCommandContext.setTntrCallerService(TntrCallerService.TAGGING_SERVICE);
+        if(workflowType.getValue().equalsIgnoreCase(FlowType.COLLATERAL.getValue())
+                || workflowType.getValue().equalsIgnoreCase(FlowType.VALUATION.getValue())) {
+
+            tntrTradeRepositoryReadCommandContext.setWorkflowType(WorkflowType.VALUATIONS);
+        }
+
+        TntrRepositoryReadCommandResult result = (TntrRepositoryReadCommandResult) reportingTemplate
+                .getRepositoryCommandFactory()
+                .getCommand(RepositoryAction.READ_ALL)
+                .execute(tntrTradeRepositoryReadCommandContext);
+
+        if(result.getTradeList().size() > 0){
+            return getRecordCount(result, jiraReference);
+        }
+        return 0;
+    }
+
+    private int getRecordCount(TntrRepositoryReadCommandResult result, JiraReference jiraReference){
+        int count = 0;
+        List<Map<TntrFieldsReadUpdateEnum, Object>> tradeList = result.getTradeList();
+        for(Map<TntrFieldsReadUpdateEnum, Object> map : tradeList){
+            Map<String, Object> suppMap = (Map<String, Object>) map.get(TntrFieldsReadUpdateEnum.SUPPLEMENTARY_INFORMATION);
+            boolean isPresent = TntrTdxNodeBuilderUtil.isJiraIdPresentInUserWorkflow(
+                    suppMap,
+                    TntrFieldsReadUpdateEnum.JIRA_REFERENCES.getValue(),
+                    jiraReference);
+            if(!isPresent){
+                count++;
+            }
+        }
+        return count;
+    }
+
+    @Override
+    public TntrRepositoryUpdateCommandResult executeUpdateTrades(String whereExpression, JiraReference jiraReference, JiraTaggingDetail jiraTaggingDetail, FlowType workflowType) {
+        Properties propToUpdate= new Properties();
+        propToUpdate.put(TntrFieldsReadUpdateEnum.JIRA_REFERENCES.getValue(), jiraReference);
+        propToUpdate.put(TntrFieldsReadUpdateEnum.JIRA_TAGGING_DETAILS.getValue(), jiraTaggingDetail);
+        propToUpdate.put(TntrFieldsReadUpdateEnum.MODIFIED_BY.getValue(), TAGGING_SERVICE);
+		propToUpdate.put(TntrFieldsReadUpdateEnum.MODIFIED_ON.getValue(), DateTimeService.getCurrentDateTime());
+
+        TntrRepositoryUpdateCommandContext tntrTradeRepositoryUpdateCommandContext = new TntrRepositoryUpdateCommandContext(whereExpression, propToUpdate, TntrCallerService.TAGGING_SERVICE);
+        if(workflowType.getValue().equalsIgnoreCase(FlowType.COLLATERAL.getValue()) || workflowType.getValue().equalsIgnoreCase(FlowType.VALUATION.getValue())) {
+            tntrTradeRepositoryUpdateCommandContext.setWorkflowType(WorkflowType.VALUATIONS);
+        }else if(workflowType.getValue().equalsIgnoreCase(FlowType.TRADE.getValue())){
+            tntrTradeRepositoryUpdateCommandContext.setWorkflowType(WorkflowType.TRADE);
+        }
+
+        ReportingTemplate reportingTemplate;
+        if(workflowType.getValue().equalsIgnoreCase(FlowType.AGGREGATED_COLLATERAL.getValue())) {
+            reportingTemplate = ReportingTemplate.COLLATERAL;
+        } else {
+            reportingTemplate = ReportingTemplate.TRADE;
+        }
+
+        TntrRepositoryUpdateCommandResult result = (TntrRepositoryUpdateCommandResult) reportingTemplate
+                .getRepositoryCommandFactory()
+                .getCommand(RepositoryAction.UPDATE)
+                .execute(tntrTradeRepositoryUpdateCommandContext);
+
+        return result;
+    }
+}
+
+
+Exisitng test class:
+
+package com.rbs.tntr.business.taggingService.transformer;
+
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.JiraTaggingDetail;
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.enums.FlowType;
+import com.nwm.tntr.commons.domain.JiraReference;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
-import org.mockito.invocation.InvocationOnMock;
-import org.mockito.runners.MockitoJUnitRunner;
-import org.mockito.stubbing.Answer;
-import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.http.*;
-import org.springframework.http.client.ClientHttpResponse;
-import org.springframework.web.client.*;
+import static org.mockito.Mockito.*;
 
-@RunWith(MockitoJUnitRunner.class)
-public class ItrClientImplTest {
+public class TntrTradeTransformerImplTest {
 
-    @Mock
-    private RestTemplate restTemplate;
-
-    @Mock
-    private TaggingAuthenticationService authenticationService;
-
-    @Mock
-    private ItrConfiguration itrConfiguration;
-    
-    @Mock
-    private ClientHttpResponse clientHttpResponse;
-
-    @InjectMocks
-    private ItrClientImpl itrClientImpl;
-
-    private URL url;
-    private Itr2Query itr2Query;
-    private IQuery iQuery;
-    private String urlString;
-    private List<String> mockResponse;
+    private TntrTradeTransformerImpl transformer;
 
     @Before
-    public void setUp() throws Exception {
-        MockitoAnnotations.initMocks(this);
-        url = new URL("http://test-url.com");
-        urlString = "http://test-url.com";
-        itr2Query = mock(Itr2Query.class);
-        iQuery = mock(IQuery.class);
-        mockResponse = new ArrayList<>();
-        mockResponse.add("Test response");
-        
-        when(itrConfiguration.getItr2SsoPermission()).thenReturn("TEST_PERMISSION");
-        when(authenticationService.getApplicationSsoToken(anyString())).thenReturn("TEST_SSO_TOKEN");
+    public void setUp() {
+        transformer = new TntrTradeTransformerImpl();
     }
 
-    @Test
-    public void testFetchWithUrlAndItr2Query() {
-        // Setup
-        ResponseEntity<List<String>> responseEntity = new ResponseEntity<>(mockResponse, HttpStatus.OK);
-        
-        when(restTemplate.exchange(
-                eq(url.toString()),
-                eq(HttpMethod.POST),
-                any(HttpEntity.class),
-                any(ParameterizedTypeReference.class)))
-                .thenReturn(responseEntity);
+    @Test(expected = NullPointerException.class)
+    public void testExecuteUpdateTrades_NullJiraReference() {
+        // Prepare
+        String whereExpression = "status=active";
+        JiraTaggingDetail jiraTaggingDetail = new JiraTaggingDetail();
+        FlowType workflowType = FlowType.TRADE;
 
         // Execute
-        List<String> result = itrClientImpl.fetch(url, itr2Query, String.class);
-
-        // Verify
-        assertNotNull(result);
-        assertEquals(mockResponse, result);
-        verify(authenticationService).getApplicationSsoToken(anyString());
-        verify(itrConfiguration).getItr2SsoPermission();
-        verify(restTemplate).exchange(
-                eq(url.toString()),
-                eq(HttpMethod.POST),
-                any(HttpEntity.class),
-                any(ParameterizedTypeReference.class));
+        transformer.executeUpdateTrades(whereExpression, null, jiraTaggingDetail, workflowType);
     }
 
-    @Test
-    public void testFetchWithStringUrlAndItr2Query() throws Exception {
-        // Setup
-        final ByteArrayInputStream inputStream = new ByteArrayInputStream("test data".getBytes());
-        final Consumer<InputStream> streamConsumer = mock(Consumer.class);
-        
-        when(clientHttpResponse.getBody()).thenReturn(inputStream);
-        
-        when(restTemplate.execute(
-                eq(urlString),
-                eq(HttpMethod.POST),
-                any(JsonRequestCallback.class),
-                any(ResponseExtractor.class)))
-                .thenAnswer(new Answer<Object>() {
-                    @Override
-                    public Object answer(InvocationOnMock invocation) throws Throwable {
-                        ResponseExtractor<?> extractor = invocation.getArgumentAt(3, ResponseExtractor.class);
-                        extractor.extractData(clientHttpResponse);
-                        return null;
-                    }
-                });
+    @Test(expected = NullPointerException.class)
+    public void testExecuteUpdateTrades_NullJiraTaggingDetail() {
+        // Prepare
+        String whereExpression = "status=active";
+        JiraReference jiraReference = mock(JiraReference.class);
+        FlowType workflowType = FlowType.TRADE;
 
         // Execute
-        List<String> result = itrClientImpl.fetch(urlString, itr2Query, streamConsumer);
-
-        // Verify
-        assertNull(result);
-        verify(streamConsumer).accept(inputStream);
-        verify(clientHttpResponse).getBody();
-    }
-
-    @Test
-    public void testFetchWithStringUrlAndIQuery() throws Exception {
-        // Setup
-        final ByteArrayInputStream inputStream = new ByteArrayInputStream("test data".getBytes());
-        final Consumer<InputStream> streamConsumer = mock(Consumer.class);
-        
-        when(clientHttpResponse.getBody()).thenReturn(inputStream);
-        
-        when(restTemplate.execute(
-                eq(urlString),
-                eq(HttpMethod.POST),
-                any(JsonRequestCallback.class),
-                any(ResponseExtractor.class)))
-                .thenAnswer(new Answer<Object>() {
-                    @Override
-                    public Object answer(InvocationOnMock invocation) throws Throwable {
-                        ResponseExtractor<?> extractor = invocation.getArgumentAt(3, ResponseExtractor.class);
-                        extractor.extractData(clientHttpResponse);
-                        return null;
-                    }
-                });
-
-        // Execute
-        List<String> result = itrClientImpl.fetch(urlString, iQuery, streamConsumer);
-
-        // Verify
-        assertNull(result);
-        verify(streamConsumer).accept(inputStream);
-        verify(clientHttpResponse).getBody();
-    }
-
-    @Test(expected = HttpClientErrorException.class)
-    public void testFetchWithUrlThrowsHttpClientErrorException() {
-        // Setup
-        HttpClientErrorException exception = new HttpClientErrorException(HttpStatus.BAD_REQUEST, "Bad Request", "Error".getBytes(), null);
-        
-        when(restTemplate.exchange(
-                eq(url.toString()),
-                eq(HttpMethod.POST),
-                any(HttpEntity.class),
-                any(ParameterizedTypeReference.class)))
-                .thenThrow(exception);
-
-        // Execute - should throw exception
-        itrClientImpl.fetch(url, itr2Query, String.class);
-    }
-
-    @Test(expected = HttpServerErrorException.class)
-    public void testFetchWithUrlThrowsHttpServerErrorException() {
-        // Setup
-        HttpServerErrorException exception = new HttpServerErrorException(HttpStatus.INTERNAL_SERVER_ERROR, "Server Error", "Error".getBytes(), null);
-        
-        when(restTemplate.exchange(
-                eq(url.toString()),
-                eq(HttpMethod.POST),
-                any(HttpEntity.class),
-                any(ParameterizedTypeReference.class)))
-                .thenThrow(exception);
-
-        // Execute - should throw exception
-        itrClientImpl.fetch(url, itr2Query, String.class);
-    }
-
-    @Test(expected = UnknownHttpStatusCodeException.class)
-    public void testFetchWithUrlThrowsUnknownHttpStatusCodeException() {
-        // Setup
-        UnknownHttpStatusCodeException exception = new UnknownHttpStatusCodeException(999, "Unknown", HttpHeaders.EMPTY, "Error".getBytes(), null);
-        
-        when(restTemplate.exchange(
-                eq(url.toString()),
-                eq(HttpMethod.POST),
-                any(HttpEntity.class),
-                any(ParameterizedTypeReference.class)))
-                .thenThrow(exception);
-
-        // Execute - should throw exception
-        itrClientImpl.fetch(url, itr2Query, String.class);
-    }
-
-    @Test(expected = RuntimeException.class)
-    public void testFetchWithUrlThrowsGenericException() {
-        // Setup
-        RuntimeException exception = new RuntimeException("Generic error");
-        
-        when(restTemplate.exchange(
-                eq(url.toString()),
-                eq(HttpMethod.POST),
-                any(HttpEntity.class),
-                any(ParameterizedTypeReference.class)))
-                .thenThrow(exception);
-
-        // Execute - should throw exception
-        itrClientImpl.fetch(url, itr2Query, String.class);
-    }
-
-    @Test(expected = HttpClientErrorException.class)
-    public void testFetchWithStringUrlAndItr2QueryThrowsHttpClientErrorException() {
-        // Setup
-        HttpClientErrorException exception = new HttpClientErrorException(HttpStatus.BAD_REQUEST, "Bad Request", "Error".getBytes(), null);
-        final Consumer<InputStream> streamConsumer = mock(Consumer.class);
-        
-        when(restTemplate.execute(
-                eq(urlString),
-                eq(HttpMethod.POST),
-                any(JsonRequestCallback.class),
-                any(ResponseExtractor.class)))
-                .thenThrow(exception);
-
-        // Execute - should throw exception
-        itrClientImpl.fetch(urlString, itr2Query, streamConsumer);
-    }
-
-    @Test(expected = HttpServerErrorException.class)
-    public void testFetchWithStringUrlAndItr2QueryThrowsHttpServerErrorException() {
-        // Setup
-        HttpServerErrorException exception = new HttpServerErrorException(HttpStatus.INTERNAL_SERVER_ERROR, "Server Error", "Error".getBytes(), null);
-        final Consumer<InputStream> streamConsumer = mock(Consumer.class);
-        
-        when(restTemplate.execute(
-                eq(urlString),
-                eq(HttpMethod.POST),
-                any(JsonRequestCallback.class),
-                any(ResponseExtractor.class)))
-                .thenThrow(exception);
-
-        // Execute - should throw exception
-        itrClientImpl.fetch(urlString, itr2Query, streamConsumer);
-    }
-
-    @Test(expected = UnknownHttpStatusCodeException.class)
-    public void testFetchWithStringUrlAndItr2QueryThrowsUnknownHttpStatusCodeException() {
-        // Setup
-        UnknownHttpStatusCodeException exception = new UnknownHttpStatusCodeException(999, "Unknown", HttpHeaders.EMPTY, "Error".getBytes(), null);
-        final Consumer<InputStream> streamConsumer = mock(Consumer.class);
-        
-        when(restTemplate.execute(
-                eq(urlString),
-                eq(HttpMethod.POST),
-                any(JsonRequestCallback.class),
-                any(ResponseExtractor.class)))
-                .thenThrow(exception);
-
-        // Execute - should throw exception
-        itrClientImpl.fetch(urlString, itr2Query, streamConsumer);
-    }
-
-    @Test(expected = RuntimeException.class)
-    public void testFetchWithStringUrlAndItr2QueryThrowsGenericException() {
-        // Setup
-        RuntimeException exception = new RuntimeException("Generic error");
-        final Consumer<InputStream> streamConsumer = mock(Consumer.class);
-        
-        when(restTemplate.execute(
-                eq(urlString),
-                eq(HttpMethod.POST),
-                any(JsonRequestCallback.class),
-                any(ResponseExtractor.class)))
-                .thenThrow(exception);
-
-        // Execute - should throw exception
-        itrClientImpl.fetch(urlString, itr2Query, streamConsumer);
-    }
-
-    @Test(expected = HttpClientErrorException.class)
-    public void testFetchWithStringUrlAndIQueryThrowsHttpClientErrorException() {
-        // Setup
-        HttpClientErrorException exception = new HttpClientErrorException(HttpStatus.BAD_REQUEST, "Bad Request", "Error".getBytes(), null);
-        final Consumer<InputStream> streamConsumer = mock(Consumer.class);
-        
-        when(restTemplate.execute(
-                eq(urlString),
-                eq(HttpMethod.POST),
-                any(JsonRequestCallback.class),
-                any(ResponseExtractor.class)))
-                .thenThrow(exception);
-
-        // Execute - should throw exception
-        itrClientImpl.fetch(urlString, iQuery, streamConsumer);
-    }
-
-    @Test(expected = TaggingServiceRunTimeException.class)
-    public void testGetJsonBodyThrowsJsonProcessingException() throws Exception {
-        // Setup - Create a spy to test the private method
-        ItrClientImpl spy = spy(itrClientImpl);
-        
-        doThrow(new JsonProcessingException("Test exception") {
-            private static final long serialVersionUID = 1L;
-        }).when(spy).fetch(any(URL.class), any(Itr2Query.class), any(Class.class));
-        
-        // Prepare a malformed object that would cause JsonProcessingException
-        Object badObject = new Object() {
-            @Override
-            public String toString() {
-                throw new RuntimeException("Bad object");
-            }
-        };
-        
-        // Force the exception in the spy by calling the method with the bad object
-        spy.fetch(url, itr2Query, String.class);
-    }
-
-    @Test
-    public void testResponseWithNonOkStatus() {
-        // Setup
-        ResponseEntity<List<String>> responseEntity = new ResponseEntity<>(HttpStatus.NOT_FOUND);
-        
-        when(restTemplate.exchange(
-                eq(url.toString()),
-                eq(HttpMethod.POST),
-                any(HttpEntity.class),
-                any(ParameterizedTypeReference.class)))
-                .thenReturn(responseEntity);
-        
-        try {
-            // Execute
-            itrClientImpl.fetch(url, itr2Query, String.class);
-            fail("Expected exception was not thrown");
-        } catch (IllegalStateException e) {
-            // Verify exception message
-            assertEquals("Unable to fetch data from Itr", e.getMessage());
-        }
-    }
-
-    @Test
-    public void testHeadersAreCorrectlySet() {
-        // Setup
-        ResponseEntity<List<String>> responseEntity = new ResponseEntity<>(mockResponse, HttpStatus.OK);
-        ArgumentCaptor<HttpEntity> httpEntityCaptor = ArgumentCaptor.forClass(HttpEntity.class);
-        
-        when(restTemplate.exchange(
-                eq(url.toString()),
-                eq(HttpMethod.POST),
-                httpEntityCaptor.capture(),
-                any(ParameterizedTypeReference.class)))
-                .thenReturn(responseEntity);
-        
-        // Execute
-        itrClientImpl.fetch(url, itr2Query, String.class);
-        
-        // Verify headers
-        HttpEntity<?> capturedEntity = httpEntityCaptor.getValue();
-        HttpHeaders headers = capturedEntity.getHeaders();
-        
-        assertEquals(MediaType.APPLICATION_JSON, headers.getContentType());
-        assertEquals("TEST_SSO_TOKEN", headers.getFirst("sso-token"));
-        assertNotNull(headers.getFirst("RequestId"));
+        transformer.executeUpdateTrades(whereExpression, jiraReference, null, workflowType);
     }
 }
