@@ -1,452 +1,264 @@
-package com.rbs.tntr.business.taggingService.service.trigger;
+Could you write all the test cases for below java class to cover all the scenarios or methods and make the test coverage or code coverage as 100% using junit 4 and old mockito version and java 8:
 
-import com.fasterxml.jackson.core.JsonProcessingException;
+package com.rbs.tntr.business.taggingService.df;
+
+import com.google.common.base.Stopwatch;
 import com.google.common.collect.Lists;
-import com.nwm.tntr.commons.repository.df.DfConnectionManager;
-import com.rbs.datafabric.agile.commons.lang.StartableException;
-import com.rbs.datafabric.api.ScanResult;
-import com.rbs.datafabric.api.exception.GetException;
-import com.rbs.datafabric.api.exception.OptimisticLockException;
-import com.rbs.datafabric.api.exception.ScanException;
-import com.rbs.datafabric.api.exception.UpsertException;
-import com.rbs.datafabric.client.DataFabricClient;
-import com.rbs.datafabric.common.DataFabricSerializerException;
-import com.rbs.datafabric.domain.*;
-import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.enums.FlowType;
+import com.nwm.tntr.commons.domain.persistence.entity.trade.TradeReport;
+import com.nwm.tntr.commons.domain.persistence.entity.trade.TradeReportDocument;
+import com.nwm.tntr.commons.domain.persistence.request.QueryParams;
+import com.nwm.tntr.commons.repository.regreporting.WriteResult;
+import com.nwm.tntr.commons.repository.regreporting.trade.TradeReportDocumentRepository;
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.exceptions.TaggingServiceRunTimeException;
+import org.apache.commons.lang3.tuple.Pair;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * Class to persist payload/fpml in DF
+ *
+ */
+public class DfTradePersistManager {
+
+    TradeReportDocumentRepository tradeReportDocumentRepository;
+    int dfPersistBatchSize;
+    private static final Logger logger = LoggerFactory.getLogger(DfTradePersistManager.class);
+
+    /**
+     * Constructor for DfPersistManager
+     * @param tradeReportDocumentRepository - new DF api trade data
+     */
+    public DfTradePersistManager(TradeReportDocumentRepository tradeReportDocumentRepository, int dfPersistBatchSize){
+        this.tradeReportDocumentRepository = tradeReportDocumentRepository;
+        this.dfPersistBatchSize = dfPersistBatchSize;
+    }
+
+
+    public List<TradeReportDocument> getAllRecords(QueryParams queryParams) throws TaggingServiceRunTimeException {
+        try {
+            return tradeReportDocumentRepository.findAllByQuery(queryParams);
+        } catch (Exception e) {
+            logger.error("Error occured while reading records from df. ", e);
+            throw new TaggingServiceRunTimeException("Error occured while reading records from df. ", e);
+        }
+    }
+
+    public List<WriteResult<TradeReport>> saveAllRecords(List<Pair<TradeReport, Long>> reportsWithExpectedBaseVersions) throws TaggingServiceRunTimeException {
+        try {
+            List<WriteResult<TradeReport>> writeResults = new ArrayList<>();
+            List<List<Pair<TradeReport, Long>>> smallerLists = Lists.partition(reportsWithExpectedBaseVersions, dfPersistBatchSize);
+            Stopwatch stopwatchPersist = Stopwatch.createStarted();
+            for(List<Pair<TradeReport, Long>> reports : smallerLists) {
+                writeResults.addAll(tradeReportDocumentRepository.compareAndUpdateAll(reports));
+            }
+            logger.info("Time taken in inserting [{}] records = [{}]ms.",writeResults.size(), stopwatchPersist.elapsed(TimeUnit.MILLISECONDS));
+            logger.info("Total Trade record : [{}], Succesfully updated : [{}], Failed to update in df : [{}] ", writeResults.size(),
+                    writeResults.stream().filter(result -> result.isSuccess()).count(), writeResults.stream().filter(result -> result.isFailure()).count());
+
+            logErrorReasonForInsertion(writeResults);
+            return writeResults;
+        } catch (Exception e) {
+            logger.error("Error occured while writing records to df. ", e);
+            throw new TaggingServiceRunTimeException("Error occured while reading records to df. ", e);
+        }
+    }
+
+    private void logErrorReasonForInsertion(List<WriteResult<TradeReport>> writeResults) {
+        writeResults.stream().forEach(result -> {
+            if (!result.isSuccess()) {
+                String error = result.getErrorDetail().getCause() != null
+                        ? result.getErrorDetail().getDescription() + ". " + result.getErrorDetail().getCause().getMessage()
+                        : result.getErrorDetail().getDescription();
+                logger.error("Error occured in persisting Trade  : [{}]", error);
+            }
+
+        });
+    }
+}
+
+Existing test class:
+
+package com.rbs.tntr.business.taggingService.df;
+
+import com.google.common.collect.Lists;
+import com.nwm.tntr.commons.domain.persistence.constant.*;
+import com.nwm.tntr.commons.domain.persistence.entity.*;
+import com.nwm.tntr.commons.domain.persistence.entity.trade.TradeReport;
+import com.nwm.tntr.commons.domain.persistence.entity.trade.TradeReportDocument;
+import com.nwm.tntr.commons.domain.persistence.entity.trade.TradeReportId;
+import com.nwm.tntr.commons.domain.persistence.request.QueryParams;
+import com.nwm.tntr.commons.repository.regreporting.WriteResult;
+import com.nwm.tntr.commons.repository.regreporting.trade.TradeReportDocumentRepository;
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.exceptions.TaggingServiceRunTimeException;
+import junit.framework.TestCase;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mockito;
+import org.apache.commons.lang3.tuple.Pair;
 
-import java.io.IOException;
-import java.time.LocalDate;
-import java.util.*;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
-import static org.junit.Assert.*;
+public class DfTradePersistManagerTest {
 
-public class TaggingServiceBatchTriggerDfRepositoryTest {
-    private DataFabricClient dfClient;
-    private DfConnectionManager dfConnectionManager;
-    private TaggingServiceBatchTriggerDfRepository repository;
-    private static final String COLLECTION_NAME = "TNTR-trade-local";
-    private static final String DB = "Tntr";
+    TradeReportDocumentRepository tradeReportDocumentRepository;
+    DfTradePersistManager dfTradePersistManager;
+    int dfPersistBatchSize = 500;
 
     @Before
     public void setUp() {
-        dfClient = Mockito.mock(DataFabricClient.class);
-        dfConnectionManager = Mockito.mock(DfConnectionManager.class);
-        Mockito.when(dfConnectionManager.getDfClient()).thenReturn(dfClient);
-        repository = Mockito.spy(new TaggingServiceBatchTriggerDfRepository(dfConnectionManager));
-        repository.setDatabaseName(DB);
-        repository.setCollectionName(COLLECTION_NAME);
+        tradeReportDocumentRepository = Mockito.mock(TradeReportDocumentRepository.class);
+        dfTradePersistManager = new DfTradePersistManager(tradeReportDocumentRepository, dfPersistBatchSize);
     }
 
     @Test
-    public void testConstructor_SerializerInitialized() {
-        // Verify serializer is initialized with JSON format
-        TaggingServiceBatchTriggerDfRepository newRepository = new TaggingServiceBatchTriggerDfRepository(dfConnectionManager);
-        assertNotNull(newRepository);
-        // Since serializer is private, we verify indirectly via saveEntity behavior
+    public void testGetAllRecords() {
+        QueryParams queryParams = QueryParams.newBuilder()
+                .withQueryWhere("documentLifetime.validFrom >= '2023-01-01T00:00:00.000Z'")
+                .withOrderBy("documentLifetime.validFrom")
+                .build();
+        // Mock the repository response
+        List<TradeReportDocument> expectedDocuments = Lists.newArrayList(getTradeReportDocument());
+        Mockito.when(tradeReportDocumentRepository.findAllByQuery(queryParams)).thenReturn(expectedDocuments);
+
+        // Call the method under test
+        List<TradeReportDocument> actualDocuments = dfTradePersistManager.getAllRecords(queryParams);
+
+        // Verify the results
+        TestCase.assertNotNull(actualDocuments);
+        TestCase.assertEquals(expectedDocuments.size(), actualDocuments.size());
+        TestCase.assertEquals(expectedDocuments.get(0).getDocumentId(), actualDocuments.get(0).getDocumentId());
+    }
+
+    // test case for catch block
+    @Test
+    public void testGetAllRecordsException() {
+        QueryParams queryParams = QueryParams.newBuilder()
+                .withQueryWhere("documentLifetime.validFrom >= '2023-01-01T00:00:00.000Z'")
+                .withOrderBy("documentLifetime.validFrom")
+                .build();
+        // Mock the repository to throw an exception
+        Mockito.when(tradeReportDocumentRepository.findAllByQuery(queryParams))
+                .thenThrow(new RuntimeException("Test exception"));
+
+        try {
+            // Call the method under test
+            dfTradePersistManager.getAllRecords(queryParams);
+            TestCase.fail("Expected TaggingServiceRunTimeException was not thrown");
+        } catch (TaggingServiceRunTimeException e) {
+            // Verify the exception message
+            TestCase.assertTrue(e.getMessage().contains("Error occured while reading records from df"));
+            TestCase.assertNotNull(e.getCause());
+        }
+    }
+
+    //write test cases for save method and use the same imports as DF trade persist manager at package com.rbs.tntr.business.taggingService.df;
+    @Test
+    public void testSaveAllRecords() throws TaggingServiceRunTimeException {
+        // Setup test data
+        List<Pair<TradeReport, Long>> reportsWithExpectedBaseVersions = Lists.newArrayList(
+                Pair.of(getTradeReportDocument().getTradeReport(), 1L)
+        );
+
+        // Mock the repository response
+        List<WriteResult<TradeReport>> expectedResults = getWriteResults();
+        Mockito.when(tradeReportDocumentRepository.compareAndUpdateAll(Mockito.anyList())).thenReturn(expectedResults);
+
+        // Call the method under test
+        List<WriteResult<TradeReport>> actualResults = dfTradePersistManager.saveAllRecords(reportsWithExpectedBaseVersions);
+
+        // Verify the results
+        TestCase.assertNotNull(actualResults);
+        TestCase.assertEquals(expectedResults.size(), actualResults.size());
+        TestCase.assertEquals(expectedResults.get(0).getDocumentId(), actualResults.get(0).getDocumentId());
+
+        // Verify the repository method was called
+        Mockito.verify(tradeReportDocumentRepository).compareAndUpdateAll(reportsWithExpectedBaseVersions);
     }
 
     @Test
-    public void testEnsureDatafabricClientInitialized() throws StartableException {
-        repository.ensureDatafabricClientInitialized();
-        Mockito.verify(dfConnectionManager).getDfClient();
+    public void testSaveAllRecordsWithBatching() throws TaggingServiceRunTimeException {
+        // Create a list with more items than the batch size
+        List<Pair<TradeReport, Long>> reportsWithExpectedBaseVersions = new ArrayList<>();
+        for (int i = 0; i < dfPersistBatchSize + 50; i++) {
+            reportsWithExpectedBaseVersions.add(Pair.of(getTradeReportDocument().getTradeReport(), 1L));
+        }
+
+        // Mock the repository response
+        List<WriteResult<TradeReport>> expectedResults = getWriteResults();
+        Mockito.when(tradeReportDocumentRepository.compareAndUpdateAll(Mockito.any())).thenReturn(expectedResults);
+
+        // Call the method under test
+        List<WriteResult<TradeReport>> actualResults = dfTradePersistManager.saveAllRecords(reportsWithExpectedBaseVersions);
+
+        // Verify the repository method was called twice (once for each batch)
+        Mockito.verify(tradeReportDocumentRepository, Mockito.times(2)).compareAndUpdateAll(Mockito.anyList());
     }
 
     @Test
-    public void testSaveEntity_ValuationFlow() throws UpsertException, OptimisticLockException, StartableException, DataFabricSerializerException {
-        RecordId mockRecord = new RecordId();
-        mockRecord.setKey("10001");
-        Mockito.doReturn(mockRecord).when(repository).upsertRecordToDf(Mockito.any());
-        RecordId recordId = repository.saveEntity(getJiraAssignmentTriggerEvent());
-        assertEquals("10001", recordId.getKey());
-        Mockito.verify(repository).upsertRecordToDf(Mockito.any());
+    public void testSaveAllRecordsException() {
+        // Setup test data
+        List<Pair<TradeReport, Long>> reportsWithExpectedBaseVersions = Lists.newArrayList(
+                Pair.of(getTradeReportDocument().getTradeReport(), 1L)
+        );
+
+        // Mock the repository to throw an exception
+        Mockito.when(tradeReportDocumentRepository.compareAndUpdateAll(Mockito.anyList()))
+                .thenThrow(new RuntimeException("Test exception"));
+
+        try {
+            // Call the method under test
+            dfTradePersistManager.saveAllRecords(reportsWithExpectedBaseVersions);
+            TestCase.fail("Expected TaggingServiceRunTimeException was not thrown");
+        } catch (TaggingServiceRunTimeException e) {
+            // Verify the exception message
+            TestCase.assertTrue(e.getMessage().contains("Error occured while reading records to df"));
+            TestCase.assertNotNull(e.getCause());
+        }
     }
 
-    @Test
-    public void testSaveEntity_ReconciliationFlow() throws UpsertException, OptimisticLockException, StartableException, DataFabricSerializerException {
-        RecordId mockRecord = new RecordId();
-        mockRecord.setKey("10001");
-        Mockito.doReturn(mockRecord).when(repository).upsertRecordToDf(Mockito.any());
-        JiraAssignmentTriggerEvent event = getJiraAssignmentTriggerEvent();
-        event.setFlow("Reconciliation");
-        RecordId recordId = repository.saveEntity(event);
-        assertEquals("10001", recordId.getKey());
-        Mockito.verify(repository).upsertRecordToDf(Mockito.any());
+    private TradeReportDocument getTradeReportDocument() {
+        DocumentId documentId = DocumentId.from("TradeReportId_123", 1L);
+        DocumentLifetime documentLifetime = DocumentLifetime.from(ZonedDateTime.now(ZoneOffset.UTC),
+                ZonedDateTime.now(ZoneOffset.UTC));
+        TradeReport tradeReport = TradeReport.newBuilder()
+                .withTradeReportId(TradeReportId.newBuilder().withTradeSourceSystemTransactionId("TradeReportId_123")
+                        .withTradeSourceSystemId(SourceSystemId.ANVIL_GBLO_LDN).withTradeDocumentVersion(1)
+                        .withReportingRegime(ReportingRegime.SECURITIES_FINANCING_TRANSACTION_REGULATION_SELF_REPORTING)
+                        .withReportingRegulatoryAuthority(
+                                ReportingRegulatoryAuthority.EUROPEAN_SECURITIES_AND_MARKETS_AUTHORITY_EUROPEAN_UNION)
+                        .withRegimeImpactType(RegimeImpactType.TRANSACTION_REPORTING)
+                        .withReportTriggerType(ReportTriggerType.TRANSACTION_LIFECYCLE)
+                        .withReportSubmissionType(ReportSubmissionType.SNAPSHOT).build())
+                .withTransactionReportingStatus(TransactionReportingStatus.newBuilder()
+                        .withSourceSystemId(SourceSystemId.TN_TR)
+                        .withStateTransitionDateTime(ZonedDateTime.now(ZoneOffset.UTC))
+                        .withStateTransitionEffectiveDateTime(ZonedDateTime.now(ZoneOffset.UTC))
+                        .withTransactionStateValue(TransactionStateValue.SUBMITTED)
+                        .withReportSubmissionRepository(SourceSystemId.DTCC).withCommentary("Test TradeReport").build())
+                .withExceptionManagement(ExceptionManagement.newBuilder().withApprovedBy("PERSON_1")
+                        .withAssignedTo("matbina")
+                        .withExceptionStatus(com.nwm.tntr.commons.domain.persistence.constant.ExceptionStatus.OPEN)
+                        .withApprovalStatus(ApprovalStatus.OPEN_REQUESTED)
+                        .withIssueIds(Lists.newArrayList("TNTR-1234", "TNTR-9875"))
+                        .withIssueType(IssueType.MIS_REPORTING).withLastAction("Replay Edit")
+                        .withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC)).withLastActionUser("USER_1")
+                        .withLatestVersion(false).withReportingDeadline(ZonedDateTime.now(ZoneOffset.UTC).plusDays(2))
+                        .withUserComment("COMMENT 1").build())
+                .withNonReportableData(NonReportableData.newBuilder().withLatestVersion(true).build()).build();
+        TradeReportDocument tradeReportDocument = TradeReportDocument.from(documentId, documentLifetime, tradeReport);
+
+        return tradeReportDocument;
     }
 
-    @Test
-    public void testSaveEntity_JsonProcessingException() throws UpsertException, OptimisticLockException, StartableException, DataFabricSerializerException {
-        JiraAssignmentTriggerEvent event = getJiraAssignmentTriggerEvent();
-        Mockito.doThrow(new JsonProcessingException("Serialization error") {}).when(repository).upsertRecordToDf(Mockito.any());
-        RecordId recordId = repository.saveEntity(event);
-        assertNull(recordId);
-    }
-
-    @Test
-    public void testReadEntityForKey_Success() throws GetException, StartableException {
-        String key = "Reconciliation_g2_Jira Assignment_TNTR-5678_CFTC_Rates_NAK_FAILED_2";
-        Record mockRecord = getMockRecords();
-        Mockito.when(dfClient.get(Mockito.any())).thenReturn(mockRecord);
-        JiraAssignmentTriggerEvent result = repository.readEntityForKey(key);
-        assertEquals("Reconciliation_g2_Jira Assignment_TNTR-5678_CFTC_Rates_NAK_FAILED_2", result.getPrimaryKey());
-        assertEquals("Reconciliation", result.getFlow());
-    }
-
-    @Test
-    public void testReadEntityForKey_GetException() throws StartableException, GetException {
-        String key = "someKey";
-        Mockito.when(dfClient.get(Mockito.any())).thenThrow(new GetException("Error"));
-        JiraAssignmentTriggerEvent result = repository.readEntityForKey(key);
-        assertNull(result);
-    }
-
-    @Test
-    public void testReadEntityForKey_JsonProcessingException() throws GetException, StartableException, IOException {
-        String key = "someKey";
-        Record mockRecord = getMockRecords();
-        Mockito.when(dfClient.get(Mockito.any())).thenReturn(mockRecord);
-        // Simulate JsonProcessingException in readTree
-        Mockito.doThrow(new JsonProcessingException("Parse error") {}).when(repository).objectMapper.readTree(Mockito.anyString());
-        JiraAssignmentTriggerEvent result = repository.readEntityForKey(key);
-        assertNull(result);
-    }
-
-    @Test
-    public void testReadEntityForKey_IOException() throws GetException, StartableException, IOException {
-        String key = "someKey";
-        Record mockRecord = getMockRecords();
-        Mockito.when(dfClient.get(Mockito.any())).thenReturn(mockRecord);
-        // Simulate IOException in readTree
-        Mockito.doThrow(new IOException("IO error") {}).when(repository).objectMapper.readTree(Mockito.anyString());
-        JiraAssignmentTriggerEvent result = repository.readEntityForKey(key);
-        assertNull(result);
-    }
-
-    @Test
-    public void testReadEntityForKey_NullDocument() throws GetException, StartableException {
-        String key = "someKey";
-        Record mockRecord = new Record();
-        RecordId recordId = new RecordId();
-        recordId.setDatabaseName(DB);
-        recordId.setCollectionName(COLLECTION_NAME);
-        mockRecord.setId(recordId);
-        mockRecord.setDocument(null);
-        Mockito.when(dfClient.get(Mockito.any())).thenReturn(mockRecord);
-        JiraAssignmentTriggerEvent result = repository.readEntityForKey(key);
-        assertNull(result);
-    }
-
-    @Test
-    public void testReadAllEntity_Success() throws ScanException, StartableException {
-        String where = "primaryKey = 'Reconciliation_g2_Jira Assignment_TNTR-5678_CFTC_Rates_NAK_FAILED_2'";
-        List<Record> mockRecords = Lists.newArrayList(getMockRecords());
-        Mockito.when(dfClient.scan(Mockito.any())).thenReturn(getMockScanResult(mockRecords));
-        List<JiraAssignmentTriggerEvent> results = repository.readAllEntity(where);
-        assertEquals(1, results.size());
-        assertEquals("Reconciliation_g2_Jira Assignment_TNTR-5678_CFTC_Rates_NAK_FAILED_2", results.get(0).getPrimaryKey());
-        assertEquals("Reconciliation", results.get(0).getFlow());
-    }
-
-    @Test
-    public void testReadAllEntity_ScanException() throws ScanException, StartableException {
-        String where = "someWhereClause";
-        Mockito.when(dfClient.scan(Mockito.any())).thenThrow(new ScanException("Error"));
-        List<JiraAssignmentTriggerEvent> results = repository.readAllEntity(where);
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testReadAllEntity_JsonProcessingException() throws ScanException, StartableException, IOException {
-        String where = "someWhereClause";
-        List<Record> mockRecords = Lists.newArrayList(getMockRecords());
-        Mockito.when(dfClient.scan(Mockito.any())).thenReturn(getMockScanResult(mockRecords));
-        Mockito.doThrow(new JsonProcessingException("Parse error") {}).when(repository).objectMapper.readTree(Mockito.anyString());
-        List<JiraAssignmentTriggerEvent> results = repository.readAllEntity(where);
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testReadAllEntity_IOException() throws ScanException, StartableException, IOException {
-        String where = "someWhereClause";
-        List<Record> mockRecords = Lists.newArrayList(getMockRecords());
-        Mockito.when(dfClient.scan(Mockito.any())).thenReturn(getMockScanResult(mockRecords));
-        Mockito.doThrow(new IOException("IO error") {}).when(repository).objectMapper.readTree(Mockito.anyString());
-        List<JiraAssignmentTriggerEvent> results = repository.readAllEntity(where);
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testReadAllEntity_NullDocument() throws ScanException, StartableException {
-        String where = "someWhereClause";
-        Record mockRecord = new Record();
-        RecordId recordId = new RecordId();
-        recordId.setDatabaseName(DB);
-        recordId.setCollectionName(COLLECTION_NAME);
-        mockRecord.setId(recordId);
-        mockRecord.setDocument(null);
-        List<Record> mockRecords = Lists.newArrayList(mockRecord);
-        Mockito.when(dfClient.scan(Mockito.any())).thenReturn(getMockScanResult(mockRecords));
-        List<JiraAssignmentTriggerEvent> results = repository.readAllEntity(where);
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testReadAllEntity_BlankWhereClause() throws ScanException, StartableException {
-        String where = "";
-        List<Record> mockRecords = Lists.newArrayList(getMockRecords());
-        Mockito.when(dfClient.scan(Mockito.any())).thenReturn(getMockScanResult(mockRecords));
-        List<JiraAssignmentTriggerEvent> results = repository.readAllEntity(where);
-        assertEquals(1, results.size());
-        assertEquals("Reconciliation_g2_Jira Assignment_TNTR-5678_CFTC_Rates_NAK_FAILED_2", results.get(0).getPrimaryKey());
-    }
-
-    @Test
-    public void testUpdateEntity_ValuationFlow() throws StartableException, UpsertException, OptimisticLockException, DataFabricSerializerException {
-        String pKey = "10001";
-        String lastSuccessDate = "2020-02-01";
-        int recordsModified = 100;
-        String status = "COMPLETED";
-        String comment = "Test update";
-        String ruleEngineDateTime = "2020-02-01T10:00:00.000Z";
-        Date nextDateTime = new Date();
-        JiraAssignmentTriggerEvent mockEvent = getJiraAssignmentTriggerEvent();
-        Mockito.doReturn(mockEvent).when(repository).readEntityForKey(pKey);
-        RecordId mockRecord = new RecordId();
-        mockRecord.setKey(pKey);
-        Mockito.doReturn(mockRecord).when(repository).upsertRecordToDf(Mockito.any());
-        RecordId recordId = repository.updateEntity(pKey, lastSuccessDate, recordsModified, status, comment, ruleEngineDateTime, nextDateTime);
-        assertEquals(pKey, recordId.getKey());
-        Mockito.verify(repository).readEntityForKey(pKey);
-        Mockito.verify(repository).upsertRecordToDf(Mockito.any());
-    }
-
-    @Test
-    public void testUpdateEntity_ReconciliationFlow() throws StartableException, UpsertException, OptimisticLockException, DataFabricSerializerException {
-        String pKey = "10001";
-        String lastSuccessDate = "2020-02-01";
-        int recordsModified = 100;
-        String status = "COMPLETED";
-        String comment = "Test update";
-        String ruleEngineDateTime = "2020-02-01T10:00:00.000Z";
-        Date nextDateTime = new Date();
-        JiraAssignmentTriggerEvent mockEvent = getJiraAssignmentTriggerEvent();
-        mockEvent.setFlow("Reconciliation");
-        Mockito.doReturn(mockEvent).when(repository).readEntityForKey(pKey);
-        RecordId mockRecord = new RecordId();
-        mockRecord.setKey(pKey);
-        Mockito.doReturn(mockRecord).when(repository).upsertRecordToDf(Mockito.any());
-        RecordId recordId = repository.updateEntity(pKey, lastSuccessDate, recordsModified, status, comment, ruleEngineDateTime, nextDateTime);
-        assertEquals(pKey, recordId.getKey());
-        Mockito.verify(repository).readEntityForKey(pKey);
-        Mockito.verify(repository).upsertRecordToDf(Mockito.any());
-    }
-
-    @Test
-    public void testUpdateEntity_NullEntity() throws StartableException, UpsertException, OptimisticLockException, DataFabricSerializerException {
-        String pKey = "10001";
-        String lastSuccessDate = "2020-02-01";
-        int recordsModified = 100;
-        String status = "COMPLETED";
-        String comment = "Test update";
-        String ruleEngineDateTime = "2020-02-01T10:00:00.000Z";
-        Date nextDateTime = new Date();
-        Mockito.doReturn(null).when(repository).readEntityForKey(pKey);
-        RecordId recordId = repository.updateEntity(pKey, lastSuccessDate, recordsModified, status, comment, ruleEngineDateTime, nextDateTime);
-        assertNull(recordId);
-    }
-
-    @Test
-    public void testUpdateEntity_JsonProcessingException() throws StartableException, UpsertException, OptimisticLockException, DataFabricSerializerException {
-        String pKey = "10001";
-        String lastSuccessDate = "2020-02-01";
-        int recordsModified = 100;
-        String status = "COMPLETED";
-        String comment = "Test update";
-        String ruleEngineDateTime = "2020-02-01T10:00:00.000Z";
-        Date nextDateTime = new Date();
-        JiraAssignmentTriggerEvent mockEvent = getJiraAssignmentTriggerEvent();
-        Mockito.doReturn(mockEvent).when(repository).readEntityForKey(pKey);
-        Mockito.doThrow(new JsonProcessingException("Serialization error") {}).when(repository).upsertRecordToDf(Mockito.any());
-        RecordId recordId = repository.updateEntity(pKey, lastSuccessDate, recordsModified, status, comment, ruleEngineDateTime, nextDateTime);
-        assertNull(recordId);
-    }
-
-    @Test
-    public void testGetBatchTriggerEvent_AllNullInputs() throws StartableException, UpsertException, OptimisticLockException, DataFabricSerializerException {
-        String pKey = "10001";
-        String lastSuccessDate = null;
-        int recordsModified = -1; // Invalid to skip update
-        String status = null;
-        String comment = null;
-        String ruleEngineDateTime = null;
-        Date nextDateTime = null;
-        JiraAssignmentTriggerEvent mockEvent = getJiraAssignmentTriggerEvent();
-        Mockito.doReturn(mockEvent).when(repository).readEntityForKey(pKey);
-        RecordId mockRecord = new RecordId();
-        mockRecord.setKey(pKey);
-        Mockito.doReturn(mockRecord).when(repository).upsertRecordToDf(Mockito.any());
-        RecordId recordId = repository.updateEntity(pKey, lastSuccessDate, recordsModified, status, comment, ruleEngineDateTime, nextDateTime);
-        assertEquals(pKey, recordId.getKey());
-        // Verify no fields were updated in mockEvent (indirectly via behavior)
-        assertEquals("Valuation", mockEvent.getFlow()); // Unchanged
-    }
-
-    @Test
-    public void testGetBatchTriggerEvent_BlankInputs() throws StartableException, UpsertException, OptimisticLockException, DataFabricSerializerException {
-        String pKey = "10001";
-        String lastSuccessDate = "";
-        int recordsModified = -1; // Invalid to skip update
-        String status = "";
-        String comment = "";
-        String ruleEngineDateTime = "";
-        Date nextDateTime = null;
-        JiraAssignmentTriggerEvent mockEvent = getJiraAssignmentTriggerEvent();
-        Mockito.doReturn(mockEvent).when(repository).readEntityForKey(pKey);
-        RecordId mockRecord = new RecordId();
-        mockRecord.setKey(pKey);
-        Mockito.doReturn(mockRecord).when(repository).upsertRecordToDf(Mockito.any());
-        RecordId recordId = repository.updateEntity(pKey, lastSuccessDate, recordsModified, status, comment, ruleEngineDateTime, nextDateTime);
-        assertEquals(pKey, recordId.getKey());
-        // Verify no fields were updated in mockEvent (indirectly via behavior)
-        assertEquals("Valuation", mockEvent.getFlow()); // Unchanged
-    }
-
-    @Test
-    public void testDeleteAllRecords_Success() {
-        long expectedDeletedCount = 10L;
-        Mockito.doReturn(expectedDeletedCount).when(repository).deleteAllDataFromCollection(Mockito.anyString());
-        long actualDeletedCount = repository.deleteAllRecords();
-        assertEquals(expectedDeletedCount, actualDeletedCount);
-        Mockito.verify(repository).deleteAllDataFromCollection("isActive = true or isActive = false");
-    }
-
-    @Test
-    public void testDeleteAllRecords_Exception() {
-        Mockito.doThrow(new RuntimeException("Error")).when(repository).deleteAllDataFromCollection(Mockito.anyString());
-        long deletedCount = repository.deleteAllRecords();
-        assertEquals(0, deletedCount);
-    }
-
-    @Test
-    public void testGetPageLimit() {
-        Integer pageLimit = repository.getPageLimit();
-        assertNull(pageLimit);
-        Mockito.verifyNoMoreInteractions(dfClient);
-    }
-
-    @Test
-    public void testGetBatchSize() {
-        Integer batchSize = repository.getBatchSize();
-        assertNull(batchSize);
-        Mockito.verifyNoMoreInteractions(dfClient);
-    }
-
-    @Test
-    public void testGetFilerPath() {
-        String testPath = "test/path";
-        String result = repository.getFilerPath(testPath);
-        assertNull(result);
-        Mockito.verifyNoMoreInteractions(dfClient);
-    }
-
-    @Test
-    public void testGetInvalidFilerPath() {
-        String testPath = "test/path";
-        String result = repository.getInvalidFilerPath(testPath);
-        assertNull(result);
-        Mockito.verifyNoMoreInteractions(dfClient);
-    }
-
-    @Test
-    public void testGetDateString() {
-        LocalDate testDate = LocalDate.of(2020, 5, 15);
-        String dateString = TaggingServiceBatchTriggerDfRepository.getDateString(testDate);
-        assertEquals("15-05-2020", dateString);
-        Mockito.verifyNoMoreInteractions(dfClient);
-    }
-
-    private JiraAssignmentTriggerEvent getJiraAssignmentTriggerEvent() {
-        return new JiraAssignmentTriggerEvent.Builder()
-                .withId("1")
-                .withPrimaryKey("10001")
-                .withExpression("subjectIdentifier.reportTriggerType = 'Collateral Update' ")
-                .withFlow("Valuation")
-                .withAction("Jira Assignment")
-                .withActionValue("MIL-7049")
-                .withActionValueType("Mis Reporting")
-                .withIsActive(true)
-                .withStartDate("2020-01-01")
-                .withLastSuccessDate("2020-01-01")
-                .withMaxVolume(1000)
-                .withUserComments("Jira Type Added").create();
-    }
-
-    private ScanResult getMockScanResult(List<Record> records) {
-        return new ScanResult() {
-            @Override
-            public AsOf getAsOf() {
-                return null;
-            }
-
-            @Override
-            public String getCommandId() {
-                return null;
-            }
-
-            @Override
-            public ExplainPlan getExplainPlan() {
-                return null;
-            }
-
-            @Override
-            public void close() {
-            }
-
-            @Override
-            public Iterator<Record> iterator() {
-                return records.iterator();
-            }
-        };
-    }
-
-    private Record getMockRecords() {
-        String jsonRecord = "{\n" +
-                "  \"id\": \"1\",\n" +
-                "  \"primaryKey\": \"Reconciliation_g2_Jira Assignment_TNTR-5678_CFTC_Rates_NAK_FAILED_2\",\n" +
-                "  \"groupId\": \"g2\",\n" +
-                "  \"expression\": \"subjectIdentifier.reconciliationRuleIdentifier in ('CftcPositionRates') and reconciliationBusinessDateTime = '2022-11-18T00:00:00.000Z' and reconciliationState.reconciliationStatus = 'Target Unpaired' and sourceRecords.reportingStatus in ('FAILED_ACKNOWLEDGEMENT')\",\n" +
-                "  \"expressionDescription\": \"TEST\",\n" +
-                "  \"flow\": \"Reconciliation\",\n" +
-                "  \"action\": \"Jira Assignment\",\n" +
-                "  \"actionValue\": \"TNTR-5678\",\n" +
-                "  \"actionValueType\": \"\",\n" +
-                "  \"ruleOwnerRecfId\": null,\n" +
-                "  \"isActive\": false,\n" +
-                "  \"activeDateTime\": \"2022-11-23T09:59:43.343Z\",\n" +
-                "  \"inActiveDateTime\": \"2022-11-23T13:05:39.313Z\",\n" +
-                "  \"ruleName\": \"CFTC_Rates_NAK_FAILED_2\",\n" +
-                "  \"startDate\": \"2022-11-18T00:00:00.000Z\",\n" +
-                "  \"lastSuccessDate\": \"2022-11-23T00:00:00.000Z\",\n" +
-                "  \"comments\": \"\",\n" +
-                "  \"status\": null,\n" +
-                "  \"businessDateStr\": \"2022-11-23\",\n" +
-                "  \"ruleEngineDateTime\": null,\n" +
-                "  \"modifiedRecords\": 0,\n" +
-                "  \"maxVolume\": 3000,\n" +
-                "  \"indexHint\": \"\",\n" +
-                "  \"userComment\": \"no user comment\",\n" +
-                "  \"subExpression\": \"\",\n" +
-                "  \"scheduledTime\": \"10:04 AM\",\n" +
-                "  \"nextRunDateTime\": \"2022-11-24T10:04:00.000Z\"\n" +
-                "}";
-        Record record = new Record();
-        RecordId recordId = new RecordId();
-        recordId.setDatabaseName(DB);
-        recordId.setCollectionName(COLLECTION_NAME);
-        record.setId(recordId);
-        record.setDocument((new JsonDocument()).withContents(jsonRecord));
-        return record;
+    private List<WriteResult<TradeReport>> getWriteResults() {
+        return Lists.newArrayList(WriteResult.forSuccess(DocumentId.from("TradeReportId_123", 1L),
+                getTradeReportDocument().getTradeReport()));
     }
 }
