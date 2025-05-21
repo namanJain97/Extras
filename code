@@ -1,239 +1,579 @@
-package com.rbs.tntr.business.taggingService.transformer;
+Could you write all the test cases for below java class to cover all the scenarios or methods and make the test coverage or code coverage as 100% using junit 4 and old mockito version and java 8:
 
-import com.nwm.tntr.commons.domain.JiraReference;
-import com.nwm.tntr.commons.domain.WorkflowType;
-import com.nwm.tntr.commons.enums.ApiQueryFilter;
-import com.nwm.tntr.commons.enums.TntrCallerService;
-import com.nwm.tntr.commons.enums.TntrFieldsReadUpdateEnum;
-import com.nwm.tntr.commons.repository.domain.ReportingTemplate;
-import com.nwm.tntr.commons.repository.domain.RepositoryAction;
-import com.nwm.tntr.commons.repository.domain.TntrRepositoryReadCommandContext;
-import com.nwm.tntr.commons.repository.domain.TntrRepositoryReadCommandResult;
-import com.nwm.tntr.commons.repository.domain.TntrRepositoryUpdateCommandContext;
-import com.nwm.tntr.commons.repository.domain.TntrRepositoryUpdateCommandResult;
-import com.nwm.tntr.commons.repository.util.TntrTdxNodeBuilderUtil;
-import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.JiraTaggingDetail;
+package com.rbs.tntr.business.taggingService.service.trigger;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nwm.tntr.commons.repository.df.DfConnectionManager;
+import com.nwm.tntr.commons.repository.service.datafabric.DFRepository;
+import com.nwm.tntr.commons.repository.util.ObjectMapperFactory;
+import com.rbs.datafabric.agile.commons.lang.StartableException;
+import com.rbs.datafabric.api.exception.*;
+import com.rbs.datafabric.common.DataFabricSerializerException;
+import com.rbs.datafabric.common.serialization.DataFabricSerializer;
+import com.rbs.datafabric.domain.*;
+import com.rbs.datafabric.domain.client.builder.*;
+import com.rbs.datafabric.shaded.org.apache.commons.lang.StringUtils;
+import com.rbs.tntr.business.taggingService.repository.TagginServiceSerializer;
 import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.enums.FlowType;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+import java.io.IOException;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
+
+/**
+ * Created by matbina on 18/05/2020.
+ */
+@Component
+public class TaggingServiceBatchTriggerDfRepository extends DFRepository {
+    private static final Logger LOGGER = LoggerFactory.getLogger(TaggingServiceBatchTriggerDfRepository.class);
+    private DataFabricSerializer serializer;
+    private final ObjectMapper objectMapper = new ObjectMapper();
+    @Value("${tntr.df.database.name}")
+    private String databaseName;
+    @Value("${tntr.taggingService.df.collection.name:defaultval}")
+    private String collectionName;
+    private DfConnectionManager dfConnectionManager;
+
+    @Autowired
+    public TaggingServiceBatchTriggerDfRepository(DfConnectionManager dfConnectionManager) {
+        super();
+        this.dfConnectionManager = dfConnectionManager;
+        com.rbs.datafabric.shaded.com.fasterxml.jackson.databind.ObjectMapper bsonObjectMapper = ObjectMapperFactory.getBSONObjectMapper();
+        com.rbs.datafabric.shaded.com.fasterxml.jackson.databind.ObjectMapper jsonObjectMapper = ObjectMapperFactory.getJSONObjectMapper();
+        this.serializer = new DataFabricSerializer(bsonObjectMapper, jsonObjectMapper);
+        this.serializer = this.serializer.withDocumentFormat(DocumentFormat.JSON);
+    }
+
+    @Override
+    public synchronized void ensureDatafabricClientInitialized() throws StartableException {
+        if (this.dfClient == null) {
+            this.dfClient = dfConnectionManager.getDfClient();
+        }
+    }
+
+
+    public RecordId saveEntity(JiraAssignmentTriggerEvent batchTriggerEvent) throws DataFabricSerializerException, UpsertException, OptimisticLockException, StartableException {
+        LOGGER.debug("saveEntity called");
+        String key = batchTriggerEvent.getPrimaryKey();
+        RecordId recordId = null;
+        try {
+            if (batchTriggerEvent.getFlow().equalsIgnoreCase(FlowType.RECONCILIATION.toString())) {
+                Document document = TagginServiceSerializer.serialize(batchTriggerEvent);
+                recordId = this.upsertRecordToDf(UpsertRequestBuilder.create(this.getDatabaseName(), this.getCollectionName()).withDocument(document).withKey(key));
+            } else {
+                recordId = this.upsertRecordToDf(UpsertRequestBuilder.create(this.getDatabaseName(), this.getCollectionName()).withDocument(this.serializer.serialize(batchTriggerEvent)).withKey(key));
+            }
+            LOGGER.debug("saveEntity completed");
+        } catch(JsonProcessingException e){
+            LOGGER.error("JsonProcessingException exception occurred : {0}", e);
+        }
+        return recordId;
+    }
+
+    public JiraAssignmentTriggerEvent readEntityForKey(String key) throws StartableException {
+        LOGGER.debug("readEntityForKey called");
+        this.ensureDatafabricClientInitialized();
+        GetRequestBuilder getRequestBuilder = GetRequestBuilder.create(this.getDatabaseName(), this.getCollectionName(), key).withDocumentFormat(DocumentFormat.JSON);
+
+        try {
+            Record e = this.dfClient.get(getRequestBuilder);
+            Document document = e.getDocument();
+            if(document == null){return null;}
+            JsonDocument jsonDocument = (JsonDocument)document;
+            String resVal = jsonDocument.getContents();
+            JsonNode resNode = this.objectMapper.readTree(resVal);
+            this.objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+            return (JiraAssignmentTriggerEvent)this.objectMapper.convertValue(resNode, new TypeReference<JiraAssignmentTriggerEvent>() {
+            });
+        } catch (GetException var8) {
+            LOGGER.error("Cannot convert DF Entry to Batch Trigger POJO with GetException {0}", var8);
+            return null;
+        } catch (JsonProcessingException var9) {
+            LOGGER.error("Cannot convert DF Entry to Batch Trigger POJO with JsonProcessingException {0}", var9);
+            return null;
+        } catch (IOException var10) {
+            LOGGER.error("Cannot convert DF Entry to Batch Trigger POJO with IOException {0}", var10);
+            return null;
+        }
+    }
+
+    public List<JiraAssignmentTriggerEvent> readAllEntity(String whereClause) throws StartableException {
+        LOGGER.debug("readAllEntity called");
+        this.ensureDatafabricClientInitialized();
+        OrderByExpression orderByExpression = new  OrderByExpression().withExpression("_df.lifetimeFrom");
+        WhereExpression whereExpression = new WhereExpression().withExpression(StringUtils.isBlank(whereClause)? "" : whereClause);
+        ScanExpression scanExpression = new ScanExpression().withDatabaseName(this.getDatabaseName()).withCollectionName(this.getCollectionName()).withOrderByExpression(orderByExpression)
+                .withWhereExpression(whereExpression);
+        ScanRequestBuilder scanRequestBuilder = ScanRequestBuilder.create(scanExpression);
+        scanRequestBuilder.withDocumentFormat(DocumentFormat.JSON);
+
+        List<JiraAssignmentTriggerEvent> lst = new ArrayList<>();
+        try {
+            Iterable<Record> e = this.dfClient.scan(scanRequestBuilder);
+            e.forEach(r -> {
+                long version = r.getId().getVersion();
+                Document document = r.getDocument();
+                if (document != null) {
+                    JsonDocument jsonDocument = (JsonDocument) document;
+                    String resVal = jsonDocument.getContents();
+                    JsonNode resNode = null;
+                    try {
+                        resNode = this.objectMapper.readTree(resVal);
+                        this.objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+                        JiraAssignmentTriggerEvent ob = this.objectMapper.convertValue(resNode, new TypeReference<JiraAssignmentTriggerEvent>() {
+                        });
+                        ob.setRecordVersion(version);
+                        lst.add(ob);
+                    } catch (JsonProcessingException var9) {
+                        LOGGER.error("Cannot convert DF Entry to Batch Trigger POJO with JsonProcessingException {0}", var9);
+                    } catch (IOException var10) {
+                        LOGGER.error("Cannot convert DF Entry to Batch Trigger POJO with IOException {0}", var10);
+                    }
+                }
+
+            });
+            return lst;
+        } catch (ScanException var8) {
+            LOGGER.error("Cannot convert DF Entry to Batch Trigger POJO with ScanException {0}", var8);
+            return lst;
+        }
+    }
+    public RecordId updateEntity(String pKey, String lastSuccessDate, int recordsModified, String status, String comment, String ruleEngineDateTime, Date nextDateTime) throws DataFabricSerializerException, UpsertException, OptimisticLockException, StartableException {
+        LOGGER.debug("update called");
+        JiraAssignmentTriggerEvent batchTriggerEvent = readEntityForKey(pKey);
+        getBatchTriggerEvent(lastSuccessDate, recordsModified, status, comment, ruleEngineDateTime, batchTriggerEvent, nextDateTime);
+
+        String key = batchTriggerEvent.getPrimaryKey();
+        RecordId recordId = null;
+        try {
+            if (batchTriggerEvent.getFlow().equalsIgnoreCase(FlowType.RECONCILIATION.toString())) {
+                Document document = TagginServiceSerializer.serialize(batchTriggerEvent);
+                recordId = this.upsertRecordToDf(UpsertRequestBuilder.create(this.getDatabaseName(), this.getCollectionName()).withDocument(document).withKey(key));
+            }else{
+                recordId = this.upsertRecordToDf(UpsertRequestBuilder.create(this.getDatabaseName(), this.getCollectionName()).withDocument(this.serializer.serialize(batchTriggerEvent)).withKey(key));
+            }
+            LOGGER.debug("update completed");
+        } catch(JsonProcessingException e){
+            LOGGER.error("JsonProcessingException exception occurred : {0}", e);
+        }
+        return recordId;
+    }
+
+    private void getBatchTriggerEvent(String lastSuccessDate, int recordsModified, String status, String comment,
+                                      String ruleEngineDateTime, JiraAssignmentTriggerEvent batchTriggerEvent, Date nextDateTime) {
+        if(StringUtils.isNotBlank(lastSuccessDate)) {
+            batchTriggerEvent.setLastSuccessDate(lastSuccessDate);
+        }
+        if(recordsModified >= 0){
+            batchTriggerEvent.setModifiedRecords(recordsModified);
+        }
+        if(status != null) {
+            batchTriggerEvent.setStatus(status);
+        }
+        if(comment != null) {
+            batchTriggerEvent.setComments(comment);
+        }
+        if(StringUtils.isNotBlank(ruleEngineDateTime)) {
+            batchTriggerEvent.setRuleEngineDateTime(ruleEngineDateTime);
+        }
+        if(nextDateTime != null){
+            batchTriggerEvent.setNextRunDateTime(nextDateTime);
+        }
+    }
+
+    public long deleteAllRecords(){
+        try {
+            LOGGER.debug("delete called");
+            long recordId = this.deleteAllDataFromCollection("isActive = true or isActive = false");
+            LOGGER.debug("delete completed");
+            return recordId;
+        }catch(Exception e){
+            e.printStackTrace();
+            return 0;
+        }
+    }
+
+    public String getDatabaseName() {
+        return this.databaseName;
+    }
+
+    public String getCollectionName() {
+        return this.collectionName;
+    }
+
+    public Integer getPageLimit() {
+        return null;
+    }
+
+    public Integer getBatchSize() {
+        return null;
+    }
+
+    protected String getFilerPath(String str) {
+        return null;
+    }
+
+    @Override
+    protected String getInvalidFilerPath(String filerPathPostFix) {
+        return null;
+    }
+
+    public void setDatabaseName(String databaseName) {
+        this.databaseName = databaseName;
+    }
+
+    public void setCollectionName(String collectionName) {
+        this.collectionName = collectionName;
+    }
+
+    public static String getDateString(LocalDate date) {
+        return date.format(DateTimeFormatter.ofPattern("dd-MM-yyyy"));
+    }
+}
+
+Exisitng test class:
+
+package com.rbs.tntr.business.taggingService.service.trigger;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.google.common.collect.Lists;
+import com.nwm.tntr.commons.repository.df.DfConnectionManager;
+import com.rbs.datafabric.agile.commons.lang.StartableException;
+import com.rbs.datafabric.api.ScanResult;
+import com.rbs.datafabric.api.exception.GetException;
+import com.rbs.datafabric.api.exception.OptimisticLockException;
+import com.rbs.datafabric.api.exception.ScanException;
+import com.rbs.datafabric.api.exception.UpsertException;
+import com.rbs.datafabric.client.DataFabricClient;
+import com.rbs.datafabric.common.DataFabricSerializerException;
+import com.rbs.datafabric.domain.*;
+import junit.framework.TestCase;
 import org.junit.Before;
 import org.junit.Test;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
+import org.mockito.Mockito;
 
-import java.util.*;
+import java.time.LocalDate;
+import java.util.Date;
+import java.util.Iterator;
+import java.util.List;
 
-import static org.junit.Assert.*;
-import static org.mockito.Mockito.*;
-
-public class TntrTradeTransformerImplTest {
-
-    @InjectMocks
-    private TntrTradeTransformerImpl transformer;
-
-    @Mock
-    private ReportingTemplate reportingTemplate;
-
-    @Mock
-    private TntrRepositoryReadCommandResult readResult;
-
-    @Mock
-    private TntrRepositoryUpdateCommandResult updateResult;
-
-    @Mock
-    private RepositoryAction repositoryAction;
+public class TaggingServiceBatchTriggerDfRepositoryTest {
+    DataFabricClient dfClient;
+    DfConnectionManager dfConnectionManager;
+    TaggingServiceBatchTriggerDfRepository repository;
+    private static final String Collection_Name = "TNTR-trade-local";
+    private static final String DB = "Tntr";
 
     @Before
-    public void setUp() {
-        MockitoAnnotations.initMocks(this);
-    }
-
-    @Test(expected = NullPointerException.class)
-    public void testExecuteUpdateTrades_NullJiraReference() {
-        String whereExpression = "status=active";
-        JiraTaggingDetail jiraTaggingDetail = new JiraTaggingDetail();
-        FlowType workflowType = FlowType.TRADE;
-        transformer.executeUpdateTrades(whereExpression, null, jiraTaggingDetail, workflowType);
-    }
-
-    @Test(expected = NullPointerException.class)
-    public void testExecuteUpdateTrades_NullJiraTaggingDetail() {
-        String whereExpression = "status=active";
-        JiraReference jiraReference = mock(JiraReference.class);
-        FlowType workflowType = FlowType.TRADE;
-        transformer.executeUpdateTrades(whereExpression, jiraReference, null, workflowType);
+    public void setUp(){
+        dfClient = Mockito.mock(DataFabricClient.class);
+        dfConnectionManager = Mockito.mock(DfConnectionManager.class);
+        Mockito.when(dfConnectionManager.getDfClient()).thenReturn(dfClient);
+        repository = Mockito.spy(new TaggingServiceBatchTriggerDfRepository(dfConnectionManager));
+        repository.setDatabaseName(DB);
+        repository.setCollectionName(Collection_Name);
     }
 
     @Test
-    public void testExecuteUpdateTrades_TradeFlow() {
-        String whereExpression = "status=active";
-        JiraReference jiraReference = mock(JiraReference.class);
-        JiraTaggingDetail jiraTaggingDetail = new JiraTaggingDetail();
-        FlowType workflowType = FlowType.TRADE;
+    public void testEnsureDatafabricClientInitialized() throws StartableException {
+        // Verify that the DataFabricClient is properly initialized when ensureDatafabricClientInitialized is called
+        repository.ensureDatafabricClientInitialized();
 
-        RepositoryAction mockAction = mock(RepositoryAction.class);
-        when(reportingTemplate.getRepositoryCommandFactory()).thenReturn(mock(RepositoryAction.class));
-        when(reportingTemplate.getRepositoryCommandFactory().getCommand(RepositoryAction.UPDATE)).thenReturn(mockAction);
-        when(mockAction.execute(any(TntrRepositoryUpdateCommandContext.class))).thenReturn(updateResult);
-
-        TntrRepositoryUpdateCommandResult result = transformer.executeUpdateTrades(whereExpression, jiraReference, jiraTaggingDetail, workflowType);
-
-        assertNotNull(result);
-        verify(mockAction).execute(any(TntrRepositoryUpdateCommandContext.class));
+        // Verify that getDfClient was called on the dfConnectionManager
+        Mockito.verify(dfConnectionManager).getDfClient();
     }
 
     @Test
-    public void testExecuteUpdateTrades_CollateralFlow() {
-        String whereExpression = "status=active";
-        JiraReference jiraReference = mock(JiraReference.class);
-        JiraTaggingDetail jiraTaggingDetail = new JiraTaggingDetail();
-        FlowType workflowType = FlowType.COLLATERAL;
-
-        RepositoryAction mockAction = mock(RepositoryAction.class);
-        when(reportingTemplate.getRepositoryCommandFactory()).thenReturn(mock(RepositoryAction.class));
-        when(reportingTemplate.getRepositoryCommandFactory().getCommand(RepositoryAction.UPDATE)).thenReturn(mockAction);
-        when(mockAction.execute(any(TntrRepositoryUpdateCommandContext.class))).thenReturn(updateResult);
-
-        TntrRepositoryUpdateCommandResult result = transformer.executeUpdateTrades(whereExpression, jiraReference, jiraTaggingDetail, workflowType);
-
-        assertNotNull(result);
-        verify(mockAction).execute(any(TntrRepositoryUpdateCommandContext.class));
+    public void testSaveEntity() throws UpsertException, OptimisticLockException, StartableException, DataFabricSerializerException {
+        RecordId mockRecord  = new RecordId();
+        mockRecord.setKey("10001");
+        Mockito.doReturn(mockRecord).when(repository).upsertRecordToDf(Mockito.any());
+        RecordId recordId = repository.saveEntity(getJiraAssignmentTriggerEvent());
+        TestCase.assertEquals("10001",recordId.getKey());
     }
 
     @Test
-    public void testExecuteUpdateTrades_ValuationFlow() {
-        String whereExpression = "status=active";
-        JiraReference jiraReference = mock(JiraReference.class);
-        JiraTaggingDetail jiraTaggingDetail = new JiraTaggingDetail();
-        FlowType workflowType = FlowType.VALUATION;
-
-        RepositoryAction mockAction = mock(RepositoryAction.class);
-        when(reportingTemplate.getRepositoryCommandFactory()).thenReturn(mock(RepositoryAction.class));
-        when(reportingTemplate.getRepositoryCommandFactory().getCommand(RepositoryAction.UPDATE)).thenReturn(mockAction);
-        when(mockAction.execute(any(TntrRepositoryUpdateCommandContext.class))).thenReturn(updateResult);
-
-        TntrRepositoryUpdateCommandResult result = transformer.executeUpdateTrades(whereExpression, jiraReference, jiraTaggingDetail, workflowType);
-
-        assertNotNull(result);
-        verify(mockAction).execute(any(TntrRepositoryUpdateCommandContext.class));
+    public void testSaveEntity_Recon() throws UpsertException, OptimisticLockException, StartableException, DataFabricSerializerException {
+        RecordId mockRecord  = new RecordId();
+        mockRecord.setKey("10001");
+        Mockito.doReturn(mockRecord).when(repository).upsertRecordToDf(Mockito.any());
+        JiraAssignmentTriggerEvent event = getJiraAssignmentTriggerEvent();
+        event.setFlow("Reconciliation");
+        RecordId recordId = repository.saveEntity(event);
+        TestCase.assertEquals("10001",recordId.getKey());
     }
 
     @Test
-    public void testExecuteUpdateTrades_AggregatedCollateralFlow() {
-        String whereExpression = "status=active";
-        JiraReference jiraReference = mock(JiraReference.class);
-        JiraTaggingDetail jiraTaggingDetail = new JiraTaggingDetail();
-        FlowType workflowType = FlowType.AGGREGATED_COLLATERAL;
+    public void testReadEntityForKey() throws GetException, StartableException {
+        // Setup mock data
+        String key = "Reconciliation_g2_Jira Assignment_TNTR-5678_CFTC_Rates_NAK_FAILED_2";
+        Record mockRecord = getMockRecords();
 
-        RepositoryAction mockAction = mock(RepositoryAction.class);
-        when(reportingTemplate.getRepositoryCommandFactory()).thenReturn(mock(RepositoryAction.class));
-        when(reportingTemplate.getRepositoryCommandFactory().getCommand(RepositoryAction.UPDATE)).thenReturn(mockAction);
-        when(mockAction.execute(any(TntrRepositoryUpdateCommandContext.class))).thenReturn(updateResult);
+        // Configure mock behavior
+        Mockito.when(dfClient.get(Mockito.any())).thenReturn(mockRecord);
 
-        TntrRepositoryUpdateCommandResult result = transformer.executeUpdateTrades(whereExpression, jiraReference, jiraTaggingDetail, workflowType);
+        // Call the method under test
+        JiraAssignmentTriggerEvent result = repository.readEntityForKey(key);
 
-        assertNotNull(result);
-        verify(mockAction).execute(any(TntrRepositoryUpdateCommandContext.class));
+        // Verify the result
+        TestCase.assertEquals("Reconciliation_g2_Jira Assignment_TNTR-5678_CFTC_Rates_NAK_FAILED_2", result.getPrimaryKey());
+        TestCase.assertEquals("Reconciliation", result.getFlow());
     }
 
     @Test
-    public void testGetRecords_TradeFlow_EmptyTradeList() {
-        String whereExpression = "status=active";
-        FlowType workflowType = FlowType.TRADE;
-        String indexHint = "index1";
-        JiraReference jiraReference = mock(JiraReference.class);
+    public void testReadAllEntity() throws ScanException, StartableException {
+        String where = "primaryKey = 'Reconciliation_g2_Jira Assignment_TNTR-5678_CFTC_Rates_NAK_FAILED_2'";
+        //make a list of records
+        List<Record> mockRecords = Lists.newArrayList(getMockRecords());
 
-        RepositoryAction mockAction = mock(RepositoryAction.class);
-        when(reportingTemplate.getRepositoryCommandFactory()).thenReturn(mock(RepositoryAction.class));
-        when(reportingTemplate.getRepositoryCommandFactory().getCommand(RepositoryAction.READ_ALL)).thenReturn(mockAction);
-        when(readResult.getTradeList()).thenReturn(new ArrayList<>());
-        when(mockAction.execute(any(TntrRepositoryReadCommandContext.class))).thenReturn(readResult);
+        // Configure mock behavior
+        Mockito.when(dfClient.scan(Mockito.any())).thenReturn(getMockScanResult(mockRecords));
 
-        int count = transformer.getRecords(whereExpression, workflowType, indexHint, jiraReference);
+        // Call the method under test
+        List<JiraAssignmentTriggerEvent> results = repository.readAllEntity(where);
 
-        assertEquals(0, count);
-        verify(mockAction).execute(any(TntrRepositoryReadCommandContext.class));
+        // Verify the results
+        TestCase.assertEquals(1, results.size());
+        TestCase.assertEquals("Reconciliation_g2_Jira Assignment_TNTR-5678_CFTC_Rates_NAK_FAILED_2", results.get(0).getPrimaryKey());
+        TestCase.assertEquals("Reconciliation", results.get(0).getFlow());
+    }
+
+    //write two test cases for testUpdateEntity for valuation and reconciliation flow
+    @Test
+    public void testUpdateEntity() throws StartableException, UpsertException, OptimisticLockException, DataFabricSerializerException {
+        String pKey = "10001";
+        String lastSuccessDate = "2020-02-01";
+        int recordsModified = 100;
+        String status = "COMPLETED";
+        String comment = "Test update";
+        String ruleEngineDateTime = "2020-02-01T10:00:00.000Z";
+        Date nextDateTime = new Date();
+
+        // Create a mock JiraAssignmentTriggerEvent for the readEntityForKey method to return
+        JiraAssignmentTriggerEvent mockEvent = getJiraAssignmentTriggerEvent();
+
+        // Configure mock behavior
+        Mockito.doReturn(mockEvent).when(repository).readEntityForKey(pKey);
+
+        RecordId mockRecord = new RecordId();
+        mockRecord.setKey(pKey);
+        Mockito.doReturn(mockRecord).when(repository).upsertRecordToDf(Mockito.any());
+
+        // Call the method under test
+        RecordId recordId = repository.updateEntity(pKey, lastSuccessDate, recordsModified, status, comment, ruleEngineDateTime, nextDateTime);
+
+        // Verify the result
+        TestCase.assertEquals(pKey, recordId.getKey());
+
+        Mockito.verify(repository).readEntityForKey(pKey);
+        Mockito.verify(repository).upsertRecordToDf(Mockito.any());
     }
 
     @Test
-    public void testGetRecords_CollateralFlow_WithJiraReference() {
-        String whereExpression = "status=active";
-        FlowType workflowType = FlowType.COLLATERAL;
-        String indexHint = "index1";
-        JiraReference jiraReference = mock(JiraReference.class);
+    public void testUpdateEntity_Reconciliation()  throws StartableException, UpsertException, OptimisticLockException, DataFabricSerializerException {
+        String pKey = "10001";
+        String lastSuccessDate = "2020-02-01";
+        int recordsModified = 100;
+        String status = "COMPLETED";
+        String comment = "Test update";
+        String ruleEngineDateTime = "2020-02-01T10:00:00.000Z";
+        Date nextDateTime = new Date();
 
-        List<Map<TntrFieldsReadUpdateEnum, Object>> tradeList = new ArrayList<>();
-        Map<TntrFieldsReadUpdateEnum, Object> trade = new HashMap<>();
-        Map<String, Object> suppMap = new HashMap<>();
-        trade.put(TntrFieldsReadUpdateEnum.SUPPLEMENTARY_INFORMATION, suppMap);
-        tradeList.add(trade);
+        // Create a mock JiraAssignmentTriggerEvent for the readEntityForKey method to return
+        JiraAssignmentTriggerEvent mockEvent = getJiraAssignmentTriggerEvent();
+        mockEvent.setFlow("Reconciliation");
+        // Configure mock behavior
+        Mockito.doReturn(mockEvent).when(repository).readEntityForKey(pKey);
 
-        RepositoryAction mockAction = mock(RepositoryAction.class);
-        when(reportingTemplate.getRepositoryCommandFactory()).thenReturn(mock(RepositoryAction.class));
-        when(reportingTemplate.getRepositoryCommandFactory().getCommand(RepositoryAction.READ_ALL)).thenReturn(mockAction);
-        when(readResult.getTradeList()).thenReturn(tradeList);
-        when(mockAction.execute(any(TntrRepositoryReadCommandContext.class))).thenReturn(readResult);
-        when(TntrTdxNodeBuilderUtil.isJiraIdPresentInUserWorkflow(eq(suppMap), eq(TntrFieldsReadUpdateEnum.JIRA_REFERENCES.getValue()), eq(jiraReference))).thenReturn(true);
+        RecordId mockRecord = new RecordId();
+        mockRecord.setKey(pKey);
+        Mockito.doReturn(mockRecord).when(repository).upsertRecordToDf(Mockito.any());
 
-        int count = transformer.getRecords(whereExpression, workflowType, indexHint, jiraReference);
+        // Call the method under test
+        RecordId recordId = repository.updateEntity(pKey, lastSuccessDate, recordsModified, status, comment, ruleEngineDateTime, nextDateTime);
 
-        assertEquals(0, count);
-        verify(mockAction).execute(any(TntrRepositoryReadCommandContext.class));
+        // Verify the result
+        TestCase.assertEquals(pKey, recordId.getKey());
+
+        Mockito.verify(repository).readEntityForKey(pKey);
+        Mockito.verify(repository).upsertRecordToDf(Mockito.any());
     }
 
     @Test
-    public void testGetRecords_ValuationFlow_NoJiraReference() {
-        String whereExpression = "status=active";
-        FlowType workflowType = FlowType.VALUATION;
-        String indexHint = "index1";
-        JiraReference jiraReference = mock(JiraReference.class);
+    public void testDeleteAllRecords() {
+        long expectedDeletedCount = 10L;
+        Mockito.doReturn(expectedDeletedCount).when(repository).deleteAllDataFromCollection(Mockito.anyString());
+        long actualDeletedCount = repository.deleteAllRecords();
+        TestCase.assertEquals(expectedDeletedCount, actualDeletedCount);
 
-        List<Map<TntrFieldsReadUpdateEnum, Object>> tradeList = new ArrayList<>();
-        Map<TntrFieldsReadUpdateEnum, Object> trade = new HashMap<>();
-        Map<String, Object> suppMap = new HashMap<>();
-        trade.put(TntrFieldsReadUpdateEnum.SUPPLEMENTARY_INFORMATION, suppMap);
-        tradeList.add(trade);
-
-        RepositoryAction mockAction = mock(RepositoryAction.class);
-        when(reportingTemplate.getRepositoryCommandFactory()).thenReturn(mock(RepositoryAction.class));
-        when(reportingTemplate.getRepositoryCommandFactory().getCommand(RepositoryAction.READ_ALL)).thenReturn(mockAction);
-        when(readResult.getTradeList()).thenReturn(tradeList);
-        when(mockAction.execute(any(TntrRepositoryReadCommandContext.class))).thenReturn(readResult);
-        when(TntrTdxNodeBuilderUtil.isJiraIdPresentInUserWorkflow(eq(suppMap), eq(TntrFieldsReadUpdateEnum.JIRA_REFERENCES.getValue()), eq(jiraReference))).thenReturn(false);
-
-        int count = transformer.getRecords(whereExpression, workflowType, indexHint, jiraReference);
-
-        assertEquals(1, count);
-        verify(mockAction).execute(any(TntrRepositoryReadCommandContext.class));
+        // Verify that deleteAllDataFromCollection was called with the correct parameter
+        Mockito.verify(repository).deleteAllDataFromCollection("isActive = true or isActive = false");
     }
 
     @Test
-    public void testGetRecords_AggregatedCollateralFlow_MixedJiraReferences() {
-        String whereExpression = "status=active";
-        FlowType workflowType = FlowType.AGGREGATED_COLLATERAL;
-        String indexHint = "index1";
-        JiraReference jiraReference = mock(JiraReference.class);
+    public void testGetPageLimit() {
+        Integer pageLimit = repository.getPageLimit();
+        TestCase.assertNull(pageLimit);
+        // Verify no interactions with mocks for this method
+        Mockito.verifyNoMoreInteractions(dfClient);
+    }
 
-        List<Map<TntrFieldsReadUpdateEnum, Object>> tradeList = new ArrayList<>();
-        Map<TntrFieldsReadUpdateEnum, Object> trade1 = new HashMap<>();
-        Map<String, Object> suppMap1 = new HashMap<>();
-        trade1.put(TntrFieldsReadUpdateEnum.SUPPLEMENTARY_INFORMATION, suppMap1);
-        Map<TntrFieldsReadUpdateEnum, Object> trade2 = new HashMap<>();
-        Map<String, Object> suppMap2 = new HashMap<>();
-        trade2.put(TntrFieldsReadUpdateEnum.SUPPLEMENTARY_INFORMATION, suppMap2);
-        tradeList.add(trade1);
-        tradeList.add(trade2);
+    @Test
+    public void testGetBatchSize() {
+        Integer batchSize = repository.getBatchSize();
+        TestCase.assertNull(batchSize);
+        // Verify no interactions with mocks for this method
+        Mockito.verifyNoMoreInteractions(dfClient);
+    }
 
-        RepositoryAction mockAction = mock(RepositoryAction.class);
-        when(reportingTemplate.getRepositoryCommandFactory()).thenReturn(mock(RepositoryAction.class));
-        when(reportingTemplate.getRepositoryCommandFactory().getCommand(RepositoryAction.READ_ALL)).thenReturn(mockAction);
-        when(readResult.getTradeList()).thenReturn(tradeList);
-        when(mockAction.execute(any(TntrRepositoryReadCommandContext.class))).thenReturn(readResult);
-        when(TntrTdxNodeBuilderUtil.isJiraIdPresentInUserWorkflow(eq(suppMap1), eq(TntrFieldsReadUpdateEnum.JIRA_REFERENCES.getValue()), eq(jiraReference))).thenReturn(true);
-        when(TntrTdxNodeBuilderUtil.isJiraIdPresentInUserWorkflow(eq(suppMap2), eq(TntrFieldsReadUpdateEnum.JIRA_REFERENCES.getValue()), eq(jiraReference))).thenReturn(false);
+    @Test
+    public void testGetFilerPath() {
+        String testPath = "test/path";
+        String result = repository.getFilerPath(testPath);
+        TestCase.assertNull(result);
+        // Verify no interactions with mocks for this method
+        Mockito.verifyNoMoreInteractions(dfClient);
+    }
 
-        int count = transformer.getRecords(whereExpression, workflowType, indexHint, jiraReference);
+    @Test
+    public void testGetInvalidFilerPath() {
+        String testPath = "test/path";
+        String result = repository.getInvalidFilerPath(testPath);
+        TestCase.assertNull(result);
+        // Verify no interactions with mocks for this method
+        Mockito.verifyNoMoreInteractions(dfClient);
+    }
 
-        assertEquals(1, count);
-        verify(mockAction).execute(any(TntrRepositoryReadCommandContext.class));
+    @Test
+    public void testGetDateString() {
+        LocalDate testDate = LocalDate.of(2020, 5, 15);
+        String dateString = TaggingServiceBatchTriggerDfRepository.getDateString(testDate);
+        TestCase.assertEquals("15-05-2020", dateString);
+        // Verify no interactions with mocks for this method
+        Mockito.verifyNoMoreInteractions(dfClient);
+    }
+
+    private JiraAssignmentTriggerEvent getJiraAssignmentTriggerEvent(){
+        return new JiraAssignmentTriggerEvent.Builder()
+                .withId("1")
+                .withPrimaryKey("10001")
+                .withExpression("subjectIdentifier.reportTriggerType = 'Collateral Update' ")
+                .withFlow("Valuation")
+                .withAction("Jira Assignment")
+                .withActionValue("MIL-7049")
+                .withActionValueType("Mis Reporting")
+                .withIsActive(true)
+                .withStartDate("2020-01-01")
+                .withLastSuccessDate("2020-01-01")
+                .withMaxVolume(1000)
+                .withUserComments("Jira Type Added").create();
+    }
+
+    private ScanResult getMockScanResult(List<Record> records) {
+        return new ScanResult() {
+            @Override
+            public AsOf getAsOf() {
+                return null;
+            }
+
+            @Override
+            public String getCommandId() {
+                return null;
+            }
+
+            @Override
+            public ExplainPlan getExplainPlan() {
+                return null;
+            }
+
+            @Override
+            public void close() {
+
+            }
+
+            @Override
+            public Iterator<Record> iterator() {
+                return records.iterator();
+            }
+        };
+    }
+
+    private Record getMockRecords() {
+        String jsonRecord = "{\n" +
+                "  \"id\": \"1\",\n" +
+                "  \"primaryKey\": \"Reconciliation_g2_Jira Assignment_TNTR-5678_CFTC_Rates_NAK_FAILED_2\",\n" +
+                "  \"groupId\": \"g2\",\n" +
+                "  \"expression\": \"subjectIdentifier.reconciliationRuleIdentifier in ('CftcPositionRates') and reconciliationBusinessDateTime = '2022-11-18T00:00:00.000Z' and reconciliationState.reconciliationStatus = 'Target Unpaired' and sourceRecords.reportingStatus in ('FAILED_ACKNOWLEDGEMENT')\",\n" +
+                "  \"expressionDescription\": \"TEST\",\n" +
+                "  \"flow\": \"Reconciliation\",\n" +
+                "  \"action\": \"Jira Assignment\",\n" +
+                "  \"actionValue\": \"TNTR-5678\",\n" +
+                "  \"actionValueType\": \"\",\n" +
+                "  \"ruleOwnerRecfId\": null,\n" +
+                "  \"isActive\": false,\n" +
+                "  \"activeDateTime\": \"2022-11-23T09:59:43.343Z\",\n" +
+                "  \"inActiveDateTime\": \"2022-11-23T13:05:39.313Z\",\n" +
+                "  \"ruleName\": \"CFTC_Rates_NAK_FAILED_2\",\n" +
+                "  \"startDate\": \"2022-11-18T00:00:00.000Z\",\n" +
+                "  \"lastSuccessDate\": \"2022-11-23T00:00:00.000Z\",\n" +
+                "  \"comments\": \"\",\n" +
+                "  \"status\": null,\n" +
+                "  \"businessDateStr\": \"2022-11-23\",\n" +
+                "  \"ruleEngineDateTime\": null,\n" +
+                "  \"modifiedRecords\": 0,\n" +
+                "  \"maxVolume\": 3000,\n" +
+                "  \"indexHint\": \"\",\n" +
+                "  \"userComment\": \"no user comment\",\n" +
+                "  \"subExpression\": \"\",\n" +
+                "  \"scheduledTime\": \"10:04 AM\",\n" +
+                "  \"nextRunDateTime\": \"2022-11-24T10:04:00.000Z\"\n" +
+                "}";
+        Record record = new Record();
+        RecordId recordId = new RecordId();
+        recordId.setDatabaseName(DB);
+        recordId.setCollectionName(Collection_Name);
+        record.setId(recordId);
+        record.setDocument((new JsonDocument()).withContents(jsonRecord));
+        return record;
+    }
+
+    @Test
+    public void testReadEntityForKey_GetException() throws StartableException, GetException {
+        String key = "someKey";
+        Mockito.when(dfClient.get(Mockito.any())).thenThrow(new GetException("Error"));
+
+        JiraAssignmentTriggerEvent result = repository.readEntityForKey(key);
+
+        TestCase.assertNull(result); // Ensure result is null due to GetException
+    }
+
+    @Test
+    public void testReadAllEntity_ScanException() throws ScanException, StartableException {
+        String where = "someWhereClause";
+        Mockito.when(dfClient.scan(Mockito.any())).thenThrow(new ScanException("Error"));
+
+        List<JiraAssignmentTriggerEvent> results = repository.readAllEntity(where);
+
+        TestCase.assertTrue(results.isEmpty()); // Ensure results list is empty
+    }
+
+    @Test
+    public void testDeleteAllRecords_Exception() {
+        Mockito.doThrow(new RuntimeException("Error")).when(repository).deleteAllDataFromCollection(Mockito.anyString());
+
+        long deletedCount = repository.deleteAllRecords();
+
+        TestCase.assertEquals(0, deletedCount); // Ensure deletedCount is 0
     }
 }
