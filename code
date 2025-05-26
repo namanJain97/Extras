@@ -1,1333 +1,169 @@
-package com.rbs.tntr.business.taggingService.repository;
+Could you write all the additional test cases for below java class to cover all the remaining scenarios or methods and make the test coverage or code coverage as 100% using junit 4 and old mockito version and java 8:
 
-import static com.rbs.tntr.business.taggingService.repository.TagginServiceSerializer.objectMapper;
-import static com.rbs.tntr.domain.taggingService.miAnalytics.dashboard.common.MIConstants.*;
-import static org.junit.Assert.*;
-import static org.mockito.Mockito.*;
+package com.rbs.tntr.business.taggingService.transformer;
 
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.text.SimpleDateFormat;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.EnumMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
 
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.JsonToken;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.collect.Maps;
-import com.nwm.tntr.commons.domain.persistence.constant.AssetClass;
-import com.nwm.tntr.commons.repository.df.DfConnectionManager;
-import com.nwm.tntr.configuration.ItrConfiguration;
-import com.rbs.datafabric.agile.commons.lang.StartableException;
-import com.rbs.datafabric.api.ScanResult;
-import com.rbs.datafabric.api.exception.ScanException;
-import com.rbs.datafabric.api.exception.UpsertException;
-import com.rbs.datafabric.client.DataFabricClient;
-import com.rbs.datafabric.domain.Document;
-import com.rbs.datafabric.domain.JsonDocument;
-import com.rbs.datafabric.domain.Record;
-import com.rbs.datafabric.domain.RecordId;
-import com.rbs.datafabric.domain.client.builder.ScanRequestBuilder;
-import com.rbs.datafabric.domain.client.builder.UpsertRequestBuilder;
-import com.rbs.tntr.business.taggingService.service.common.ItrClient;
-import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.Itr2Query;
-import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.exceptions.TaggingServiceRunTimeException;
-import com.rbs.tntr.domain.taggingService.miAnalytics.dashboard.common.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
+
+import com.nwm.tntr.commons.domain.JiraReference;
+import com.nwm.tntr.commons.domain.WorkflowType;
+import com.nwm.tntr.commons.enums.ApiQueryFilter;
+import com.nwm.tntr.commons.enums.TntrCallerService;
+import com.nwm.tntr.commons.enums.TntrFieldsReadUpdateEnum;
+import com.nwm.tntr.commons.repository.domain.ReportingTemplate;
+import com.nwm.tntr.commons.repository.domain.RepositoryAction;
+import com.nwm.tntr.commons.repository.domain.TntrRepositoryReadCommandContext;
+import com.nwm.tntr.commons.repository.domain.TntrRepositoryReadCommandResult;
+import com.nwm.tntr.commons.repository.domain.TntrRepositoryUpdateCommandContext;
+import com.nwm.tntr.commons.repository.domain.TntrRepositoryUpdateCommandResult;
+import com.nwm.tntr.commons.repository.util.TntrTdxNodeBuilderUtil;
+import com.rbs.tntr.api.taggingService.service.jiraAssignement.TntrTradeTransformer;
 import com.rbs.tntr.business.taggingService.service.common.DateTimeService;
-import com.nwm.tntr.itr.IQuery;
-import com.nwm.tntr.itr.Itr2ParameterisedQuery;
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.JiraTaggingDetail;
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.enums.FlowType;
 
-import org.joda.time.DateTime;
-import org.joda.time.DateTimeZone;
+/**
+ * Created by matbina on 21/05/2020.
+ */
+@Component
+public class TntrTradeTransformerImpl implements TntrTradeTransformer {
+    private static final Logger LOGGER = LoggerFactory.getLogger(TntrTradeTransformerImpl.class);
+
+    private final static String TAGGING_SERVICE= "tagging-service";
+
+    @Override
+    public int getRecords(String whereExpression, FlowType workflowType, String indexHint, JiraReference jiraReference){
+        EnumMap<ApiQueryFilter, Object> apiQueryFilterMap = new EnumMap<>(ApiQueryFilter.class);
+        apiQueryFilterMap.put(ApiQueryFilter.WHERE, whereExpression);
+        apiQueryFilterMap.put(ApiQueryFilter.HISTORY, false);
+        apiQueryFilterMap.put(ApiQueryFilter.INDEX_HINT, indexHint);
+
+        ReportingTemplate reportingTemplate;
+        List<TntrFieldsReadUpdateEnum> attributes = new ArrayList<>();
+
+        if(workflowType.getValue().equalsIgnoreCase(FlowType.AGGREGATED_COLLATERAL.getValue())) {
+            reportingTemplate = ReportingTemplate.COLLATERAL;
+            attributes.add(TntrFieldsReadUpdateEnum.COLLATERAL_REPORTING_GRP);
+            attributes.add(TntrFieldsReadUpdateEnum.SUPPLEMENTARY_INFORMATION);
+        } else {
+            reportingTemplate = ReportingTemplate.TRADE;
+            attributes.add(TntrFieldsReadUpdateEnum.TRANSACTION_ID);
+            attributes.add(TntrFieldsReadUpdateEnum.SUPPLEMENTARY_INFORMATION);
+        }
+
+        TntrRepositoryReadCommandContext tntrTradeRepositoryReadCommandContext = new TntrRepositoryReadCommandContext(apiQueryFilterMap, attributes);
+        tntrTradeRepositoryReadCommandContext.setTntrCallerService(TntrCallerService.TAGGING_SERVICE);
+        if(workflowType.getValue().equalsIgnoreCase(FlowType.COLLATERAL.getValue())
+                || workflowType.getValue().equalsIgnoreCase(FlowType.VALUATION.getValue())) {
+
+            tntrTradeRepositoryReadCommandContext.setWorkflowType(WorkflowType.VALUATIONS);
+        }
+
+        TntrRepositoryReadCommandResult result = (TntrRepositoryReadCommandResult) reportingTemplate
+                .getRepositoryCommandFactory()
+                .getCommand(RepositoryAction.READ_ALL)
+                .execute(tntrTradeRepositoryReadCommandContext);
+
+        if(result.getTradeList().size() > 0){
+            return getRecordCount(result, jiraReference);
+        }
+        return 0;
+    }
+
+    private int getRecordCount(TntrRepositoryReadCommandResult result, JiraReference jiraReference){
+        int count = 0;
+        List<Map<TntrFieldsReadUpdateEnum, Object>> tradeList = result.getTradeList();
+        for(Map<TntrFieldsReadUpdateEnum, Object> map : tradeList){
+            Map<String, Object> suppMap = (Map<String, Object>) map.get(TntrFieldsReadUpdateEnum.SUPPLEMENTARY_INFORMATION);
+            boolean isPresent = TntrTdxNodeBuilderUtil.isJiraIdPresentInUserWorkflow(
+                    suppMap,
+                    TntrFieldsReadUpdateEnum.JIRA_REFERENCES.getValue(),
+                    jiraReference);
+            if(!isPresent){
+                count++;
+            }
+        }
+        return count;
+    }
+
+    @Override
+    public TntrRepositoryUpdateCommandResult executeUpdateTrades(String whereExpression, JiraReference jiraReference, JiraTaggingDetail jiraTaggingDetail, FlowType workflowType) {
+        Properties propToUpdate= new Properties();
+        propToUpdate.put(TntrFieldsReadUpdateEnum.JIRA_REFERENCES.getValue(), jiraReference);
+        propToUpdate.put(TntrFieldsReadUpdateEnum.JIRA_TAGGING_DETAILS.getValue(), jiraTaggingDetail);
+        propToUpdate.put(TntrFieldsReadUpdateEnum.MODIFIED_BY.getValue(), TAGGING_SERVICE);
+		propToUpdate.put(TntrFieldsReadUpdateEnum.MODIFIED_ON.getValue(), DateTimeService.getCurrentDateTime());
+
+        TntrRepositoryUpdateCommandContext tntrTradeRepositoryUpdateCommandContext = new TntrRepositoryUpdateCommandContext(whereExpression, propToUpdate, TntrCallerService.TAGGING_SERVICE);
+        if(workflowType.getValue().equalsIgnoreCase(FlowType.COLLATERAL.getValue()) || workflowType.getValue().equalsIgnoreCase(FlowType.VALUATION.getValue())) {
+            tntrTradeRepositoryUpdateCommandContext.setWorkflowType(WorkflowType.VALUATIONS);
+        }else if(workflowType.getValue().equalsIgnoreCase(FlowType.TRADE.getValue())){
+            tntrTradeRepositoryUpdateCommandContext.setWorkflowType(WorkflowType.TRADE);
+        }
+
+        ReportingTemplate reportingTemplate;
+        if(workflowType.getValue().equalsIgnoreCase(FlowType.AGGREGATED_COLLATERAL.getValue())) {
+            reportingTemplate = ReportingTemplate.COLLATERAL;
+        } else {
+            reportingTemplate = ReportingTemplate.TRADE;
+        }
+
+        TntrRepositoryUpdateCommandResult result = (TntrRepositoryUpdateCommandResult) reportingTemplate
+                .getRepositoryCommandFactory()
+                .getCommand(RepositoryAction.UPDATE)
+                .execute(tntrTradeRepositoryUpdateCommandContext);
+
+        return result;
+    }
+}
+
+
+Existing Test class:
+
+package com.rbs.tntr.business.taggingService.transformer;
+
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.JiraTaggingDetail;
+import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.enums.FlowType;
+import com.nwm.tntr.commons.domain.JiraReference;
 import org.junit.Before;
 import org.junit.Test;
-import org.mockito.*;
-import org.springframework.test.util.ReflectionTestUtils;
+import static org.mockito.Mockito.*;
 
-public class MIAnalyticsDashboardRepositoryImplTest {
+public class TntrTradeTransformerImplTest {
 
-    @InjectMocks
-    MIAnalyticsDashboardRepositoryImpl repo;
-
-    @Mock
-    DfConnectionManager dfConn;
-
-    @Mock
-    ItrConfiguration itrConfig;
-
-    @Mock
-    DataFabricClient dfClient;
-
-    @Mock
-    ItrClient itrClient;
-
-    private static final ObjectMapper REAL_OBJECT_MAPPER = new ObjectMapper();
-    private static final Date TEST_DATE;
-
-    static {
-        try {
-            TEST_DATE = new SimpleDateFormat("yyyy-MM-dd").parse("2025-05-19");
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-    }
+    private TntrTradeTransformerImpl transformer;
 
     @Before
-    public void setUp() throws Exception {
-        MockitoAnnotations.initMocks(this);
-
-        setField("dfClient", dfClient);
-
-        // Set configuration properties via reflection
-        ReflectionTestUtils.setField(repo, "databaseName", "testDatabase");
-        ReflectionTestUtils.setField(repo, "miCollection", "miCollection");
-        ReflectionTestUtils.setField(repo, "foMiCollection", "foMiCollection");
-        ReflectionTestUtils.setField(repo, "readTimeOut", 60);
-
-        // Set URLs for various endpoints
-        ReflectionTestUtils.setField(repo, "foEmirUrl", "emirUrl");
-        ReflectionTestUtils.setField(repo, "foEmirParameterisedUrl", "emirParamUrl");
-        ReflectionTestUtils.setField(repo, "foMasUrl", "masUrl");
-        ReflectionTestUtils.setField(repo, "foMasParameterisedUrl", "masParamUrl");
-        ReflectionTestUtils.setField(repo, "foBoiUrl", "boiUrl");
-        ReflectionTestUtils.setField(repo, "foMifidUrl", "mifidUrl");
-        ReflectionTestUtils.setField(repo, "foSftrUrl", "sftrUrl");
-        ReflectionTestUtils.setField(repo, "foSftrAldopUrl", "sftrAldopUrl");
-        ReflectionTestUtils.setField(repo, "foCftcUrl", "cftcUrl");
-
-        // Mock common behaviors
-        when(itrConfig.getItr2ProtocolScheme()).thenReturn("http");
-        when(itrConfig.getItr2ServiceName()).thenReturn("testService");
-
-        // Mock static MIConstants maps
-        ReflectionTestUtils.setField(MIConstants.class, "BOI_ASSETWISE_QUERY_IDS", new HashMap<String, List<String>>() {{
-            put(AssetClass.ETD.value(), Arrays.asList("BOI_QUERY_1"));
-        }});
-        ReflectionTestUtils.setField(MIConstants.class, "MIFID_ASSETWISE_QUERY_IDS", new HashMap<String, List<String>>() {{
-            put(AssetClass.ETD.value(), Arrays.asList("MIFID_QUERY_1"));
-        }});
-        ReflectionTestUtils.setField(MIConstants.class, "EMIR_ASSETWISE_QUERY_IDS", new HashMap<String, List<String>>() {{
-            put(AssetClass.ETD.value(), Arrays.asList("EMIR_QUERY_1"));
-        }});
-        ReflectionTestUtils.setField(MIConstants.class, "MAS_ASSETWISE_QUERY_IDS", new HashMap<String, List<String>>() {{
-            put(AssetClass.INTEREST_RATE.value(), Arrays.asList("MAS_QUERY_1"));
-        }});
-        ReflectionTestUtils.setField(MIConstants.class, "SFTR_ASSETWISE_QUERY_IDS", new HashMap<String, List<String>>() {{
-            put(AssetClass.ETD.value(), Arrays.asList("SFTR_QUERY_1", SFTR_ALDOP_QUERY_ID));
-        }});
-        ReflectionTestUtils.setField(MIConstants.class, "MIFID_ASSETWISE_PARSE_DATA", new HashMap<String, Map<String, String>>() {{
-            put(AssetClass.FOREIGN_EXCHANGE.value(), new HashMap<String, String>() {{
-                put(TRADING_PARTY_LEI, "tradingPartyLei");
-                put(VERSION_REPORTABLE, "versionReportable");
-                put(TRANSACTION_REPORTABLE, "transactionReportable");
-            }});
-        }});
-        ReflectionTestUtils.setField(MIConstants.class, "EMIR_ASSETWISE_PARSE_DATA", new HashMap<String, Map<String, String>>() {{
-            put(AssetClass.ETD.value(), new HashMap<String, String>() {{
-                put(TRADING_PARTY_LEI, "tradingPartyLei");
-                put(VERSION_REPORTABLE, "versionReportable");
-                put(TRANSACTION_REPORTABLE, "transactionReportable");
-            }});
-        }});
-        ReflectionTestUtils.setField(MIConstants.class, "MAS_ASSETWISE_PARSE_DATA", new HashMap<String, Map<String, String>>() {{
-            put(AssetClass.INTEREST_RATE.value(), new HashMap<String, String>() {{
-                put(TRADING_PARTY_LEI, "tradingPartyLei");
-                put(VERSION_REPORTABLE, "versionReportable");
-                put(TRANSACTION_REPORTABLE, "transactionReportable");
-            }});
-        }});
-        ReflectionTestUtils.setField(MIConstants.class, "SFTR_ASSETWISE_PARSE_DATA", new HashMap<String, Map<String, String>>() {{
-            put(AssetClass.ETD.value(), new HashMap<String, String>() {{
-                put(TRADING_PARTY_LEI, "tradingPartyLei");
-                put(VERSION_REPORTABLE, "versionReportable");
-                put(TRANSACTION_REPORTABLE, "transactionReportable");
-            }});
-        }});
-        ReflectionTestUtils.setField(MIConstants.class, "MIFID_ASSETWISE_SELECT", new HashMap<String, String>() {{
-            put(AssetClass.ETD.value(), "select mifid_field");
-        }});
-        ReflectionTestUtils.setField(MIConstants.class, "EMIR_ASSETWISE_SELECT", new HashMap<String, String>() {{
-            put(AssetClass.ETD.value(), "select emir_field");
-        }});
-        ReflectionTestUtils.setField(MIConstants.class, "MAS_ASSETWISE_SELECT", new HashMap<String, String>() {{
-            put(AssetClass.INTEREST_RATE.value(), "select mas_field");
-        }});
-        ReflectionTestUtils.setField(MIConstants.class, "SFTR_ASSETWISE_SELECT", new HashMap<String, String>() {{
-            put(AssetClass.ETD.value(), "select sftr_field");
-        }});
-        ReflectionTestUtils.setField(MIConstants.class, "FO_ASSETWISE_MAP", new HashMap<String, List<String>>() {{
-            put(AssetClass.ETD.value(), Arrays.asList(BOI, MIFID, EMIR, SFTR));
-            put(AssetClass.FOREIGN_EXCHANGE.value(), Arrays.asList(CFTC_CSA));
-            put(AssetClass.INTEREST_RATE.value(), Arrays.asList(MAS, CFTC_CSA));
-        }});
-    }
-
-    private void setField(String fieldName, Object value) throws Exception {
-        Field field = MIAnalyticsDashboardRepositoryImpl.class.getDeclaredField(fieldName);
-        field.setAccessible(true);
-        field.set(repo, value);
-    }
-
-    private Object invokePrivateMethod(String methodName, Class<?>[] parameterTypes, Object... args) throws Exception {
-        Method method = MIAnalyticsDashboardRepositoryImpl.class.getDeclaredMethod(methodName, parameterTypes);
-        method.setAccessible(true);
-        return method.invoke(repo, args);
-    }
-
-    // Existing tests (preserved)
-    @Test
-    public void testCreateDfClientConnection_Success() throws StartableException {
-        MIAnalyticsDashboardRepositoryImpl spyRepo = spy(repo);
-        doReturn(dfClient).when(spyRepo).getDfClient(any(DfConnectionManager.class));
-
-        spyRepo.createDfClientConnection();
-
-        verify(spyRepo).getDfClient(dfConn);
-    }
-
-    @Test
-    public void testCreateDfClientConnection_Exception() throws StartableException {
-        MIAnalyticsDashboardRepositoryImpl spyRepo = spy(repo);
-        doThrow(new StartableException("Test exception")).when(spyRepo).getDfClient(any(DfConnectionManager.class));
-
-        spyRepo.createDfClientConnection();
-
-        verify(spyRepo).getDfClient(dfConn);
-    }
-
-    @Test(expected = TaggingServiceRunTimeException.class)
-    public void testUpsertMiSnapshot_JsonProcessingException() throws Exception {
-        SubjectIdentifier identifier = new SubjectIdentifier("testLei", "testEntity", "testFlow", "testAsset", "testMessage", "testRegulation", TEST_DATE);
-        MIDashboardAnalytics analytics = new MIDashboardAnalytics();
-        analytics.setSubjectIdentifier(identifier);
-
-        MIAnalyticsDashboardRepositoryImpl spyRepo = spy(repo);
-        doThrow(new com.fasterxml.jackson.core.JsonProcessingException("Test JSON exception") {
-        }).when(spyRepo).serialize(any());
-
-        spyRepo.upsertMiSnapshot(analytics);
-    }
-
-    @Test(expected = TaggingServiceRunTimeException.class)
-    public void testUpsertMiSnapshot_UpsertException() throws Exception {
-        MIDashboardAnalytics stats = mock(MIDashboardAnalytics.class);
-        when(stats.getSubjectIdentifier()).thenReturn(mock(SubjectIdentifier.class));
-
-        UpsertRequestBuilder mockBuilder = mock(UpsertRequestBuilder.class);
-        when(mockBuilder.withKey(anyString())).thenReturn(mockBuilder);
-        when(dfClient.upsert(any(UpsertRequestBuilder.class))).thenThrow(new UpsertException(""));
-
-        repo.upsertMiSnapshot(stats);
-    }
-
-    @Test(expected = TaggingServiceRunTimeException.class)
-    public void testUpsertFoMiSnapshot_JsonProcessingException() throws Exception {
-        FrontOfficeSubjectIdentifier identifier = new FrontOfficeSubjectIdentifier("testEntity", "testLei", "testAsset", "testRegulation", TEST_DATE);
-        FrontOfficeMIDashboardAnalytics analytics = new FrontOfficeMIDashboardAnalytics();
-        analytics.setSubjectIdentifier(identifier);
-
-        MIAnalyticsDashboardRepositoryImpl spyRepo = spy(repo);
-        doThrow(new com.fasterxml.jackson.core.JsonProcessingException("Test JSON exception") {
-        }).when(spyRepo).serialize(any());
-
-        spyRepo.upsertFoMiSnapshot(analytics);
-    }
-
-    @Test(expected = TaggingServiceRunTimeException.class)
-    public void testUpsertFoMiSnapshot_UpsertException() throws Exception {
-        FrontOfficeMIDashboardAnalytics stats = mock(FrontOfficeMIDashboardAnalytics.class);
-        when(stats.getSubjectIdentifier()).thenReturn(mock(FrontOfficeSubjectIdentifier.class));
-
-        UpsertRequestBuilder mockBuilder = mock(UpsertRequestBuilder.class);
-        when(mockBuilder.withDocument(any(Document.class))).thenReturn(mockBuilder);
-        when(mockBuilder.withKey(anyString())).thenReturn(mockBuilder);
-        when(dfClient.upsert(any(UpsertRequestBuilder.class))).thenThrow(new UpsertException(""));
-
-        repo.upsertFoMiSnapshot(stats);
-    }
-
-    @Test(expected = TaggingServiceRunTimeException.class)
-    public void testFetchRecordsFromDf_Exception() throws Exception {
-        DFQueryMetaData metadata = new DFQueryMetaData();
-        metadata.setCollectionName("testCollection");
-        metadata.setStatName("testStat");
-
-        ScanRequestBuilder mockScanRequestBuilder = mock(ScanRequestBuilder.class);
-        when(mockScanRequestBuilder.withReadTimeoutSeconds(anyInt())).thenReturn(mockScanRequestBuilder);
-        when(dfClient.scan(mockScanRequestBuilder)).thenThrow(new RuntimeException("Test scan exception"));
-
-        MIAnalyticsDashboardRepositoryImpl spyRepo = spy(repo);
-        doReturn(mockScanRequestBuilder).when(spyRepo).getScanRequestBuilder(any(), anyString(), anyString());
-
-        spyRepo.fetchRecordsFromDf(metadata);
-    }
-
-    @Test
-    public void testCalculateMiSnapshotKey() {
-        SubjectIdentifier identifier = new SubjectIdentifier("testLei", "testEntity", "testFlow", "testAsset", "testMessage", "testRegulation", TEST_DATE);
-        String key = ReflectionTestUtils.invokeMethod(repo, "calculateMiSnapshotKey", identifier);
-        assertNotNull(key);
-        assertEquals(40, key.length());
-        assertTrue(key.matches("[0-9a-f]+"));
-    }
-
-    @Test
-    public void testCalculateKeys() throws Exception {
-        Date date = new SimpleDateFormat("yyyy-MM-dd").parse("2025-05-19");
-        SubjectIdentifier si = new SubjectIdentifier("lei", "entity", "flow", "regulation", "messageType", "regulation", date);
-        si.setBusinessDate(date);
-        si.setAssetClass("A");
-        si.setEntity("E");
-        si.setFlow("F");
-        si.setLei("L");
-        si.setRegulation("R");
-        si.setMessageType("M");
-        String key = ReflectionTestUtils.invokeMethod(repo, "calculateMiSnapshotKey", si);
-        assertNotNull(key);
-        FrontOfficeSubjectIdentifier fo = new FrontOfficeSubjectIdentifier("E", "L", "A", "R", date);
-        String key2 = ReflectionTestUtils.invokeMethod(repo, "calculateFoMiSnapshotKey", fo);
-        assertNotNull(key2);
-    }
-
-    @Test
-    public void testCalculateFoMiSnapshotKey() {
-        FrontOfficeSubjectIdentifier identifier = new FrontOfficeSubjectIdentifier("testEntity", "testLei", "testAsset", "testRegulation", TEST_DATE);
-        String key = ReflectionTestUtils.invokeMethod(repo, "calculateFoMiSnapshotKey", identifier);
-        assertNotNull(key);
-        assertEquals(40, key.length());
-        assertTrue(key.matches("[0-9a-f]+"));
-    }
-
-    @Test
-    public void testSerialize() throws Exception {
-        MIDashboardAnalytics analytics = new MIDashboardAnalytics();
-        Document result = repo.serialize(analytics);
-        assertNotNull(result);
-        assertTrue(result instanceof JsonDocument);
-    }
-
-    @Test(expected = IOException.class)
-    public void testDeserialize_InvalidJson() throws Exception {
-        JsonDocument invalidDocument = new JsonDocument();
-        invalidDocument.setContents("invalid json");
-        repo.deserailze(invalidDocument);
-    }
-
-    @Test
-    public void testGetURL() {
-        String result = repo.getURL("testEndpoint");
-        assertEquals("http://testService/testEndpoint", result);
-    }
-
-    @Test
-    public void testItrQueryForFO_WithSelectAndWhere() {
-        DFQueryMetaData metadata = new DFQueryMetaData();
-        metadata.setSelect("select field");
-        metadata.setWhere("where condition");
-
-        Itr2Query result = repo.itrQueryForFO(metadata);
-        assertNotNull(result);
-        assertEquals("select field", result.getSelect());
-        assertEquals("where condition", result.getWhere());
-    }
-
-    @Test
-    public void testFetchFromItr_success() {
-        Map<String, Map<String, Integer>> foMiDataMap = new HashMap<>();
-        foMiDataMap.put("jurisdiction", new HashMap<>());
-        DFQueryMetaData dFQueryMetaData = new DFQueryMetaData();
-        dFQueryMetaData.setStatName("data");
-
-        Map<String, Map<String, Integer>> result = ReflectionTestUtils.invokeMethod(repo, "fetchFromItr", dFQueryMetaData, foMiDataMap, "url", "jurisdiction", new Date(), "assetClass");
-
-        assertNotNull(result);
-    }
-
-    @Test
-    public void testParseRecord() throws Exception {
-        String json = "{\"key\":\"value\",\"nested\":{\"nestedKey\":\"nestedValue\"}}";
-        JsonParser parser = REAL_OBJECT_MAPPER.getFactory().createParser(json);
-
-        Map<String, Object> result = repo.parseRecord(parser);
-        assertEquals("value", result.get("key"));
-        assertEquals("nestedValue", result.get("nested.nestedKey"));
-    }
-
-    @Test
-    public void testParseItrRecord_BOI() throws Exception {
-        String json = "{\"tradingPartyLei\":\"" + LEI_NWM_PLC + "\",\"transactionReportable\":true,\"versionReportable\":true}";
-        JsonParser parser = REAL_OBJECT_MAPPER.getFactory().createParser(json);
-
-        Map<String, Map<String, Object>> result = repo.parseItrRecord(parser, AssetClass.ETD.value(), BOI);
-        assertEquals(LEI_NWM_PLC, result.get(BOI).get(TRADING_PARTY_LEI));
-        assertEquals(true, result.get(BOI).get(TRANSACTION_REPORTABLE));
-        assertEquals(true, result.get(BOI).get(VERSION_REPORTABLE));
-    }
-
-    @Test
-    public void testParseItrRecord_MIFID_ETD() throws Exception {
-        String json = "{\"tradingCapacity\":\"Dealing On Own Account\",\"reportingPartyBookId\":\"RANL01\",\"transactionReportable\":true,\"versionReportable\":true}";
-        JsonParser parser = REAL_OBJECT_MAPPER.getFactory().createParser(json);
-
-        Map<String, Map<String, Object>> result = repo.parseItrRecord(parser, AssetClass.ETD.value(), MIFID);
-        assertEquals(LEI_NWM_PLC, result.get(MIFID).get(TRADING_PARTY_LEI));
-    }
-
-    @Test(expected = TaggingServiceRunTimeException.class)
-    public void testFetchRecordsFromDfException() throws ScanException {
-        DFQueryMetaData meta = new DFQueryMetaData();
-        meta.setCollectionName("coll");
-        when(dfClient.scan(any())).thenThrow(new RuntimeException("x"));
-        repo.fetchRecordsFromDf(meta);
-    }
-
-    @Test
-    public void testUpsertMiSnapshot_Success() throws Exception {
-        MIDashboardAnalytics stats = new MIDashboardAnalytics();
-        SubjectIdentifier subjectIdentifier = new SubjectIdentifier("testLei", "testEntity", "testFlow", "testAsset", "testMessage", "testRegulation", TEST_DATE);
-        subjectIdentifier.setBusinessDate(new Date());
-        subjectIdentifier.setLei("LEI123");
-        subjectIdentifier.setAssetClass("FX");
-        subjectIdentifier.setEntity("Entity");
-        subjectIdentifier.setFlow("Flow");
-        subjectIdentifier.setRegulation("Reg");
-        subjectIdentifier.setMessageType("Type");
-        stats.setSubjectIdentifier(subjectIdentifier);
-
-        RecordId mockRecordId = mock(RecordId.class);
-        when(dfClient.upsert(any(UpsertRequestBuilder.class))).thenReturn(mockRecordId);
-
-        RecordId result = repo.upsertMiSnapshot(stats);
-
-        assertEquals(mockRecordId, result);
-        ArgumentCaptor<UpsertRequestBuilder> captor = ArgumentCaptor.forClass(UpsertRequestBuilder.class);
-        verify(dfClient).upsert(captor.capture());
-    }
-
-    @Test
-    public void testUpsertFoMiSnapshot_Success() throws Exception {
-        FrontOfficeMIDashboardAnalytics stats = new FrontOfficeMIDashboardAnalytics();
-        FrontOfficeSubjectIdentifier subjectIdentifier = new FrontOfficeSubjectIdentifier("Entity", "LEI123", "FX", "Reg", new Date());
-        stats.setSubjectIdentifier(subjectIdentifier);
-
-        RecordId mockRecordId = mock(RecordId.class);
-        when(dfClient.upsert(any(UpsertRequestBuilder.class))).thenReturn(mockRecordId);
-
-        RecordId result = repo.upsertFoMiSnapshot(stats);
-
-        assertEquals(mockRecordId, result);
-        ArgumentCaptor<UpsertRequestBuilder> captor = ArgumentCaptor.forClass(UpsertRequestBuilder.class);
-        verify(dfClient).upsert(captor.capture());
-    }
-
-    @Test
-    public void testFetchStatistics_Success() throws Exception {
-        DFQueryMetaData dfScanParameters = new DFQueryMetaData();
-        dfScanParameters.setCollectionName("miCollection");
-
-        ScanResult scanResult = mock(ScanResult.class);
-        Record record = mock(Record.class);
-        JsonDocument document = mock(JsonDocument.class);
-        when(record.getDocument()).thenReturn(document);
-        when(document.getContents()).thenReturn("{\"count\": 42}");
-        Iterator<Record> iterator = mock(Iterator.class);
-        when(iterator.hasNext()).thenReturn(true, false);
-        when(iterator.next()).thenReturn(record);
-        when(scanResult.iterator()).thenReturn(iterator);
-        when(dfClient.scan(any(ScanRequestBuilder.class))).thenReturn(scanResult);
-
-        int result = repo.fetchStatistics(dfScanParameters, "count");
-
-        assertEquals(42, result);
-    }
-
-    @Test
-    public void testFetchStatistics_NoRecords() throws Exception {
-        DFQueryMetaData dfScanParameters = new DFQueryMetaData();
-        dfScanParameters.setCollectionName("miCollection");
-
-        ScanResult scanResult = mock(ScanResult.class);
-        Iterator<Record> iterator = mock(Iterator.class);
-        when(iterator.hasNext()).thenReturn(false);
-        when(scanResult.iterator()).thenReturn(iterator);
-        when(dfClient.scan(any(ScanRequestBuilder.class))).thenReturn(scanResult);
-
-        int result = repo.fetchStatistics(dfScanParameters, "count");
-
-        assertEquals(0, result);
-    }
-
-    @Test
-    public void testFetchRecordsFromDf_Success() throws Exception {
-        DFQueryMetaData dfScanParameters = new DFQueryMetaData();
-        dfScanParameters.setCollectionName("miCollection");
-
-        ScanResult scanResult = mock(ScanResult.class);
-        Record record = mock(Record.class);
-        when(record.getDocument()).thenReturn(mock(Document.class));
-        Iterator<Record> iterator = mock(Iterator.class);
-        when(iterator.hasNext()).thenReturn(true, false);
-        when(iterator.next()).thenReturn(record);
-        when(scanResult.iterator()).thenReturn(iterator);
-        when(dfClient.scan(any(ScanRequestBuilder.class))).thenReturn(scanResult);
-
-        List<Record> results = repo.fetchRecordsFromDf(dfScanParameters);
-
-        assertEquals(1, results.size());
-        assertEquals(record, results.get(0));
-    }
-
-    @Test
-    public void testFetchFromItrWithoutParamQuery() {
-        Map<String, Map<String, Integer>> foMiDataMap = new HashMap<>();
-        foMiDataMap.put(EMIR, new HashMap<>());
-        DFQueryMetaData dfQueryMetaData = new DFQueryMetaData();
-        dfQueryMetaData.setStatName("testStat");
-
-        assertFalse(foMiDataMap.get(EMIR).containsKey("NWM_PLC_REPORTABLE"));
-    }
-
-    @Test
-    public void testProcessFoDataMap() throws Exception {
-        Map<String, Map<String, Object>> parsedRecord = new HashMap<>();
-        Map<String, Object> data = new HashMap<>();
-        data.put(TRADING_PARTY_LEI, LEI_NWM_PLC);
-        data.put(TRANSACTION_REPORTABLE, true);
-        data.put(VERSION_REPORTABLE, true);
-        parsedRecord.put(EMIR, data);
-
-        Map<String, Map<String, Integer>> foMiData = new HashMap<>();
-        foMiData.put(EMIR, new HashMap<String, Integer>() {{
-            put("NWM_PLC_REPORTABLE", 0);
-        }});
-
-        invokePrivateMethod("processFoDataMap", new Class<?>[]{Map.class, Map.class}, parsedRecord, foMiData);
-
-        assertEquals(1, foMiData.get(EMIR).get("NWM_PLC_REPORTABLE").intValue());
-    }
-
-    @Test
-    public void testParseItrRecordForCftcCsaFx() throws Exception {
-        String jsonContent = "{\"canada\":\"{VERSION_REPORTABLE=true, TRANSACTION_REPORTABLE=true}\", " +
-                "\"cftc\":\"{VERSION_REPORTABLE=false, TRANSACTION_REPORTABLE=true}\", " +
-                "\"TRADING_PARTY_LEI\":\"" + LEI_NWM_PLC + "\"}";
-        JsonParser jsonParser = objectMapper.getFactory().createParser(jsonContent);
-        jsonParser.nextToken(); // Move to the start object token
-
-        Map<String, Map<String, Object>> result = repo.parseItrRecord(jsonParser,
-                AssetClass.FOREIGN_EXCHANGE.value(), CFTC_CSA);
-
-        assertTrue(result.containsKey(CSA));
-        assertTrue(result.containsKey(DF));
-        assertEquals(LEI_NWM_PLC, result.get(CSA).get(TRADING_PARTY_LEI));
-        assertEquals(true, result.get(CSA).get(VERSION_REPORTABLE));
-        assertEquals(true, result.get(CSA).get(TRANSACTION_REPORTABLE));
-        assertEquals(LEI_NWM_PLC, result.get(DF).get(TRADING_PARTY_LEI));
-        assertEquals(false, result.get(DF).get(VERSION_REPORTABLE));
-        assertEquals(true, result.get(DF).get(TRANSACTION_REPORTABLE));
-    }
-
-    @Test
-    public void testParseItrRecordForCftcCsaIr() throws Exception {
-        String jsonContent = "{\"canada\":\"{VERSION_REPORTABLE=true, TRANSACTION_REPORTABLE=true}\", " +
-                "\"cftc\":\"{VERSION_REPORTABLE=false, TRANSACTION_REPORTABLE=true}\", " +
-                "\"PARTY_LEI_CODE\":\"" + LEI_NWM_PLC + "\"}";
-        JsonParser jsonParser = objectMapper.getFactory().createParser(jsonContent);
-        jsonParser.nextToken(); // Move to the start object token
-
-        Map<String, Map<String, Object>> result = repo.parseItrRecord(jsonParser,
-                AssetClass.INTEREST_RATE.value(), CFTC_CSA);
-
-        assertTrue(result.containsKey(CSA));
-        assertTrue(result.containsKey(DF));
-        assertEquals(LEI_NWM_PLC, result.get(CSA).get(TRADING_PARTY_LEI));
-        assertEquals(true, result.get(CSA).get(VERSION_REPORTABLE));
-        assertEquals(true, result.get(CSA).get(TRANSACTION_REPORTABLE));
-        assertEquals(LEI_NWM_PLC, result.get(DF).get(TRADING_PARTY_LEI));
-        assertEquals(false, result.get(DF).get(VERSION_REPORTABLE));
-        assertEquals(true, result.get(DF).get(TRANSACTION_REPORTABLE));
-    }
-
-    @Test
-    public void testParseItrRecordForBoi() throws Exception {
-        String jsonContent = "{\"TRADING_PARTY_LEI\":\"" + LEI_NWM_PLC + "\", " +
-                "\"VERSION_REPORTABLE\":true, \"TRANSACTION_REPORTABLE\":true}";
-        JsonParser jsonParser = objectMapper.getFactory().createParser(jsonContent);
-        jsonParser.nextToken(); // Move to the start object token
-
-        Map<String, Map<String, Object>> result = repo.parseItrRecord(jsonParser,
-                AssetClass.FOREIGN_EXCHANGE.value(), BOI);
-
-        assertTrue(result.containsKey(BOI));
-        assertEquals(LEI_NWM_PLC, result.get(BOI).get(TRADING_PARTY_LEI));
-        assertEquals(true, result.get(BOI).get(VERSION_REPORTABLE));
-        assertEquals(true, result.get(BOI).get(TRANSACTION_REPORTABLE));
-    }
-
-    @Test
-    public void testParseItrRecordForMifidEtd() throws Exception {
-        String jsonContent = "{\"tradingCapacity\":\"Dealing On Own Account\", " +
-                "\"reportingPartyBookId\":\"RANL01\", " +
-                "\"VERSION_REPORTABLE\":true, \"TRANSACTION_REPORTABLE\":true}";
-        JsonParser jsonParser = objectMapper.getFactory().createParser(jsonContent);
-        jsonParser.nextToken(); // Move to the start object token
-
-        Map<String, Map<String, Object>> result = repo.parseItrRecord(jsonParser,
-                AssetClass.ETD.value(), MIFID);
-
-        assertTrue(result.containsKey(MIFID));
-        assertEquals(LEI_NWM_PLC, result.get(MIFID).get(TRADING_PARTY_LEI));
-        assertEquals(true, result.get(MIFID).get(VERSION_REPORTABLE));
-        assertEquals(true, result.get(MIFID).get(TRANSACTION_REPORTABLE));
-    }
-
-    @Test
-    public void testParseItrRecordForMifidOtherAsset() throws Exception {
-        String jsonContent = "{\"" + MIFID_ASSETWISE_PARSE_DATA.get(AssetClass.FOREIGN_EXCHANGE.value()).get(TRADING_PARTY_LEI) + "\":\"" + LEI_NWM_PLC + "\", " +
-                "\"" + MIFID_ASSETWISE_PARSE_DATA.get(AssetClass.FOREIGN_EXCHANGE.value()).get(VERSION_REPORTABLE) + "\":true, " +
-                "\"" + MIFID_ASSETWISE_PARSE_DATA.get(AssetClass.FOREIGN_EXCHANGE.value()).get(TRANSACTION_REPORTABLE) + "\":true}";
-        JsonParser jsonParser = objectMapper.getFactory().createParser(jsonContent);
-        jsonParser.nextToken(); // Move to the start object token
-
-        Map<String, Map<String, Object>> result = repo.parseItrRecord(jsonParser,
-                AssetClass.FOREIGN_EXCHANGE.value(), MIFID);
-
-        assertTrue(result.containsKey(MIFID));
-        assertEquals(LEI_NWM_PLC, result.get(MIFID).get(TRADING_PARTY_LEI));
-        assertEquals(true, result.get(MIFID).get(VERSION_REPORTABLE));
-        assertEquals(true, result.get(MIFID).get(TRANSACTION_REPORTABLE));
-    }
-
-    @Test
-    public void testParseItrRecordForEmirEtd() throws Exception {
-        String jsonContent = "{\"" + EMIR_ASSETWISE_PARSE_DATA.get(AssetClass.ETD.value()).get(TRADING_PARTY_LEI) + "\":\"" + LEI_NWM_PLC + "\", " +
-                "\"" + EMIR_ASSETWISE_PARSE_DATA.get(AssetClass.ETD.value()).get(VERSION_REPORTABLE) + "\":true, " +
-                "\"" + EMIR_ASSETWISE_PARSE_DATA.get(AssetClass.ETD.value()).get(TRANSACTION_REPORTABLE) + "\":true}";
-        JsonParser jsonParser = objectMapper.getFactory().createParser(jsonContent);
-        jsonParser.nextToken(); // Move to the start object token
-
-        Map<String, Map<String, Object>> result = repo.parseItrRecord(jsonParser,
-                AssetClass.ETD.value(), EMIR);
-
-        assertTrue(result.containsKey(EMIR));
-        assertEquals(LEI_NWM_PLC, result.get(EMIR).get(TRADING_PARTY_LEI));
-        assertEquals(true, result.get(EMIR).get(VERSION_REPORTABLE));
-        assertEquals(true, result.get(EMIR).get(TRANSACTION_REPORTABLE));
-    }
-
-    @Test
-    public void testParseItrRecordForMasIr() throws Exception {
-        String jsonContent = "{\"" + MAS_ASSETWISE_PARSE_DATA.get(AssetClass.INTEREST_RATE.value()).get(TRADING_PARTY_LEI) + "\":\"" + LEI_NWM_PLC + "\", " +
-                "\"" + MAS_ASSETWISE_PARSE_DATA.get(AssetClass.INTEREST_RATE.value()).get(VERSION_REPORTABLE) + "\":true, " +
-                "\"" + MAS_ASSETWISE_PARSE_DATA.get(AssetClass.INTEREST_RATE.value()).get(TRANSACTION_REPORTABLE) + "\":true}";
-        JsonParser jsonParser = objectMapper.getFactory().createParser(jsonContent);
-        jsonParser.nextToken(); // Move to the start object token
-
-        Map<String, Map<String, Object>> result = repo.parseItrRecord(jsonParser,
-                AssetClass.INTEREST_RATE.value(), MAS);
-
-        assertTrue(result.containsKey(MAS));
-        assertEquals(LEI_NWM_PLC, result.get(MAS).get(TRADING_PARTY_LEI));
-        assertEquals(true, result.get(MAS).get(VERSION_REPORTABLE));
-        assertEquals(true, result.get(MAS).get(TRANSACTION_REPORTABLE));
-    }
-
-    @Test
-    public void testParseItrRecordForForeignExchange() throws Exception {
-        String jsonContent = "{\"TRADING_PARTY_LEI\":\"" + LEI_NWM_PLC + "\", " +
-                "\"VERSION_REPORTABLE\":true, \"TRANSACTION_REPORTABLE\":true}";
-        JsonParser jsonParser = objectMapper.getFactory().createParser(jsonContent);
-        jsonParser.nextToken(); // Move to the start object token
-
-        Map<String, Map<String, Object>> result = repo.parseItrRecord(jsonParser,
-                AssetClass.FOREIGN_EXCHANGE.value(), "OTHER");
-
-        assertTrue(result.containsKey("OTHER"));
-        assertEquals(LEI_NWM_PLC, result.get("OTHER").get(TRADING_PARTY_LEI));
-        assertEquals(true, result.get("OTHER").get(VERSION_REPORTABLE));
-        assertEquals(true, result.get("OTHER").get(TRANSACTION_REPORTABLE));
-    }
-
-    @Test
-    public void testParseItrRecordForCredit() throws Exception {
-        String jsonContent = "{\"PARTY_LEI_CODE\":\"" + LEI_NWM_PLC + "\", " +
-                "\"emir.isVersionReportable\":true, \"emir.isEligible\":true}";
-        JsonParser jsonParser = objectMapper.getFactory().createParser(jsonContent);
-        jsonParser.nextToken(); // Move to the start object token
-
-        Map<String, Map<String, Object>> result = repo.parseItrRecord(jsonParser,
-                AssetClass.CREDIT.value(), "OTHER");
-
-        assertTrue(result.containsKey("OTHER"));
-        assertEquals(LEI_NWM_PLC, result.get("OTHER").get(TRADING_PARTY_LEI));
-        assertEquals(true, result.get("OTHER").get(VERSION_REPORTABLE));
-        assertEquals(true, result.get("OTHER").get(TRANSACTION_REPORTABLE));
-    }
-
-    @Test
-    public void testParseItrRecordForInterestRate() throws Exception {
-        String jsonContent = "{\"PARTY_LEI_CODE\":\"" + LEI_NWM_PLC + "\", " +
-                "\"VERSION_REPORTABLE\":true, \"isEligible\":true}";
-        JsonParser jsonParser = objectMapper.getFactory().createParser(jsonContent);
-        jsonParser.nextToken(); // Move to the start object token
-
-        Map<String, Map<String, Object>> result = repo.parseItrRecord(jsonParser,
-                AssetClass.INTEREST_RATE.value(), "OTHER");
-
-        assertTrue(result.containsKey("OTHER"));
-        assertEquals(LEI_NWM_PLC, result.get("OTHER").get(TRADING_PARTY_LEI));
-        assertEquals(true, result.get("OTHER").get(VERSION_REPORTABLE));
-        assertEquals(true, result.get("OTHER").get(TRANSACTION_REPORTABLE));
-    }
-
-    @Test(expected = TaggingServiceRunTimeException.class)
-    public void testFetchStatistics_IOException() throws Exception {
-        DFQueryMetaData dfScanParameters = new DFQueryMetaData();
-        dfScanParameters.setCollectionName("miCollection");
-
-        ScanResult scanResult = mock(ScanResult.class);
-        Record record = mock(Record.class);
-        JsonDocument document = mock(JsonDocument.class);
-        when(record.getDocument()).thenReturn(document);
-        when(document.getContents()).thenReturn("invalid json");
-        Iterator<Record> iterator = mock(Iterator.class);
-        when(iterator.hasNext()).thenReturn(true, false);
-        when(iterator.next()).thenReturn(record);
-        when(scanResult.iterator()).thenReturn(iterator);
-        when(dfClient.scan(any(ScanRequestBuilder.class))).thenReturn(scanResult);
-
-        repo.fetchStatistics(dfScanParameters, "count");
-    }
-
-    @Test
-    public void testFetchRecordsFromDf_NullRecord() throws Exception {
-        DFQueryMetaData dfScanParameters = new DFQueryMetaData();
-        dfScanParameters.setCollectionName("miCollection");
-
-        ScanResult scanResult = mock(ScanResult.class);
-        Iterator<Record> iterator = mock(Iterator.class);
-        when(iterator.hasNext()).thenReturn(true, false);
-        when(iterator.next()).thenReturn(null);
-        when(scanResult.iterator()).thenReturn(iterator);
-        when(dfClient.scan(any(ScanRequestBuilder.class))).thenReturn(scanResult);
-
-        List<Record> results = repo.fetchRecordsFromDf(dfScanParameters);
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testProcessFoDataMap_WithNWM_NV() throws Exception {
-        Map<String, Map<String, Object>> parsedRecord = new HashMap<>();
-        Map<String, Object> data = new HashMap<>();
-        data.put(TRADING_PARTY_LEI, LEI_NWM_NV);
-        data.put(TRANSACTION_REPORTABLE, true);
-        data.put(VERSION_REPORTABLE, true);
-        parsedRecord.put(EMIR, data);
-
-        Map<String, Map<String, Integer>> foMiData = new HashMap<>();
-        foMiData.put(EMIR, new HashMap<String, Integer>() {{
-            put("NWM_NV_REPORTABLE", 0);
-        }});
-
-        invokePrivateMethod("processFoDataMap", new Class<?>[]{Map.class, Map.class}, parsedRecord, foMiData);
-
-        assertEquals(1, foMiData.get(EMIR).get("NWM_NV_REPORTABLE").intValue());
-    }
-
-    @Test
-    public void testProcessFoDataMap_WithNonReportable() throws Exception {
-        Map<String, Map<String, Object>> parsedRecord = new HashMap<>();
-        Map<String, Object> data = new HashMap<>();
-        data.put(TRADING_PARTY_LEI, LEI_NWM_PLC);
-        data.put(TRANSACTION_REPORTABLE, true);
-        data.put(VERSION_REPORTABLE, false);
-        parsedRecord.put(EMIR, data);
-
-        Map<String, Map<String, Integer>> foMiData = new HashMap<>();
-        foMiData.put(EMIR, new HashMap<String, Integer>() {{
-            put("NWM_PLC_NONREPORTABLE", 0);
-        }});
-
-        invokePrivateMethod("processFoDataMap", new Class<?>[]{Map.class, Map.class}, parsedRecord, foMiData);
-
-        assertEquals(1, foMiData.get(EMIR).get("NWM_PLC_NONREPORTABLE").intValue());
-    }
-
-    @Test
-    public void testProcessFoDataMap_WithNotFound() throws Exception {
-        Map<String, Map<String, Object>> parsedRecord = new HashMap<>();
-        Map<String, Object> data = new HashMap<>();
-        data.put(TRADING_PARTY_LEI, LEI_NWM_PLC);
-        data.put(TRANSACTION_REPORTABLE, false);
-        data.put(VERSION_REPORTABLE, false);
-        parsedRecord.put(EMIR, data);
-
-        Map<String, Map<String, Integer>> foMiData = new HashMap<>();
-        foMiData.put(EMIR, new HashMap<String, Integer>() {{
-            put("NWM_PLC_NOTFOUND", 0);
-        }});
-
-        invokePrivateMethod("processFoDataMap", new Class<?>[]{Map.class, Map.class}, parsedRecord, foMiData);
-
-        assertEquals(1, foMiData.get(EMIR).get("NWM_PLC_NOTFOUND").intValue());
-    }
-
-    @Test
-    public void testParseItrRecordForMifidEtdWithNV() throws Exception {
-        String jsonContent = "{\"tradingCapacity\":\"Dealing On Own Account\", " +
-                "\"reportingPartyBookId\":\"RANLNV\", " +
-                "\"VERSION_REPORTABLE\":true, \"TRANSACTION_REPORTABLE\":true}";
-        JsonParser jsonParser = objectMapper.getFactory().createParser(jsonContent);
-        jsonParser.nextToken();
-
-        Map<String, Map<String, Object>> result = repo.parseItrRecord(jsonParser,
-                AssetClass.ETD.value(), MIFID);
-
-        assertTrue(result.containsKey(MIFID));
-        assertEquals(LEI_NWM_NV, result.get(MIFID).get(TRADING_PARTY_LEI));
-    }
-
-    @Test
-    public void testParseItrRecordForMifidEtdWithRANL00() throws Exception {
-        String jsonContent = "{\"tradingCapacity\":\"Dealing On Own Account\", " +
-                "\"reportingPartyBookId\":\"RANL00\", " +
-                "\"VERSION_REPORTABLE\":true, \"TRANSACTION_REPORTABLE\":true}";
-        JsonParser jsonParser = objectMapper.getFactory().createParser(jsonContent);
-        jsonParser.nextToken();
-
-        Map<String, Map<String, Object>> result = repo.parseItrRecord(jsonParser,
-                AssetClass.ETD.value(), MIFID);
-
-        assertTrue(result.containsKey(MIFID));
-        assertEquals(LEI_NWM_PLC, result.get(MIFID).get(TRADING_PARTY_LEI));
-    }
-
-    @Test
-    public void testParseItrRecordForMifidEtdWithMatchedPrincipal() throws Exception {
-        String jsonContent = "{\"tradingCapacity\":\"Matched Principal\", " +
-                "\"reportingPartyBookId\":\"RANL01\", " +
-                "\"VERSION_REPORTABLE\":true, \"TRANSACTION_REPORTABLE\":true}";
-        JsonParser jsonParser = objectMapper.getFactory().createParser(jsonContent);
-        jsonParser.nextToken();
-
-        Map<String, Map<String, Object>> result = repo.parseItrRecord(jsonParser,
-                AssetClass.ETD.value(), MIFID);
-
-        assertTrue(result.containsKey(MIFID));
-        assertEquals(LEI_NWM_PLC, result.get(MIFID).get(TRADING_PARTY_LEI));
-    }
-
-    @Test
-    public void testParseItrRecordForMifidEtdWithDifferentCapacity() throws Exception {
-        String jsonContent = "{\"tradingCapacity\":\"Different Capacity\", " +
-                "\"reportingPartyBookId\":\"RANL01\", " +
-                "\"VERSION_REPORTABLE\":true, \"TRANSACTION_REPORTABLE\":true}";
-        JsonParser jsonParser = objectMapper.getFactory().createParser(jsonContent);
-        jsonParser.nextToken();
-
-        Map<String, Map<String, Object>> result = repo.parseItrRecord(jsonParser,
-                AssetClass.ETD.value(), MIFID);
-
-        assertTrue(result.containsKey(MIFID));
-        assertEquals(EMPTY, result.get(MIFID).get(TRADING_PARTY_LEI));
-    }
-
-    @Test
-    public void testFetchItrData() throws Exception {
-        Map<String, Object> itrData = new HashMap<>();
-        Map<String, Object> jsonMap = new HashMap<>();
-        jsonMap.put("tradingPartyLei", LEI_NWM_PLC);
-        jsonMap.put("versionReportable", true);
-        jsonMap.put("transactionReportable", true);
-
-        Map<String, String> fieldMap = new HashMap<>();
-        fieldMap.put(TRADING_PARTY_LEI, "tradingPartyLei");
-        fieldMap.put(VERSION_REPORTABLE, "versionReportable");
-        fieldMap.put(TRANSACTION_REPORTABLE, "transactionReportable");
-
-        invokePrivateMethod("fetchItrData", new Class<?>[]{Map.class, Map.class, Map.class},
-                itrData, jsonMap, fieldMap);
-
-        assertEquals(LEI_NWM_PLC, itrData.get(TRADING_PARTY_LEI));
-        assertEquals(true, itrData.get(VERSION_REPORTABLE));
-        assertEquals(true, itrData.get(TRANSACTION_REPORTABLE));
-    }
-
-    @Test(expected = ScanException.class)
-    public void testFetchStatistics_ScanException() throws ScanException {
-        DFQueryMetaData dfScanParameters = new DFQueryMetaData();
-        dfScanParameters.setCollectionName("miCollection");
-        when(dfClient.scan(any(ScanRequestBuilder.class))).thenThrow(new ScanException("Test scan exception"));
-        repo.fetchStatistics(dfScanParameters, "count");
-    }
-
-    @Test
-    public void testProcessFoMiData_CFTC_CSA() {
-        DFQueryMetaData metadata = new DFQueryMetaData();
-        metadata.setStatName("testStat");
-        MIAnalyticsDashboardRepositoryImpl spyRepo = spy(repo);
-        Map<String, Map<String, Integer>> mockResult = new HashMap<>();
-        mockResult.put(CFTC_CSA, new HashMap<String, Integer>() {{
-            put(PLC_REPORTABLE, 1);
-            put(PLC_NONREPORTABLE, 2);
-            put(PLC_NOTFOUND, 3);
-            put(NV_REPORTABLE, 4);
-            put(NV_NONREPORTABLE, 5);
-            put(NV_NOTFOUND, 6);
-        }});
-        doReturn(mockResult).when(spyRepo).fetchFromItr(any(), any(), anyString(), anyString(), any(Date.class), anyString());
-        doReturn(mock(RecordId.class)).when(spyRepo).upsertFoMiSnapshot(any());
-        spyRepo.processFoMiData(metadata, TEST_DATE, AssetClass.FOREIGN_EXCHANGE.value());
-        verify(spyRepo, atLeast(1)).upsertFoMiSnapshot(any());
-    }
-
-    @Test
-    public void testProcessFoMiData_SFTR() {
-        DFQueryMetaData metadata = new DFQueryMetaData();
-        metadata.setStatName("testStat");
-        MIAnalyticsDashboardRepositoryImpl spyRepo = spy(repo);
-        Map<String, Map<String, Integer>> mockResult = new HashMap<>();
-        mockResult.put(SFTR, new HashMap<String, Integer>() {{
-            put(PLC_REPORTABLE, 1);
-            put(PLC_NONREPORTABLE, 2);
-            put(PLC_NOTFOUND, 3);
-            put(NV_REPORTABLE, 4);
-            put(NV_NONREPORTABLE, 5);
-            put(NV_NOTFOUND, 6);
-        }});
-        doReturn(mockResult).when(spyRepo).fetchFromItr(any(), any(), anyString(), anyString(), any(Date.class), anyString());
-        doReturn(mock(RecordId.class)).when(spyRepo).upsertFoMiSnapshot(any());
-        spyRepo.processFoMiData(metadata, TEST_DATE, AssetClass.ETD.value());
-        verify(spyRepo, atLeast(1)).upsertFoMiSnapshot(any());
-    }
-
-    // New test cases for 100% coverage
-
-    @Test
-    public void testFetchFromItrWithParamQuery_BOI() throws Exception {
-        DFQueryMetaData metadata = new DFQueryMetaData();
-        metadata.setStatName("testStat");
-        Map<String, Map<String, Integer>> foMiDataMap = new HashMap<>();
-        foMiDataMap.put(BOI, new HashMap<>());
-
-        MIAnalyticsDashboardRepositoryImpl spyRepo = spy(repo);
-        doNothing().when(spyRepo).fetchData(any(), any(), anyString(), anyString(), any());
-
-        invokePrivateMethod("fetchFromItrWithParamQuery", new Class<?>[]{DFQueryMetaData.class, Map.class, String.class, String.class, Date.class, String.class},
-                metadata, foMiDataMap, "boiUrl", BOI, TEST_DATE, AssetClass.ETD.value());
-
-        verify(spyRepo).fetchData(any(), eq(foMiDataMap), eq("http://testService/boiUrl"), eq(BOI), eq(metadata));
-    }
-
-    @Test
-    public void testFetchFromItrWithParamQuery_MIFID() throws Exception {
-        DFQueryMetaData metadata = new DFQueryMetaData();
-        metadata.setStatName("testStat");
-        Map<String, Map<String, Integer>> foMiDataMap = new HashMap<>();
-        foMiDataMap.put(MIFID, new HashMap<>());
-
-        MIAnalyticsDashboardRepositoryImpl spyRepo = spy(repo);
-        doNothing().when(spyRepo).fetchData(any(), any(), anyString(), anyString(), any());
-
-        invokePrivateMethod("fetchFromItrWithParamQuery", new Class<?>[]{DFQueryMetaData.class, Map.class, String.class, String.class, Date.class, String.class},
-                metadata, foMiDataMap, "mifidUrl", MIFID, TEST_DATE, AssetClass.ETD.value());
-
-        verify(spyRepo).fetchData(any(), eq(foMiDataMap), eq("http://testService/mifidUrl"), eq(MIFID), eq(metadata));
-    }
-
-    @Test
-    public void testFetchFromItrWithParamQuery_EMIR() throws Exception {
-        DFQueryMetaData metadata = new DFQueryMetaData();
-        metadata.setStatName("testStat");
-        Map<String, Map<String, Integer>> foMiDataMap = new HashMap<>();
-        foMiDataMap.put(EMIR, new HashMap<>());
-
-        MIAnalyticsDashboardRepositoryImpl spyRepo = spy(repo);
-        doNothing().when(spyRepo).fetchData(any(), any(), anyString(), anyString(), any());
-
-        invokePrivateMethod("fetchFromItrWithParamQuery", new Class<?>[]{DFQueryMetaData.class, Map.class, String.class, String.class, Date.class, String.class},
-                metadata, foMiDataMap, "emirParamUrl", EMIR, TEST_DATE, AssetClass.ETD.value());
-
-        verify(spyRepo).fetchData(any(), eq(foMiDataMap), eq("http://testService/emirParamUrl"), eq(EMIR), eq(metadata));
-    }
-
-    @Test
-    public void testFetchFromItrWithParamQuery_MAS() throws Exception {
-        DFQueryMetaData metadata = new DFQueryMetaData();
-        metadata.setStatName("testStat");
-        Map<String, Map<String, Integer>> foMiDataMap = new HashMap<>();
-        foMiDataMap.put(MAS, new HashMap<>());
-
-        MIAnalyticsDashboardRepositoryImpl spyRepo = spy(repo);
-        doNothing().when(spyRepo).fetchData(any(), any(), anyString(), anyString(), any());
-
-        invokePrivateMethod("fetchFromItrWithParamQuery", new Class<?>[]{DFQueryMetaData.class, Map.class, String.class, String.class, Date.class, String.class},
-                metadata, foMiDataMap, "masParamUrl", MAS, TEST_DATE, AssetClass.INTEREST_RATE.value());
-
-        verify(spyRepo).fetchData(any(), eq(foMiDataMap), eq("http://testService/masParamUrl"), eq(MAS), eq(metadata));
-    }
-
-    @Test
-    public void testFetchFromItrWithParamQuery_SFTR_Aldop() throws Exception {
-        DFQueryMetaData metadata = new DFQueryMetaData();
-        metadata.setStatName("testStat");
-        Map<String, Map<String, Integer>> foMiDataMap = new HashMap<>();
-        foMiDataMap.put(SFTR, new HashMap<>());
-
-        MIAnalyticsDashboardRepositoryImpl spyRepo = spy(repo);
-        doNothing().when(spyRepo).fetchData(any(), any(), anyString(), anyString(), any());
-
-        invokePrivateMethod("fetchFromItrWithParamQuery", new Class<?>[]{DFQueryMetaData.class, Map.class, String.class, String.class, Date.class, String.class},
-                metadata, foMiDataMap, "sftrUrl", SFTR, TEST_DATE, AssetClass.ETD.value());
-
-        verify(spyRepo).fetchData(any(), eq(foMiDataMap), eq("http://testService/sftrAldopUrl"), eq(SFTR), eq(metadata));
-    }
-
-    @Test(expected = IllegalStateException.class)
-    public void testFetchData_InvalidJsonToken() throws Exception {
-        IQuery query = mock(IQuery.class);
-        Map<String, Map<String, Integer>> foMiDataMap = new HashMap<>();
-        foMiDataMap.put(EMIR, new HashMap<>());
-        DFQueryMetaData metadata = new DFQueryMetaData();
-        metadata.setStatName("testStat");
-
-        String json = "{\"invalid\": \"data\"}";
-        ByteArrayInputStream inputStream = new ByteArrayInputStream(json.getBytes());
-        doAnswer(invocation -> {
-            invocation.getArgument(2, ItrClient.ResponseHandler.class).handle(inputStream);
-            return null;
-        }).when(itrClient).fetch(anyString(), any(IQuery.class), any(ItrClient.ResponseHandler.class));
-
-        invokePrivateMethod("fetchData", new Class<?>[]{IQuery.class, Map.class, String.class, String.class, DFQueryMetaData.class},
-                query, foMiDataMap, "http://testService/emirUrl", EMIR, metadata);
-    }
-
-    @Test
-    public void testFetchData_IOException() throws Exception {
-        IQuery query = mock(IQuery.class);
-        Map<String, Map<String, Integer>> foMiDataMap = new HashMap<>();
-        foMiDataMap.put(EMIR, new HashMap<>());
-        DFQueryMetaData metadata = new DFQueryMetaData();
-        metadata.setStatName("testStat");
-
-        doAnswer(invocation -> {
-            throw new IOException("Test IO exception");
-        }).when(itrClient).fetch(anyString(), any(IQuery.class), any(ItrClient.ResponseHandler.class));
-
-        invokePrivateMethod("fetchData", new Class<?>[]{IQuery.class, Map.class, String.class, String.class, DFQueryMetaData.class},
-                query, foMiDataMap, "http://testService/emirUrl", EMIR, metadata);
-
-        assertTrue(foMiDataMap.get(EMIR).isEmpty());
-    }
-
-    @Test
-    public void testItrParameterizedQueryForFo() throws Exception {
-        Date businessDate = TEST_DATE;
-        String queryId = "TEST_QUERY";
-        String selectClause = "select test_field";
-
-        IQuery result = (IQuery) invokePrivateMethod("itrParameterizedQueryForFo", new Class<?>[]{Date.class, String.class, String.class},
-                businessDate, queryId, selectClause);
-
-        assertNotNull(result);
-        assertTrue(result instanceof Itr2ParameterisedQuery);
-        Itr2ParameterisedQuery paramQuery = (Itr2ParameterisedQuery) result;
-        assertEquals(queryId, paramQuery.getQueryId());
-        assertEquals(selectClause, paramQuery.getSelect());
-        assertTrue(paramQuery.getParams().containsKey(DATETIME_FROM));
-        assertTrue(paramQuery.getParams().containsKey(DATETIME_TO));
-    }
-
-    @Test
-    public void testPopulateFoLifeTimeParams() throws Exception {
-        Date businessDate = TEST_DATE;
-
-        Map<String, String> result = (Map<String, String>) invokePrivateMethod("populateFoLifeTimeParams", new Class<?>[]{Date.class}, businessDate);
-
-        assertNotNull(result);
-        assertEquals(2, result.size());
-        assertTrue(result.containsKey(DATETIME_FROM));
-        assertTrue(result.containsKey(DATETIME_TO));
-        // Verify date format (depends on DateTimeService.asString implementation)
-        assertTrue(result.get(DATETIME_FROM).matches("\\d{4}-\\d{2}-\\d{2}T00:00:00\\.000Z"));
-        assertTrue(result.get(DATETIME_TO).matches("\\d{4}-\\d{2}-\\d{2}T23:59:59\\.999Z"));
-    }
-
-    @Test
-    public void testPersistFoJurisdictionDetermined() throws Exception {
-        String assetClass = AssetClass.ETD.value();
-        String jurisdiction = EMIR;
-        Date businessDate = TEST_DATE;
-        Map<String, Integer> itrMiData = new HashMap<>();
-        itrMiData.put(PLC_REPORTABLE, 10);
-        itrMiData.put(PLC_NONREPORTABLE, 5);
-        itrMiData.put(NV_REPORTABLE, 8);
-        itrMiData.put(NV_NONREPORTABLE, 3);
-
-        MIAnalyticsDashboardRepositoryImpl spyRepo = spy(repo);
-        doReturn(mock(RecordId.class)).when(spyRepo).upsertFoMiSnapshot(any());
-
-        invokePrivateMethod("persistFoJurisdictionDetermined", new Class<?>[]{String.class, String.class, Date.class, Map.class},
-                assetClass, jurisdiction, businessDate, itrMiData);
-
-        verify(spyRepo, times(2)).upsertFoMiSnapshot(any());
-    }
-
-    @Test
-    public void testPersistFoJurisdictionNotDetermined() throws Exception {
-        String assetClass = AssetClass.ETD.value();
-        Date businessDate = TEST_DATE;
-        Integer plcNotFound = 15;
-        Integer nvNotFound = 7;
-
-        MIAnalyticsDashboardRepositoryImpl spyRepo = spy(repo);
-        doReturn(mock(RecordId.class)).when(spyRepo).upsertFoMiSnapshot(any());
-
-        invokePrivateMethod("persistFoJurisdictionNotDetermined", new Class<?>[]{String.class, Date.class, Integer.class, Integer.class},
-                assetClass, businessDate, plcNotFound, nvNotFound);
-
-        verify(spyRepo, times(2)).upsertFoMiSnapshot(any());
-    }
-
-    @Test
-    public void testPersistFoMiData() throws Exception {
-        String entity = NWM_PLC;
-        String lei = LEI_NWM_PLC;
-        String assetClass = AssetClass.ETD.value();
-        String regulation = EMIR;
-        Date businessDate = TEST_DATE;
-        Integer reportable = 10;
-        Integer nonReportable = 5;
-
-        MIAnalyticsDashboardRepositoryImpl spyRepo = spy(repo);
-        doReturn(mock(RecordId.class)).when(spyRepo).upsertFoMiSnapshot(any());
-
-        invokePrivateMethod("persistFoMiData", new Class<?>[]{String.class, String.class, String.class, String.class, Date.class, Integer.class, Integer.class},
-                entity, lei, assetClass, regulation, businessDate, reportable, nonReportable);
-
-        verify(spyRepo).upsertFoMiSnapshot(any(FrontOfficeMIDashboardAnalytics.class));
-        ArgumentCaptor<FrontOfficeMIDashboardAnalytics> captor = ArgumentCaptor.forClass(FrontOfficeMIDashboardAnalytics.class);
-        verify(spyRepo).upsertFoMiSnapshot(captor.capture());
-        FrontOfficeMIDashboardAnalytics analytics = captor.getValue();
-        assertEquals(reportable, analytics.getMiAnalyticsState().getReportableCount());
-        assertEquals(nonReportable, analytics.getMiAnalyticsState().getNonReportableCount());
-        assertEquals(reportable + nonReportable, analytics.getMiAnalyticsState().getTotalRecordCount());
-    }
-
-    @Test
-    public void testGenerateFoMap() throws Exception {
-        Map<String, Integer> result = (Map<String, Integer>) invokePrivateMethod("generateFoMap", new Class<?>[0]);
-
-        assertNotNull(result);
-        assertEquals(6, result.size());
-        assertEquals(0, result.get(PLC_REPORTABLE).intValue());
-        assertEquals(0, result.get(PLC_NONREPORTABLE).intValue());
-        assertEquals(0, result.get(PLC_NOTFOUND).intValue());
-        assertEquals(0, result.get(NV_REPORTABLE).intValue());
-        assertEquals(0, result.get(NV_NONREPORTABLE).intValue());
-        assertEquals(0, result.get(NV_NOTFOUND).intValue());
-    }
-
-    @Test
-    public void testRenderCftcDataBlock() throws Exception {
-        Map<String, Object> jsonMap = new HashMap<>();
-        jsonMap.put("canada", "{VERSION_REPORTABLE=true, TRANSACTION_REPORTABLE=true}");
-
-        Map<String, Object> result = (Map<String, Object>) invokePrivateMethod("renderCftcDataBlock", new Class<?>[]{Map.class, String.class},
-                jsonMap, "canada");
-
-        assertNotNull(result);
-        assertEquals("true", result.get(VERSION_REPORTABLE));
-        assertEquals("true", result.get(TRANSACTION_REPORTABLE));
-    }
-
-    @Test
-    public void testFlattenMap() throws Exception {
-        Map<String, Object> jsonMap = new HashMap<>();
-        jsonMap.put("key", "value");
-        jsonMap.put("nested", new HashMap<String, Object>() {{
-            put("nestedKey", "nestedValue");
-        }});
-
-        Map<String, Object> result = (Map<String, Object>) invokePrivateMethod("flattenMap", new Class<?>[]{Map.class}, jsonMap);
-
-        assertNotNull(result);
-        assertEquals("value", result.get("key"));
-        assertEquals("nestedValue", result.get("nested.nestedKey"));
-    }
-
-    @Test
-    public void testFetchFromItrWithParamQuery_SFTR_NonAldop() throws Exception {
-        DFQueryMetaData metadata = new DFQueryMetaData();
-        metadata.setStatName("testStat");
-        Map<String, Map<String, Integer>> foMiDataMap = new HashMap<>();
-        foMiDataMap.put(SFTR, new HashMap<>());
-
-        MIAnalyticsDashboardRepositoryImpl spyRepo = spy(repo);
-        doNothing().when(spyRepo).fetchData(any(), any(), anyString(), anyString(), any());
-
-        invokePrivateMethod("fetchFromItrWithParamQuery", new Class<?>[]{DFQueryMetaData.class, Map.class, String.class, String.class, Date.class, String.class},
-                metadata, foMiDataMap, "sftrUrl", SFTR, TEST_DATE, AssetClass.ETD.value());
-
-        verify(spyRepo).fetchData(any(), eq(foMiDataMap), eq("http://testService/sftrUrl"), eq(SFTR), eq(metadata));
-    }
-
-    @Test
-    public void testFetchFromItrWithoutParamQuery_EmptyResult() throws Exception {
-        DFQueryMetaData metadata = new DFQueryMetaData();
-        metadata.setStatName("testStat");
-        Map<String, Map<String, Integer>> foMiDataMap = new HashMap<>();
-        foMiDataMap.put(EMIR, new HashMap<>());
-
-        String json = "[]";
-        ByteArrayInputStream inputStream = new ByteArrayInputStream(json.getBytes());
-        doAnswer(invocation -> {
-            invocation.getArgument(2, ItrClient.ResponseHandler.class).handle(inputStream);
-            return null;
-        }).when(itrClient).fetch(anyString(), any(Itr2Query.class), any(ItrClient.ResponseHandler.class));
-
-        invokePrivateMethod("fetchFromItrWithoutParamQuery", new Class<?>[]{DFQueryMetaData.class, Map.class, String.class, String.class},
-                metadata, foMiDataMap, "emirUrl", EMIR);
-
-        assertTrue(foMiDataMap.get(EMIR).isEmpty());
-    }
-
-    @Test
-    public void testProcessFoDataMap_UnknownLei() throws Exception {
-        Map<String, Map<String, Object>> parsedRecord = new HashMap<>();
-        Map<String, Object> data = new HashMap<>();
-        data.put(TRADING_PARTY_LEI, "UNKNOWN_LEI");
-        data.put(TRANSACTION_REPORTABLE, true);
-        data.put(VERSION_REPORTABLE, true);
-        parsedRecord.put(EMIR, data);
-
-        Map<String, Map<String, Integer>> foMiData = new HashMap<>();
-        foMiData.put(EMIR, new HashMap<>());
-
-        invokePrivateMethod("processFoDataMap", new Class<?>[]{Map.class, Map.class}, parsedRecord, foMiData);
-
-        assertTrue(foMiData.get(EMIR).isEmpty());
-    }
-
-    @Test
-    public void testParseItrRecordForSftr() throws Exception {
-        String jsonContent = "{\"" + SFTR_ASSETWISE_PARSE_DATA.get(AssetClass.ETD.value()).get(TRADING_PARTY_LEI) + "\":\"" + LEI_NWM_PLC + "\", " +
-                "\"" + SFTR_ASSETWISE_PARSE_DATA.get(AssetClass.ETD.value()).get(VERSION_REPORTABLE) + "\":true, " +
-                "\"" + SFTR_ASSETWISE_QUERY_DATA.get(AssetClass.ETD.value()).get(TRANSACTION_REPORTABLE) + "\":true}";
-        JsonParser jsonParser = objectMapper.getFactory().createParser(jsonContent);
-        jsonParser.nextToken();
-
-        Map<String, Map<String, Object>> result = repo.parseItrRecord(jsonParser,
-                AssetClass.ETD.value(), SFTR);
-
-        assertTrue(result.containsKey(SFTR));
-        assertEquals(LEI_NWM_PLC, result.get(SFTR).get(TRADING_PARTY_LEI));
-        assertEquals(true, result.get(SFTR).get(VERSION_REPORTABLE));
-        assertEquals(true, result.get(SFTR).get(TRANSACTION_REPORTABLE));
-    }
-
-    @Test(expected = TaggingServiceRunTimeException.class)
-    public void testProcessFoMiData_UnknownJurisdiction() {
-        DFQueryMetaData metadata = new DFQueryMetaData();
-        metadata.setStatName("testStat");
-        String unknownAssetClass = "UNKNOWN_ASSET";
-
-        // Mock FO_ASSETWISE_MAP to return an unknown jurisdiction
-        ReflectionTestUtils.setField(MIConstants.class, "FO_ASSETWISE_MAP", new HashMap<String, List<String>>() {{
-            put(unknownAssetClass, Arrays.asList("UNKNOWN_JURISDICTION"));
-        }});
-
-        repo.processFoMiData(metadata, TEST_DATE, unknownAssetClass);
-    }
-
-    @Test
-    public void testFetchFromItr_Exception() throws Exception {
-        DFQueryMetaData metadata = new DFQueryMetaData();
-        metadata.setStatName("testStat");
-        Map<String, Map<String, Integer>> foMiDataMap = new HashMap<>();
-        foMiDataMap.put(EMIR, new HashMap<>());
-
-        MIAnalyticsDashboardRepositoryImpl spyRepo = spy(repo);
-        doThrow(new RuntimeException("Test exception")).when(spyRepo).fetchFromItrWithoutParamQuery(any(), any(), anyString(), anyString());
-
-        Map<String, Map<String, Integer>> result = (Map<String, Map<String, Integer>>) invokePrivateMethod("fetchFromItr",
-                new Class<?>[]{DFQueryMetaData.class, Map.class, String.class, String.class, Date.class, String.class},
-                metadata, foMiDataMap, "emirUrl", EMIR, TEST_DATE, AssetClass.FOREIGN_EXCHANGE.value());
-
-        assertEquals(foMiDataMap, result);
-    }
-
-    @Test
-    public void testFetchRecordsFromDf_NullDocument() throws Exception {
-        DFQueryMetaData dfScanParameters = new DFQueryMetaData();
-        dfScanParameters.setCollectionName("miCollection");
-
-        ScanResult scanResult = mock(ScanResult.class);
-        Record record = mock(Record.class);
-        when(record.getDocument()).thenReturn(null);
-        Iterator<Record> iterator = mock(Iterator.class);
-        when(iterator.hasNext()).thenReturn(true, false);
-        when(iterator.next()).thenReturn(record);
-        when(scanResult.iterator()).thenReturn(iterator);
-        when(dfClient.scan(any(ScanRequestBuilder.class))).thenReturn(scanResult);
-
-        List<Record> results = repo.fetchRecordsFromDf(dfScanParameters);
-
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testParseItrRecord_EmptyJson() throws Exception {
-        String jsonContent = "{}";
-        JsonParser jsonParser = objectMapper.getFactory().createParser(jsonContent);
-        jsonParser.nextToken();
-
-        Map<String, Map<String, Object>> result = repo.parseItrRecord(jsonParser,
-                AssetClass.FOREIGN_EXCHANGE.value(), EMIR);
-
-        assertTrue(result.containsKey(EMIR));
-        assertEquals("", result.get(EMIR).get(TRADING_PARTY_LEI));
-        assertEquals(false, result.get(EMIR).get(VERSION_REPORTABLE));
-        assertEquals(false, result.get(EMIR).get(TRANSACTION_REPORTABLE));
+    public void setUp() {
+        transformer = new TntrTradeTransformerImpl();
     }
-
-    @Test
-    public void testFetchStatistics_NullDocument() throws Exception {
-        DFQueryMetaData dfScanParameters = new DFQueryMetaData();
-        dfScanParameters.setCollectionName("miCollection");
 
-        ScanResult scanResult = mock(ScanResult.class);
-        Record record = mock(Record.class);
-        when(record.getDocument()).thenReturn(null);
-        Iterator<Record> iterator = mock(Iterator.class);
-        when(iterator.hasNext()).thenReturn(true, false);
-        when(iterator.next()).thenReturn(record);
-        when(scanResult.iterator()).thenReturn(iterator);
-        when(dfClient.scan(any(ScanRequestBuilder.class))).thenReturn(scanResult);
+    @Test(expected = NullPointerException.class)
+    public void testExecuteUpdateTrades_NullJiraReference() {
+        // Prepare
+        String whereExpression = "status=active";
+        JiraTaggingDetail jiraTaggingDetail = new JiraTaggingDetail();
+        FlowType workflowType = FlowType.TRADE;
 
-        int result = repo.fetchStatistics(dfScanParameters, "count");
-
-        assertEquals(0, result);
+        // Execute
+        transformer.executeUpdateTrades(whereExpression, null, jiraTaggingDetail, workflowType);
     }
-
-    @Test
-    public void testFetchStatistics_NullJsonDocument() throws Exception {
-        DFQueryMetaData dfScanParameters = new DFQueryMetaData();
-        dfScanParameters.setCollectionName("miCollection");
-
-        ScanResult scanResult = mock(ScanResult.class);
-        Record record = mock(Record.class);
-        when(record.getDocument()).thenReturn(mock(Document.class));
-        Iterator<Record> iterator = mock(Iterator.class);
-        when(iterator.hasNext()).thenReturn(true, false);
-        when(iterator.next()).thenReturn(record);
-        when(scanResult.iterator()).thenReturn(iterator);
-        when(dfClient.scan(any(ScanRequestBuilder.class))).thenReturn(scanResult);
 
-        int result = repo.fetchStatistics(dfScanParameters, "count");
+    @Test(expected = NullPointerException.class)
+    public void testExecuteUpdateTrades_NullJiraTaggingDetail() {
+        // Prepare
+        String whereExpression = "status=active";
+        JiraReference jiraReference = mock(JiraReference.class);
+        FlowType workflowType = FlowType.TRADE;
 
-        assertEquals(0, result);
+        // Execute
+        transformer.executeUpdateTrades(whereExpression, jiraReference, null, workflowType);
     }
 }
