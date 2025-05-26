@@ -1,478 +1,133 @@
+Could you write all the additional test cases for below java class to cover all the remaining scenarios or methods and make the test coverage or code coverage as 100% using junit 4 and old mockito version and java 8:
+
 package com.rbs.tntr.business.taggingService.service.common;
 
-import static org.junit.Assert.*;
-import static org.mockito.Matchers.*;
-import static org.mockito.Mockito.*;
+import com.rbs.tntr.api.taggingService.service.common.FileSystemService;
+import org.apache.commons.io.FileUtils;
+import org.springframework.stereotype.Component;
 
-import java.io.ByteArrayInputStream;
-import java.io.InputStream;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.net.URL;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.TimeZone;
-import java.util.function.Consumer;
+import java.io.File;
+import java.io.FilenameFilter;
+import java.io.IOException;
+
+@Component
+public class FileSystemServiceImpl implements FileSystemService {
+    @Override
+    public File[] listFiles(File directory, FilenameFilter filter) {
+        return directory.listFiles(filter);
+    }
+
+    @Override
+    public File getFile(String path) {
+        return  new File(path);
+    }
+
+    @Override
+    public void copyFile(File from, File to) throws IOException {
+       FileUtils.copyFile(from,to);
+    }
+
+    @Override
+    public void moveFile(File from, File to) throws IOException {
+        FileUtils.moveFile(from,to);
+    }
+}
+
+Existing test class:
+
+package com.rbs.tntr.business.taggingService.service.common;
 
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
-import org.mockito.runners.MockitoJUnitRunner;
-import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.http.*;
-import org.springframework.http.client.ClientHttpResponse;
-import org.springframework.web.client.*;
+import org.mockito.*;
+import java.io.File;
+import java.io.FilenameFilter;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.nwm.tntr.configuration.ItrConfiguration;
-import com.nwm.tntr.itr.IQuery;
-import com.rbs.tntr.business.taggingService.configuration.TaggingAuthenticationService;
-import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.common.Itr2Query;
-import com.rbs.tntr.domain.taggingService.jiraTaggingDomain.exceptions.TaggingServiceRunTimeException;
+import static org.mockito.Mockito.*;
+import static org.junit.Assert.*;
 
-@RunWith(MockitoJUnitRunner.class)
-public class ItrClientImplTest {
-
-    @Mock
-    private RestTemplate restTemplate;
-
-    @Mock
-    private TaggingAuthenticationService authenticationService;
-
-    @Mock
-    private ItrConfiguration itrConfiguration;
-
-    @Mock
-    private ClientHttpResponse clientHttpResponse;
+public class FileSystemServiceImplTest {
 
     @InjectMocks
-    private ItrClientImpl itrClientImpl;
+    private FileSystemServiceImpl fileSystemService;
 
-    private URL url;
-    private Itr2Query itr2Query;
-    private IQuery iQuery;
-    private String urlString;
-    private List<String> mockResponse;
+    private File mockFile;
+    private File[] mockFiles;
+    private FilenameFilter mockFilter;
 
     @Before
-    public void setUp() throws Exception {
+    public void setUp() {
         MockitoAnnotations.initMocks(this);
-        url = new URL("http://test-url.com");
-        urlString = "http://test-url.com";
-        itr2Query = new Itr2Query();
-        iQuery = mock(IQuery.class);
-        mockResponse = new ArrayList<>();
-        mockResponse.add("test1");
-        mockResponse.add("test2");
+        mockFile = mock(File.class);
+        mockFiles = new File[] { mockFile };
+        mockFilter = mock(FilenameFilter.class);
     }
 
+    /**
+     * Test listFiles when files are returned by directory.listFiles().
+     */
     @Test
-    public void testConstructor() {
-        // Test that constructor properly initializes fields
-        ItrClientImpl client = new ItrClientImpl(restTemplate, authenticationService, itrConfiguration);
-        assertNotNull(client);
-    }
+    public void testListFiles() {
+        // Arrange
+        File directory = mock(File.class);
+        when(directory.listFiles(mockFilter)).thenReturn(mockFiles);
 
-    @Test
-    public void testStaticObjectMapperInitialization() throws Exception {
-        // Test static block initialization
-        Field objectMapperField = ItrClientImpl.class.getDeclaredField("objectMapper");
-        objectMapperField.setAccessible(true);
-        ObjectMapper mapper = (ObjectMapper) objectMapperField.get(null);
-        
-        assertNotNull(mapper);
-        assertEquals(TimeZone.getDefault(), mapper.getSerializationConfig().getTimeZone());
-    }
+        // Act
+        File[] result = fileSystemService.listFiles(directory, mockFilter);
 
-    @Test
-    public void testFetchWithUrlSuccess() {
-        // Setup
-        ResponseEntity<List<String>> responseEntity = new ResponseEntity<>(mockResponse, HttpStatus.OK);
-        
-        when(authenticationService.getApplicationSsoToken(anyString())).thenReturn("test-token");
-        when(itrConfiguration.getItr2SsoPermission()).thenReturn("test-permission");
-        when(restTemplate.exchange(
-                eq(url.toString()),
-                eq(HttpMethod.POST),
-                any(HttpEntity.class),
-                any(ParameterizedTypeReference.class)))
-                .thenReturn(responseEntity);
-
-        // Execute
-        List<String> result = itrClientImpl.fetch(url, itr2Query, String.class);
-
-        // Verify
+        // Assert
         assertNotNull(result);
-        assertEquals(2, result.size());
-        assertEquals("test1", result.get(0));
-        assertEquals("test2", result.get(1));
-        
-        verify(restTemplate).exchange(
-                eq(url.toString()),
-                eq(HttpMethod.POST),
-                any(HttpEntity.class),
-                any(ParameterizedTypeReference.class));
+        assertEquals(1, result.length);
+        assertEquals(mockFile, result[0]);
     }
 
-    @Test(expected = IllegalStateException.class)
-    public void testFetchWithUrlNonOkStatus() {
-        // Setup
-        ResponseEntity<List<String>> responseEntity = new ResponseEntity<>(mockResponse, HttpStatus.BAD_REQUEST);
-        
-        when(authenticationService.getApplicationSsoToken(anyString())).thenReturn("test-token");
-        when(itrConfiguration.getItr2SsoPermission()).thenReturn("test-permission");
-        when(restTemplate.exchange(
-                eq(url.toString()),
-                eq(HttpMethod.POST),
-                any(HttpEntity.class),
-                any(ParameterizedTypeReference.class)))
-                .thenReturn(responseEntity);
-
-        // Execute - should throw IllegalStateException due to Preconditions.checkState
-        itrClientImpl.fetch(url, itr2Query, String.class);
-    }
-
-    @Test(expected = HttpClientErrorException.class)
-    public void testFetchWithUrlHttpClientErrorException() {
-        // Setup
-        HttpClientErrorException exception = new HttpClientErrorException(HttpStatus.BAD_REQUEST, "Bad Request", "Error response".getBytes(), null);
-        
-        when(authenticationService.getApplicationSsoToken(anyString())).thenReturn("test-token");
-        when(itrConfiguration.getItr2SsoPermission()).thenReturn("test-permission");
-        when(restTemplate.exchange(
-                eq(url.toString()),
-                eq(HttpMethod.POST),
-                any(HttpEntity.class),
-                any(ParameterizedTypeReference.class)))
-                .thenThrow(exception);
-
-        // Execute - should throw exception
-        itrClientImpl.fetch(url, itr2Query, String.class);
-    }
-
-    @Test(expected = HttpServerErrorException.class)
-    public void testFetchWithUrlHttpServerErrorException() {
-        // Setup
-        HttpServerErrorException exception = new HttpServerErrorException(HttpStatus.INTERNAL_SERVER_ERROR, "Server Error", "Server error response".getBytes(), null);
-        
-        when(authenticationService.getApplicationSsoToken(anyString())).thenReturn("test-token");
-        when(itrConfiguration.getItr2SsoPermission()).thenReturn("test-permission");
-        when(restTemplate.exchange(
-                eq(url.toString()),
-                eq(HttpMethod.POST),
-                any(HttpEntity.class),
-                any(ParameterizedTypeReference.class)))
-                .thenThrow(exception);
-
-        // Execute - should throw exception
-        itrClientImpl.fetch(url, itr2Query, String.class);
-    }
-
-    @Test(expected = UnknownHttpStatusCodeException.class)
-    public void testFetchWithUrlUnknownHttpStatusCodeException() {
-        // Setup
-        UnknownHttpStatusCodeException exception = new UnknownHttpStatusCodeException(999, "Unknown", null, "Unknown error response".getBytes(), null);
-        
-        when(authenticationService.getApplicationSsoToken(anyString())).thenReturn("test-token");
-        when(itrConfiguration.getItr2SsoPermission()).thenReturn("test-permission");
-        when(restTemplate.exchange(
-                eq(url.toString()),
-                eq(HttpMethod.POST),
-                any(HttpEntity.class),
-                any(ParameterizedTypeReference.class)))
-                .thenThrow(exception);
-
-        // Execute - should throw exception
-        itrClientImpl.fetch(url, itr2Query, String.class);
-    }
-
-    @Test(expected = RuntimeException.class)
-    public void testFetchWithUrlThrowsGenericException() {
-        // Setup
-        RuntimeException exception = new RuntimeException("Generic error");
-
-        when(authenticationService.getApplicationSsoToken(anyString())).thenReturn("test-token");
-        when(itrConfiguration.getItr2SsoPermission()).thenReturn("test-permission");
-        when(restTemplate.exchange(
-                eq(url.toString()),
-                eq(HttpMethod.POST),
-                any(HttpEntity.class),
-                any(ParameterizedTypeReference.class)))
-                .thenThrow(exception);
-
-        // Execute - should throw exception
-        itrClientImpl.fetch(url, itr2Query, String.class);
-    }
-
+    /**
+     * Test listFiles when directory returns null.
+     */
     @Test
-    public void testFetchWithStreamConsumerItr2Query() throws Exception {
-        // Setup
-        InputStream mockInputStream = new ByteArrayInputStream("test data".getBytes());
-        Consumer<InputStream> streamConsumer = mock(Consumer.class);
-        
-        when(clientHttpResponse.getBody()).thenReturn(mockInputStream);
-        when(authenticationService.getApplicationSsoToken(anyString())).thenReturn("test-token");
-        when(itrConfiguration.getItr2SsoPermission()).thenReturn("test-permission");
-        when(restTemplate.execute(
-                eq(urlString),
-                eq(HttpMethod.POST),
-                any(),
-                any(ResponseExtractor.class)))
-                .thenAnswer(invocation -> {
-                    ResponseExtractor<List<String>> extractor = invocation.getArgumentAt(3, ResponseExtractor.class);
-                    return extractor.extractData(clientHttpResponse);
-                });
+    public void testListFilesWithNull() {
+        // Arrange
+        File directory = mock(File.class);
+        when(directory.listFiles(mockFilter)).thenReturn(null);
 
-        // Execute
-        List<String> result = itrClientImpl.fetch(urlString, itr2Query, streamConsumer);
+        // Act
+        File[] result = fileSystemService.listFiles(directory, mockFilter);
 
-        // Verify
+        // Assert
         assertNull(result);
-        verify(streamConsumer).accept(mockInputStream);
     }
 
+    /**
+     * Test listFiles when directory has no files.
+     */
     @Test
-    public void testFetchWithStreamConsumerIQuery() throws Exception {
-        // Setup
-        InputStream mockInputStream = new ByteArrayInputStream("test data".getBytes());
-        Consumer<InputStream> streamConsumer = mock(Consumer.class);
-        
-        when(clientHttpResponse.getBody()).thenReturn(mockInputStream);
-        when(authenticationService.getApplicationSsoToken(anyString())).thenReturn("test-token");
-        when(itrConfiguration.getItr2SsoPermission()).thenReturn("test-permission");
-        when(restTemplate.execute(
-                eq(urlString),
-                eq(HttpMethod.POST),
-                any(),
-                any(ResponseExtractor.class)))
-                .thenAnswer(invocation -> {
-                    ResponseExtractor<List<String>> extractor = invocation.getArgumentAt(3, ResponseExtractor.class);
-                    return extractor.extractData(clientHttpResponse);
-                });
+    public void testListFilesWithEmptyDirectory() {
+        // Arrange
+        File directory = mock(File.class);
+        when(directory.listFiles(mockFilter)).thenReturn(new File[0]);
 
-        // Execute
-        List<String> result = itrClientImpl.fetch(urlString, iQuery, streamConsumer);
+        // Act
+        File[] result = fileSystemService.listFiles(directory, mockFilter);
 
-        // Verify
-        assertNull(result);
-        verify(streamConsumer).accept(mockInputStream);
-    }
-
-    @Test(expected = HttpClientErrorException.class)
-    public void testExecuteRestCallWithoutBufferingHttpClientErrorException() {
-        // Setup
-        HttpClientErrorException exception = new HttpClientErrorException(HttpStatus.BAD_REQUEST, "Bad Request", "Error response".getBytes(), null);
-        Consumer<InputStream> streamConsumer = mock(Consumer.class);
-        
-        when(authenticationService.getApplicationSsoToken(anyString())).thenReturn("test-token");
-        when(itrConfiguration.getItr2SsoPermission()).thenReturn("test-permission");
-        when(restTemplate.execute(
-                eq(urlString),
-                eq(HttpMethod.POST),
-                any(),
-                any(ResponseExtractor.class)))
-                .thenThrow(exception);
-
-        // Execute
-        itrClientImpl.fetch(urlString, itr2Query, streamConsumer);
-    }
-
-    @Test(expected = HttpServerErrorException.class)
-    public void testExecuteRestCallWithoutBufferingHttpServerErrorException() {
-        // Setup
-        HttpServerErrorException exception = new HttpServerErrorException(HttpStatus.INTERNAL_SERVER_ERROR, "Server Error", "Server error response".getBytes(), null);
-        Consumer<InputStream> streamConsumer = mock(Consumer.class);
-        
-        when(authenticationService.getApplicationSsoToken(anyString())).thenReturn("test-token");
-        when(itrConfiguration.getItr2SsoPermission()).thenReturn("test-permission");
-        when(restTemplate.execute(
-                eq(urlString),
-                eq(HttpMethod.POST),
-                any(),
-                any(ResponseExtractor.class)))
-                .thenThrow(exception);
-
-        // Execute
-        itrClientImpl.fetch(urlString, itr2Query, streamConsumer);
-    }
-
-    @Test(expected = UnknownHttpStatusCodeException.class)
-    public void testExecuteRestCallWithoutBufferingUnknownHttpStatusCodeException() {
-        // Setup
-        UnknownHttpStatusCodeException exception = new UnknownHttpStatusCodeException(999, "Unknown", null, "Unknown error response".getBytes(), null);
-        Consumer<InputStream> streamConsumer = mock(Consumer.class);
-        
-        when(authenticationService.getApplicationSsoToken(anyString())).thenReturn("test-token");
-        when(itrConfiguration.getItr2SsoPermission()).thenReturn("test-permission");
-        when(restTemplate.execute(
-                eq(urlString),
-                eq(HttpMethod.POST),
-                any(),
-                any(ResponseExtractor.class)))
-                .thenThrow(exception);
-
-        // Execute
-        itrClientImpl.fetch(urlString, itr2Query, streamConsumer);
-    }
-
-    @Test(expected = RuntimeException.class)
-    public void testExecuteRestCallWithoutBufferingGenericException() {
-        // Setup
-        RuntimeException exception = new RuntimeException("Generic error");
-        Consumer<InputStream> streamConsumer = mock(Consumer.class);
-        
-        when(authenticationService.getApplicationSsoToken(anyString())).thenReturn("test-token");
-        when(itrConfiguration.getItr2SsoPermission()).thenReturn("test-permission");
-        when(restTemplate.execute(
-                eq(urlString),
-                eq(HttpMethod.POST),
-                any(),
-                any(ResponseExtractor.class)))
-                .thenThrow(exception);
-
-        // Execute
-        itrClientImpl.fetch(urlString, itr2Query, streamConsumer);
-    }
-
-    @Test(expected = TaggingServiceRunTimeException.class)
-    public void testGetJsonBodyWithJsonProcessingException() throws Exception {
-        // Use reflection to test the private method getJsonBody
-        Method getJsonBodyMethod = ItrClientImpl.class.getDeclaredMethod("getJsonBody", Object.class);
-        getJsonBodyMethod.setAccessible(true);
-
-        // Create a mock ObjectMapper that throws JsonProcessingException
-        ObjectMapper mockObjectMapper = mock(ObjectMapper.class);
-        when(mockObjectMapper.writeValueAsString(any())).thenThrow(new JsonProcessingException("JSON error") {});
-
-        // Replace the static ObjectMapper with our mock using reflection
-        Field objectMapperField = ItrClientImpl.class.getDeclaredField("objectMapper");
-        objectMapperField.setAccessible(true);
-        ObjectMapper originalMapper = (ObjectMapper) objectMapperField.get(null);
-        objectMapperField.set(null, mockObjectMapper);
-
-        try {
-            // Execute - should throw TaggingServiceRunTimeException
-            getJsonBodyMethod.invoke(itrClientImpl, new Object());
-        } finally {
-            // Restore original ObjectMapper
-            objectMapperField.set(null, originalMapper);
-        }
-    }
-
-    @Test
-    public void testGetJsonBodySuccess() throws Exception {
-        // Use reflection to test the private method getJsonBody
-        Method getJsonBodyMethod = ItrClientImpl.class.getDeclaredMethod("getJsonBody", Object.class);
-        getJsonBodyMethod.setAccessible(true);
-
-        // Execute
-        String result = (String) getJsonBodyMethod.invoke(itrClientImpl, "test");
-
-        // Verify
-        assertEquals("\"test\"", result);
-    }
-
-    @Test
-    public void testGetHeaderWithSso() throws Exception {
-        // Setup
-        when(authenticationService.getApplicationSsoToken("test-permission")).thenReturn("test-sso-token");
-        when(itrConfiguration.getItr2SsoPermission()).thenReturn("test-permission");
-
-        // Use reflection to test the private method
-        Method getHeaderWithSsoMethod = ItrClientImpl.class.getDeclaredMethod("getHeaderWithSso", String.class);
-        getHeaderWithSsoMethod.setAccessible(true);
-
-        // Execute
-        HttpHeaders headers = (HttpHeaders) getHeaderWithSsoMethod.invoke(itrClientImpl, "test-request-id");
-
-        // Verify
-        assertNotNull(headers);
-        assertEquals(MediaType.APPLICATION_JSON, headers.getContentType());
-        assertEquals("test-sso-token", headers.getFirst("sso-token"));
-        assertEquals("test-request-id", headers.getFirst("RequestId"));
-        
-        verify(authenticationService).getApplicationSsoToken("test-permission");
-        verify(itrConfiguration).getItr2SsoPermission();
-    }
-
-    @Test
-    public void testExecuteRestCallSuccess() throws Exception {
-        // Setup
-        ResponseEntity<List<String>> responseEntity = new ResponseEntity<>(mockResponse, HttpStatus.OK);
-        HttpEntity<String> httpEntity = new HttpEntity<>("test body");
-        
-        when(restTemplate.exchange(
-                eq(url.toString()),
-                eq(HttpMethod.POST),
-                eq(httpEntity),
-                any(ParameterizedTypeReference.class)))
-                .thenReturn(responseEntity);
-
-        // Use reflection to test the private method
-        Method executeRestCallMethod = ItrClientImpl.class.getDeclaredMethod("executeRestCall", URL.class, Class.class, String.class, HttpEntity.class);
-        executeRestCallMethod.setAccessible(true);
-
-        // Execute
-        ResponseEntity<List<String>> result = (ResponseEntity<List<String>>) executeRestCallMethod.invoke(
-                itrClientImpl, url, String.class, "test-request-id", httpEntity);
-
-        // Verify
+        // Assert
         assertNotNull(result);
-        assertEquals(HttpStatus.OK, result.getStatusCode());
-        assertEquals(2, result.getBody().size());
+        assertEquals(0, result.length);
     }
 
+    /**
+     * Test getFile method.
+     */
     @Test
-    public void testExecuteRestCallWithoutBufferingSuccess() throws Exception {
-        // Setup
-        InputStream mockInputStream = new ByteArrayInputStream("test data".getBytes());
-        HttpEntity<Itr2Query> httpEntity = new HttpEntity<>(itr2Query);
-        
-        when(clientHttpResponse.getBody()).thenReturn(mockInputStream);
-        when(restTemplate.execute(
-                eq(urlString),
-                eq(HttpMethod.POST),
-                any(),
-                any(ResponseExtractor.class)))
-                .thenAnswer(invocation -> {
-                    ResponseExtractor<List<String>> extractor = invocation.getArgumentAt(3, ResponseExtractor.class);
-                    return extractor.extractData(clientHttpResponse);
-                });
+    public void testGetFile() {
+        // Arrange
+        String path = "mock/path";
+        File expectedFile = new File(path);
 
-        // Use reflection to test the private method
-        Method executeRestCallWithoutBufferingMethod = ItrClientImpl.class.getDeclaredMethod(
-                "executeRestCallWithoutBuffering", String.class, String.class, HttpEntity.class, ResponseExtractor.class);
-        executeRestCallWithoutBufferingMethod.setAccessible(true);
+        // Act
+        File result = fileSystemService.getFile(path);
 
-        ResponseExtractor<List<String>> responseExtractor = (ClientHttpResponse response) -> {
-            // This mimics the actual implementation in the class
-            return null;
-        };
-
-        // Execute
-        List<String> result = (List<String>) executeRestCallWithoutBufferingMethod.invoke(
-                itrClientImpl, urlString, "test-request-id", httpEntity, responseExtractor);
-
-        // Verify
-        assertNull(result);
+        // Assert
+        assertEquals(expectedFile.getPath(), result.getPath());
     }
 
-    @Test
-    public void testFetchWithStreamConsumer() {
-        // Setup
-        Consumer<InputStream> streamConsumer = inputStream -> {};
-
-        when(authenticationService.getApplicationSsoToken(anyString())).thenReturn("test-token");
-        when(itrConfiguration.getItr2SsoPermission()).thenReturn("test-permission");
-
-        // Execute
-        List<String> result = itrClientImpl.fetch("http://test-url.com", itr2Query, streamConsumer);
-
-        // Verify
-        assertNull(result); // Adjust as needed based on method implementation
-    }
 }
