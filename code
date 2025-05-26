@@ -131,3 +131,5 @@ public class FileSystemServiceImplTest {
     }
 
 }
+
+Don't use power mockito as i m using older mockito version. Also for private methods try to use reflection. Plus we can't change any file other than the above test class. 
