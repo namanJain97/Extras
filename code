@@ -1,667 +1,1807 @@
-package com.rbs.tntr.business.blotter.utility;
+Could you write all the additional test cases for below java class to cover all the remaining scenarios or methods and make the test coverage or code coverage as 100% using junit 4 and old mockito version and java 8:
 
+package com.rbs.tntr.business.blotter.services;
+
+import static com.rbs.tntr.business.blotter.services.common.StringConstants.*;
+import static com.rbs.tntr.business.blotter.services.common.CsvHeaderConstants.*;
+import static com.rbs.tntr.business.blotter.services.common.DfFieldConstants.*;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.time.ZonedDateTime;
+import java.util.*;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
+
+import com.nwm.tntr.commons.domain.persistence.constant.AssetClass;
+import org.apache.commons.io.FileUtils;
+import org.joda.time.DateTime;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.Lists;
+import com.nwm.tntr.domain.email.EmailContent;
+import com.nwm.tntr.domain.email.EmailContent.EmailBuilder;
+import com.nwm.tntr.services.email.EmailService;
+import com.rbs.datafabric.agile.commons.lang.StartableException;
+import com.rbs.datafabric.api.PagedScanResult;
+import com.rbs.datafabric.api.ScanResult;
+import com.rbs.datafabric.api.exception.ScanException;
+import com.rbs.datafabric.client.DataFabricClient;
+import com.rbs.datafabric.domain.Document;
+import com.rbs.datafabric.domain.JsonDocument;
+import com.rbs.datafabric.domain.Record;
+import com.rbs.datafabric.domain.RecordId;
+import com.rbs.datafabric.domain.client.builder.ScanRequestBuilder;
+import com.rbs.datafabric.shaded.org.apache.commons.lang3.StringUtils;
+import com.rbs.tntr.business.blotter.repository.DataFabricExportRepository;
+import com.rbs.tntr.business.blotter.search.querybuilder.DfExportScan;
+import com.rbs.tntr.business.blotter.search.querybuilder.DfScanParameters;
+import com.rbs.tntr.business.blotter.search.querybuilder.LoggedInUserDetails;
+import com.rbs.tntr.business.blotter.services.datetime.DateTimeService;
+import com.rbs.tntr.business.blotter.services.jobs.DfExportJob;
+import com.rbs.tntr.business.blotter.services.validators.ValidatorConstants;
+import com.rbs.tntr.business.blotter.utility.BlotterUtil;
+import com.rbs.tntr.business.blotter.utility.CsvWriterImpl;
+import com.rbs.tntr.business.blotter.utility.DataFabricExportUtility;
+import com.rbs.tntr.business.blotter.utility.ExcelWriterImpl;
+import com.rbs.tntr.domain.blotter.exceptions.BlotterRunTimeException;
+import com.rbs.tntr.domain.blotter.exceptions.ValidationException;
+
+/**
+ * Description : Service Implementation class to extract data from DF
+ *
+ * @author agrakit
+ * 
+ * Created By: Niket Agrawal
+ * 
+ * Created On 01-09-2021
+ * 
+ */
+@Service
+public class DataFabricExportServiceImpl implements DataFabricExportService {
+
+	private final Logger LOGGER = LoggerFactory.getLogger(DataFabricExportServiceImpl.class);
+
+	DataFabricExportUtility dataFabricExportUtil;
+
+	CsvWriterImpl csvWriter;
+
+	ExcelWriterImpl excelWriter;
+
+	DataFabricExportRepository dfExportRepository;
+
+	DateTimeService dateTimeService;
+
+	EmailService emailService;
+
+	BlockingQueue<DfExportJob> queue = new LinkedBlockingQueue<>();
+
+	Thread thread;
+
+	String breakAgeBucket;
+
+	@Value("${df.export.outputFilePath}")
+	private String outputFilePath;
+
+	@Value("${df.export.scheduleFrequencyRange}")
+	private String schedularFrequency;
+
+	@Value("${df.export.mi.receiver.email}")
+	private String miReceiverEmail;
+
+	@Value("${df.export.exportThresholdCount}")
+	private int exportThresholdCount;
+
+	@Value("${df.export.exportThresholdCountFeature}")
+	private boolean exportThresholdCountFeature;
+
+	@Value("${df.export.zippedExportFeature}")
+	private boolean zippedExportFeature;
+
+	@Value("${df.export.emailNotificationFeature}")
+	private boolean emailNotificationFeature;
+
+	@Value("${df.export.exportPageCount}")
+	private int exportPageCount;
+
+	@Value("${blotter.email.service.mail.host}")
+	private String smtpHost;
+
+	@Value("${blotter.email.service.mail.from}")
+	private String emailFrom;
+
+	@Autowired
+	public DataFabricExportServiceImpl(DataFabricExportRepository dfExportRepository,
+			DataFabricExportUtility dataFabricExportUtil, CsvWriterImpl csvWriter, ExcelWriterImpl excelWriter,
+			DateTimeService dateTimeService, EmailService emailService) {
+		this.dataFabricExportUtil = dataFabricExportUtil;
+		this.csvWriter = csvWriter;
+		this.dfExportRepository = dfExportRepository;
+		this.excelWriter = excelWriter;
+		this.dateTimeService = dateTimeService;
+		this.emailService = emailService;
+		startScheduledJob();
+	}
+
+	/**
+	 * Description : Method to Fetch DF Records & Export to CSV
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 01-09-2021
+	 * @param dfScanParameters
+	 */
+	@Override
+	public boolean fetchAndExportRecords(DfScanParameters dfScanParameters, String userName, boolean isSavedScan,
+			DfExportScan scan) {
+		boolean result = false;
+		validateExportScanRequest(dfScanParameters, userName);
+		List<DfScanParameters> scanParamList = getScanParamList(dfScanParameters);
+		try {
+			result = submitTask(new DfExportJob(scanParamList, userName, isSavedScan, scan,
+					generateExportFileName(StringUtils.EMPTY, userName)));
+		} catch (Exception e) {
+			LOGGER.error("There was an error while processing ", e);
+		}
+
+		return result;
+	}
+
+	/**
+	 * Description : Method to count total records to be exported
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 10-12-2021
+	 * @param scanParamList
+	 * @return
+	 * @throws StartableException 
+	 * @throws ScanException 
+	 * @throws IOException 
+	 * @throws JsonProcessingException 
+	 */
+	private int calculateThresholdCount(List<DfScanParameters> scanParamList, String userName)
+			throws ScanException, StartableException, JsonProcessingException, IOException {
+		int totalCount = 0;
+		LOGGER.info("Calculating total export record count");
+		ObjectMapper objectMapper = new ObjectMapper();
+		DataFabricClient dfClient = dataFabricExportUtil.getDataFabricClient();
+		for (DfScanParameters scanParam : scanParamList) {
+			// Validate incoming request
+			validateExportScanRequest(scanParam, userName);
+			DfScanParameters dfScanParameters = new DfScanParameters(scanParam);
+			dfScanParameters.setSelect(TOTAL_COUNT);
+			ScanRequestBuilder scanRequestBuilder = dataFabricExportUtil.getScanRequestBuilder(dfScanParameters);
+			PagedScanResult pagedScan;
+			try {
+				pagedScan = dfClient.pagedScan(scanRequestBuilder);
+			} catch (ScanException e) {
+				LOGGER.error("Error while fetching total counts", e);
+				LOGGER.info("Making another attempt for total count after failure from Paged Scan");
+				pagedScan = dfClient.pagedScan(scanRequestBuilder);
+			}
+			if (!pagedScan.getRecords().isEmpty()) {
+				List<Record> recordList = pagedScan.getRecords();
+				Record record = recordList.get(0);
+				if (record != null && record.getDocument() != null) {
+					Document document = record.getDocument();
+					JsonDocument jsonDocument = ((JsonDocument) document);
+					if (jsonDocument != null) {
+						String resVal = jsonDocument.getContents();
+						JsonNode resNode = objectMapper.readTree(resVal);
+						LOGGER.info("Total {} records counted from Collection : {}", resNode.get("totalCount").asInt(),
+								scanParam.getCollectionName());
+						totalCount += resNode.get("totalCount").asInt();
+					}
+				}
+			}
+		}
+		LOGGER.info("Total {} records to be exported from DF collectiions", totalCount);
+		return totalCount;
+	}
+
+	private String modifyFileName(List<DfScanParameters> scanParamList, String fileName)
+			throws ScanException, StartableException, JsonProcessingException, IOException {
+		LOGGER.info("Populating new filename for Recon");
+		String reconFileName = EMPTY;
+		ObjectMapper objectMapper = new ObjectMapper();
+		DataFabricClient dfClient = dataFabricExportUtil.getDataFabricClient();
+		DfScanParameters scanParam = scanParamList.get(0);
+		DfScanParameters dfScanParameters = new DfScanParameters(scanParam);
+		dfScanParameters.setSelect(
+				RECON_SELECT);
+		ScanRequestBuilder scanRequestBuilder = dataFabricExportUtil.getScanRequestBuilder(dfScanParameters);
+		PagedScanResult pagedScan;
+		try {
+			pagedScan = dfClient.pagedScan(scanRequestBuilder);
+		} catch (ScanException e) {
+			LOGGER.error("Error while fetching total counts", e);
+			LOGGER.info("Making another attempt for total count after failure from Paged Scan");
+			pagedScan = dfClient.pagedScan(scanRequestBuilder);
+		}
+		if (!pagedScan.getRecords().isEmpty()) {
+			List<Record> recordList = pagedScan.getRecords();
+			Record record = recordList.get(0);
+			if (record != null && record.getDocument() != null) {
+				Document document = record.getDocument();
+				JsonDocument jsonDocument = ((JsonDocument) document);
+				if (jsonDocument != null) {
+					String resVal = jsonDocument.getContents();
+					JsonNode resNode = objectMapper.readTree(resVal);
+					String identifier = resNode.get("identifier").asText();
+					String businessDate = resNode.get("reconciliationBusinessDateTime").asText().substring(0, 10);
+					reconFileName = identifier.concat(UNDERSCORE).concat(businessDate).concat(UNDERSCORE)
+							.concat(fileName);
+				}
+			}
+		}
+		LOGGER.info("New export file name for export is : {}", reconFileName);
+		return reconFileName;
+	}
+
+	/**
+	 * Description : Method to save DFExportScan request
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 30-09-2021
+	 * @param scan
+	 * @return
+	 */
+	@Override
+	public RecordId insertDfScan(DfExportScan scan) {
+		scan.setScanId(generateScanRequestId(scan.getRequestedUserId()));
+		scan.setCreationDate(DateTime.now().toString("dd-MM-yyyy HH:mm:ss"));
+		scan.setExecutionStatus(STATUS_CREATED);
+		scan.setRemarks("New Scan created");
+		if (scan.isScheduled() && !StringUtils.isEmpty(scan.getScheduledTime())) {
+			scan.setNextRunDateTime(populateNextRunDate(scan.getScheduledTime()));
+			scan.setExecutionStatus(STATUS_SCHEDULED);
+			scan.setRemarks("New Scan created & scheduled");
+		}
+		RecordId recordId = dfExportRepository.upsertDfScan(scan);
+		LOGGER.info("New scan requested created with SCAN ID {} ", recordId.getKey());
+		return recordId;
+	}
+
+	/**
+	 * Description : Method to generate Scan ID for new scan request
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 04-10-2021
+	 * @param userName
+	 * @return
+	 */
+	private String generateScanRequestId(String userName) {
+		return userName.concat(SCAN_REQ_ID).concat(DateTime.now().toString("ddMMyyyyHHmmss"));
+	}
+
+	/**
+	 * Description : Method to fetch saved DFExportScan for requested user
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 30-09-2021
+	 * @param userName
+	 * @return
+	 */
+	@Override
+	public List<DfExportScan> fetchDfScansForUser(String userName) {
+		List<DfExportScan> exportScanList = dfExportRepository.fetchDfScansForUser(userName);
+		List<DfExportScan>filteredExportScanList=exportScanList.stream().filter(scan->filterLatestScanList(scan)).collect(Collectors.toList());
+		LOGGER.info("Total {} scan requestes extracted from DF for user {}", exportScanList.size(), userName);
+		return filteredExportScanList;
+	}
+
+	public boolean filterLatestScanList(DfExportScan scan) {
+		DateTime pastDateTime = dateTimeService.getDirectPastDateTime(dateTimeService.getCurrentUTCDateTime(), 60);
+		if (!StringUtils.isEmpty(scan.getLastExecutionDateTime())) {
+			DateTime lastExecutionDateTime = dateTimeService.parseDateTimeFromString(scan.getLastExecutionDateTime());
+			if (lastExecutionDateTime.isAfter(pastDateTime.getMillis())) {
+				return true;
+			}
+		} else if (!StringUtils.isEmpty(scan.getCreationDate())) {
+			DateTime creationDate = dateTimeService.parseDateTimeFromString(scan.getCreationDate());
+			if (creationDate.isAfter(pastDateTime.getMillis())) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+    /**
+	 * Description : Method to update existing DFExportScan
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 30-09-2021
+	 * @param scan
+	 * @return
+	 */
+	@Override
+	public List<RecordId> updateDfScan(List<DfExportScan> scan) {
+		List<RecordId> recordIdList = new ArrayList<>();
+		for (DfExportScan dfExportScan : scan) {
+			if (StringUtils.isEmpty(dfExportScan.getScanId()))
+				throw new ValidationException(ValidatorConstants.SCAN_ID_NOT_VALID);
+			LOGGER.info("Request to update Scan with Id : {} received.", dfExportScan.getScanId());
+			if (null == dfExportScan.getNextRunDateTime() && dfExportScan.isScheduled()
+					&& !StringUtils.isEmpty(dfExportScan.getScheduledTime())) {
+				dfExportScan.setNextRunDateTime(populateNextRunDate(dfExportScan.getScheduledTime()));
+				dfExportScan.setExecutionStatus(STATUS_SCHEDULED);
+				dfExportScan.setRemarks("Scan Scheduled successfully");
+			}
+			recordIdList.add(dfExportRepository.upsertDfScan(dfExportScan));
+		}
+
+		return recordIdList;
+	}
+
+	/**
+	 * Description : Method to fetch Scan by ID & Export the scan result
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 30-09-2021
+	 * @param scanId
+	 * @param userName
+	 */
+	@Override
+	public boolean fetchScanByIdAndGenerateExport(String scanId, String userName) {
+		boolean result = false;
+		if (StringUtils.isEmpty(scanId))
+			throw new ValidationException(ValidatorConstants.SCAN_ID_NOT_VALID);
+		DfExportScan scan = dfExportRepository.fetchDfScanById(scanId);
+		scan.setExportLocation(outputFilePath);
+		scan.setExecutionStatus(STATUS_IN_QUEUE);
+		scan.setRemarks("Scan is pushed into queue for export");
+		updateDfScan(Lists.newArrayList(scan));
+		LOGGER.info("Scan ID : {} is pushed into export Queue at {}", scanId, dateTimeService.getCurrentDateTimeAsString());
+		List<DfScanParameters> scanParamList = getScanParamList(scan);
+		result = submitTask(new DfExportJob(scanParamList, userName, true, scan,
+				generateExportFileName(scan.getBlotterName(), userName)));
+		return result;
+	}
+
+	/**
+	 * Description : Method to update Scan on failure
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 20-12-2021
+	 * @param scanId
+	 * @param status
+	 * @return
+	 */
+	private void updateFailedScan(String scanId, String status, String remarks) {
+		DfExportScan scan = dfExportRepository.fetchDfScanById(scanId);
+		scan.setExportLocation(EMPTY);
+		scan.setExportName(EMPTY);
+		scan.setExportRecordCount(0);
+		scan.setExecutionTime(EMPTY);
+		scan.setLastExecutionDateTime(DateTime.now().toString("dd-MM-yyyy HH:mm:ss"));
+		scan.setExecutionStatus(status);
+		scan.setRemarks(remarks);
+		calculateNextRun(scan);
+		updateDfScan(Lists.newArrayList(scan));
+		LOGGER.info("Scan ID : {} updated with Status : {}", scanId, status);
+	}
+
+	/**
+	 * Description : Fetch Scan Param List from saved Scan 
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 04-10-2021
+	 * @param scan
+	 * @return
+	 */
+	@Override
+	public ArrayList<DfScanParameters> getScanParamList(DfExportScan scan) {
+
+		ArrayList<DfScanParameters> dfScanParametersList = new ArrayList<>();
+		if (scan.getCollectionName().contains(COMMA)) {
+			Arrays.asList(scan.getCollectionName().split(COMMA)).forEach(element -> {
+				DfScanParameters param = new DfScanParameters(scan);
+				param.setCollectionName(element.trim());
+				if (!StringUtils.isEmpty(scan.getAsOf())) {
+					param.setAsOf(generateAsOfFromScan(scan.getAsOf()));
+					LOGGER.info("Scan request with AsOf : {}, converted to ScanExpression AsOf in Millis : {}",
+							scan.getAsOf(), param.getAsOf());
+				}
+				dfScanParametersList.add(param);
+
+			});
+		} else {
+			DfScanParameters param = new DfScanParameters(scan);
+			param.setCollectionName(param.getCollectionName().trim());
+			if (!StringUtils.isEmpty(scan.getAsOf())) {
+				param.setAsOf(generateAsOfFromScan(scan.getAsOf()));
+				LOGGER.info("Scan request with AsOf : {}, converted to ScanExpression AsOf in Millis : {}",
+						scan.getAsOf(), param.getAsOf());
+			}
+			dfScanParametersList.add(param);
+		}
+
+		if (!StringUtils.isEmpty(scan.getWhere())) {
+			String updatedWhere = populateDynamicDate(scan.getWhere());
+			if (!scan.getWhere().contentEquals(updatedWhere)) {
+				LOGGER.info("Updating dyanic where clause from : {} to : {}", scan.getWhere(), updatedWhere);
+				dfScanParametersList.forEach(param -> param.setWhere(updatedWhere));
+			}
+		}
+		LOGGER.info("Total {} collections extracted from scan request", dfScanParametersList.size());
+		return dfScanParametersList;
+	}
+
+	/**
+	 * Description : Method to convert asOf into Milliseconds
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 18-01-2022
+	 * @param asOf
+	 * @return
+	 */
+	private long generateAsOfFromScan(String asOf) {
+		asOf = populateDynamicDate(asOf);
+		asOf = asOf.replaceAll(SINGLE_QUOTE, EMPTY);
+		return dateTimeService.parseDateTime(asOf).getMillis();
+	}
+
+	/**
+	 * Description : Fetch Scan Param List from custom Scan
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 04-10-2021
+	 * @param scan
+	 * @return
+	 */
+	private ArrayList<DfScanParameters> getScanParamList(DfScanParameters scan) {
+
+		ArrayList<DfScanParameters> dfScanParametersList = new ArrayList<>();
+		if (scan.getCollectionName().contains(COMMA)) {
+			Arrays.asList(scan.getCollectionName().split(COMMA)).forEach(element -> {
+				DfScanParameters param = new DfScanParameters(scan);
+				param.setCollectionName(element.trim());
+				dfScanParametersList.add(param);
+			});
+		} else {
+			DfScanParameters param = new DfScanParameters(scan);
+			param.setCollectionName(param.getCollectionName().trim());
+			dfScanParametersList.add(param);
+		}
+		LOGGER.debug("Total {} collections extracted from scan request", dfScanParametersList.size());
+		return dfScanParametersList;
+	}
+
+	/**
+	 * Description : Method to fetch CSV ROWs from data MAP of DF Records
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 01-09-2021
+	 * @param recordList
+	 * @param headers
+	 */
+	private List<String[]> fetchCsvRecords(List<Map<String, String>> recordList, Set<String> headers,
+			boolean isAppend) {
+
+		if (headers.isEmpty()) {
+			LOGGER.error("Header is empty so CSV cannot be created");
+			throw new ValidationException("Header is empty");
+		}
+
+		List<String[]> list = new ArrayList<>();
+		LOGGER.debug("Total {} headers extracted from DF", headers.size());
+		LOGGER.debug("Extracted column headers are : {}", headers.toString());
+
+		if (!isAppend) {
+			LOGGER.info("Request is to create file, hence adding headers to file. ");
+			LOGGER.info("Extracted column headers are : {}", headers.toString());
+			String[] allHeaders = headers.toArray(new String[0]);
+			list.add(allHeaders);
+		}
+
+		for (Map<String, String> map : recordList) {
+			List<String> dataRow = new ArrayList<>();
+			headers.forEach(item -> dataRow.add(map.containsKey(item) ? map.get(item) : EMPTY));
+			list.add(dataRow.toArray(new String[0]));
+		}
+		return list;
+
+	}
+
+	/**
+	 * Description : Validate incoming request from API
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 13-09-2021
+	 * @param dfScanParameters
+	 */
+	private void validateExportScanRequest(DfScanParameters dfScanParameters, String userName) {
+
+		if (StringUtils.isEmpty(userName))
+			throw new ValidationException(ValidatorConstants.USER_NAME_NOT_VALID);
+
+		if (StringUtils.isEmpty(dfScanParameters.getBlotterName()))
+			throw new ValidationException(ValidatorConstants.BLOTTER_NAME_NOT_VALID);
+
+		if (StringUtils.isEmpty(dfScanParameters.getCollectionName()))
+			throw new ValidationException(ValidatorConstants.COLLECTION_NAME_NOT_VALID);
+	}
+
+	/**
+	 * Description : Method to delete scans from DF
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 05-10-2021
+	 * @param scanIds
+	 * @return
+	 */
+	@Override
+	public long deleteExportScans(List<String> scanIds) {
+		if (null == scanIds || scanIds.size() == 0)
+			throw new ValidationException(ValidatorConstants.SCAN_ID_LIST_NOT_VALID);
+
+		return dfExportRepository.deleteExportScans(scanIds);
+	}
+
+	/**
+	 * Description : Method to fetch saved scan from DF for scanId
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 05-10-2021
+	 * @param scanId
+	 * @return
+	 */
+	@Override
+	public DfExportScan fetchDfExportScanById(String scanId) {
+		if (StringUtils.isEmpty(scanId))
+			throw new ValidationException(ValidatorConstants.SCAN_ID_NOT_VALID);
+		DfExportScan scan = dfExportRepository.fetchDfScanById(scanId);
+		return scan;
+	}
+
+	/**
+	 * Description : Method to run Scheduled Exports 
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 16-11-2021
+	 */
+	@Scheduled(fixedRateString = "${df.export.scheduleFrequencyRangeRate}", initialDelayString = "${df.export.scheduleFrequencyIntialDelay}")
+	@Override
+	public void scheduledDfExports() {
+		LOGGER.info("Running Scheduled Exports");
+		List<DfExportScan> scanList = dfExportRepository.fetchScheduledScans();
+		for (DfExportScan scan : scanList) {
+			scan.setExportLocation(outputFilePath);
+			scan.setExecutionStatus(STATUS_IN_QUEUE);
+			scan.setRemarks("Scan is pushed into queue for export");
+			updateDfScan(Lists.newArrayList(scan));
+			List<DfScanParameters> scanParamList = getScanParamList(scan);
+			submitTask(new DfExportJob(scanParamList, scan.getRequestedUserId(), true, scan,
+					generateExportFileName(scan.getBlotterName(), scan.getRequestedUserId())));
+		}
+		LOGGER.info("Scheduled Exports completed");
+	}
+
+	/**
+	 * Description : Method to calculate next Run date for Scan
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 16-11-2021
+	 * @param scan
+	 */
+	private void calculateNextRun(DfExportScan scan) {
+		if (!StringUtils.isEmpty(scan.getScheduleFrequency()) && scan.isScheduled()) {
+			switch (scan.getScheduleFrequency()) {
+			case "DAILY":
+				scan.setNextRunDateTime(dateTimeService.addDays(scan.getNextRunDateTime(), 1));
+				break;
+			case "WEEKLY":
+				scan.setNextRunDateTime(dateTimeService.addDays(scan.getNextRunDateTime(), 7));
+				break;
+			case "MONTHLY":
+				scan.setNextRunDateTime(dateTimeService.addDays(scan.getNextRunDateTime(), 30));
+				break;
+
+			default:
+				break;
+			}
+			LOGGER.info("Next Scheduled Date calculated as : {}", scan.getNextRunDateTime());
+		}
+	}
+
+	/**
+	 * Description : Method to calculate Next Run Date from Time
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 16-11-2021
+	 * @param scanTime
+	 * @return
+	 */
+	private Date populateNextRunDate(String scanTime) {
+		try {
+			LOGGER.info("Incoming request to poplate Next Rune Date for Time : {}", scanTime);
+			SimpleDateFormat parseFormat = new SimpleDateFormat("hh:mm a");
+			Date date = parseFormat.parse(scanTime);
+
+			int hour = Integer.valueOf(new SimpleDateFormat("HH").format(date));
+			int minute = Integer.valueOf(new SimpleDateFormat("mm").format(date));
+			DateTime CurrentDate = dateTimeService.getCurrentUTCDateTime();
+			DateTime inputDateTime = dateTimeService.getCurrentDateWithStartTime(hour, minute);
+
+			Date nextRunDateTime;
+
+			if (inputDateTime.isBefore(CurrentDate)) {
+				LOGGER.info("Inpute Time is before the current time , so next date will be picked ");
+				nextRunDateTime = Date
+						.from(ZonedDateTime.parse(dateTimeService.asString(inputDateTime.plusDays(1))).toInstant());
+
+			} else {
+				nextRunDateTime = Date.from(ZonedDateTime.parse(dateTimeService.asString(inputDateTime)).toInstant());
+			}
+			LOGGER.info("Populated Next Rune Date for Time : {} is : {}", scanTime, nextRunDateTime);
+			return nextRunDateTime;
+		} catch (ParseException e) {
+			LOGGER.error("Error while parsing date : {}", e);
+			throw new BlotterRunTimeException("Error While Parsing Date");
+		}
+	}
+
+	/**
+	 * Description : Method to export data from Multiple collections and collate to single file
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 20-12-2021
+	 * @param scanParamList
+	 * @param userName
+	 * @param isSavedScan
+	 * @param scan
+	 * @return
+	 * @throws StartableException
+	 * @throws ScanException
+	 * @throws IOException
+	 * @throws JsonProcessingException
+	 */
+	public boolean fetchAndExportRecordsMultiCollection(List<DfScanParameters> scanParamList, String userName,
+			boolean isSavedScan, DfExportScan scan, String fileName, boolean isForcedRun) {
+		boolean result = false;
+		try {
+			int totalRecords = 0;
+			long startTime = System.currentTimeMillis();
+			Set<String> headersList = new LinkedHashSet<>();
+			int totalCount = calculateThresholdCount(scanParamList, userName);
+
+//			New Filename for Scheduled DF Scan
+			if(scan.isScheduled()){
+				fileName = generateExportFileName(scan.getBlotterName(),scan.getRequestedUserId());
+			}
+			// New filename for Recon Export
+			if (scan.getCollectionName().contains(RECONCILIATION)) {
+				fileName = modifyFileName(scanParamList, fileName);
+			}
+
+			if (!isForcedRun && !scan.getCollectionName().contains(RECONCILIATION)
+					&& !scan.getCollectionName().contains(CONTROL_MI)
+					&& !scan.getCollectionName().contains(RECON_KPI)
+					&& !scan.getCollectionName().contains(FO_MI_SNAPSHOT) && exportThresholdCountFeature
+					&& (totalCount > exportThresholdCount)) {
+				LOGGER.info("Total Count to be exported is {} & allowed threshold limit is {}", totalCount,
+						exportThresholdCount);
+				String status = "Total records " + totalCount + " to be fetched are more than allowed limit of "
+						+ exportThresholdCount;
+				updateFailedScan(scan.getScanId(), STATUS_SKIPPED, status);
+				LOGGER.info("Scan ID : {} failed due to export count exceeding allowed threshold", scan.getScanId());
+				return false;
+			}
+			if (totalCount > 0) {
+				dataFabricExportUtil.populateAllHeaders(scanParamList);
+				headersList.addAll(dataFabricExportUtil.getAllHeaders());
+				if (MI_EXTRACT.equals(scan.getRequestedUserId()) || CONTROL_MI.equals(scan.getRequestedUserId())
+						|| FO_MI_SNAPSHOT.equals(scan.getRequestedUserId())
+						|| RECON_KPI.equals(scan.getRequestedUserId())) {
+					headersList.remove(FLOW);
+				}
+				DataFabricClient dfClient = dataFabricExportUtil.getDataFabricClient();
+				List<String[]> rows = fetchCsvRecords(Lists.newArrayList(), headersList, false);
+				writeDataToFile(scan, fileName, rows);
+				LOGGER.info("Headers written to file with total Columns : {}", headersList.size());
+
+				for (DfScanParameters dfScanParameter : scanParamList) {
+					int collectionRecord = 0;
+					LOGGER.info("Scan ID : {} export started at {}", scan.getScanId(), startTime);
+					LOGGER.info("Running export for Collection : {}", dfScanParameter.getCollectionName());
+
+					if (MI_EXTRACT.equals(scan.getRequestedUserId())) {
+						if ("MiDailyExtract".equals(scan.getBlotterName())) {
+							dfScanParameter.setSelect(MI_DAILY_SELECT);
+							dfScanParameter.setAsOf(dateTimeService
+									.getCurrentEndDateTime(
+											dateTimeService.getPastDateTime(dateTimeService.getCurrentUTCDateTime(), 1))
+									.getMillis());
+						} else {
+							dfScanParameter.setSelect(MI_WEEKLY_SELECT);
+							dfScanParameter.setAsOf(dateTimeService
+									.getCurrentStartDateTime(dateTimeService.getCurrentUTCDateTime()).getMillis());
+							breakAgeBucket = dfScanParameter.getBlotterName();
+						}
+					}
+
+					// Method to Fetch ScanResult from DF
+					ScanRequestBuilder scanRequestBuilder = dataFabricExportUtil.getScanRequestBuilder(dfScanParameter);
+					PagedScanResult pagedScan = dfClient.pagedScan(scanRequestBuilder);
+					if (!pagedScan.getRecords().isEmpty()) {
+						List<Record> recordList = pagedScan.getRecords();
+						if (!pagedScan.isFinalPage()) {
+							collectionRecord = exportDataToFile(scan, headersList, fileName,
+									dfScanParameter.getCollectionName(), recordList);
+							recordList.clear();
+							while (!pagedScan.isFinalPage()) {
+								String scanId = pagedScan.getScanId();
+								try {
+									pagedScan = dataFabricExportUtil.getNextPage(scanId, exportPageCount);
+								} catch (ScanException e) {
+									LOGGER.error("Error while doing pagination scan for scanId: " + scan.getScanId(),
+											e);
+									LOGGER.info("Making another attempt after failure from Paged Scan");
+									pagedScan = dataFabricExportUtil.getNextPage(scanId, exportPageCount);
+								}
+								recordList.addAll(pagedScan.getRecords());
+								collectionRecord += exportDataToFile(scan, headersList, fileName,
+										dfScanParameter.getCollectionName(), recordList);
+								recordList.clear();
+								LOGGER.info("Total : {} records processed after Page : {}", collectionRecord,
+										pagedScan.getPageNumber());
+							}
+						} else {
+							collectionRecord = exportDataToFile(scan, headersList, fileName,
+									dfScanParameter.getCollectionName(), recordList);
+						}
+					}
+					LOGGER.info("Total {} records exported for Collection : {}", collectionRecord,
+							dfScanParameter.getCollectionName());
+					totalRecords += collectionRecord;
+				}
+				LOGGER.info("Total {} records exported for scan : {}", totalRecords, scan.getScanId());
+				if (zippedExportFeature) {
+					LOGGER.info("Zipping export feature enable, so output will be zipped");
+					zipExportFile(fileName);
+				}
+				long executionTime = (System.currentTimeMillis() - startTime) / 1000;
+				LOGGER.info("Time taken for export is : {} seconds", executionTime);
+
+				if (isSavedScan) {
+					scan.setExportLocation(outputFilePath);
+					scan.setExportName(fileName);
+					scan.setExportRecordCount(totalRecords);
+					scan.setExecutionTime(String.valueOf(executionTime));	
+					scan.setLastExecutionDateTime(DateTime.now().toString("dd-MM-yyyy HH:mm:ss"));
+					scan.setExecutionStatus(STATUS_COMPLETED);
+					scan.setRemarks("Export completed successfully");
+					calculateNextRun(scan);
+					if (null != scan.getNextRunDateTime()) {
+						scan.setExecutionStatus(STATUS_SCHEDULED);
+						scan.setRemarks("Export completed successfully & Scheduled for next run");
+					}
+					updateDfScan(Lists.newArrayList(scan));
+					LOGGER.info("Export for Scan Id : {} completed at : {}",scan.getScanId(), dateTimeService.getCurrentDateTimeAsString());
+					if (emailNotificationFeature) {
+						try {
+							emailService.sendHtmlEmail(populateEmailNotification(scan));
+						} catch (Exception e) {
+							LOGGER.error("Error While Sending Email notification for Scan Id: {}", scan.getScanId(), e);
+						}
+					}
+
+				} else if ((RECON_KPI.equals(scan.getRequestedUserId()) || MI_EXTRACT.equals(scan.getRequestedUserId())
+						|| CONTROL_MI.equals(scan.getRequestedUserId())
+						|| FO_MI_SNAPSHOT.equals(scan.getRequestedUserId())) && emailNotificationFeature) {
+					scan.setExportLocation(outputFilePath);
+					scan.setExportName(fileName);
+					scan.setExportRecordCount(totalRecords);
+					if (emailNotificationFeature) {
+						emailService.sendEmailWithAttachment(populateEmailWithAttachment(scan));
+					}
+				}
+			} else {
+				LOGGER.info("Total 0 Records found, so no export will be generated");
+				if (isSavedScan) {
+					updateFailedScan(scan.getScanId(), STATUS_COMPLETED,
+							"Total 0 Records found, so no export generated");
+				}
+
+			}
+			result = true;
+			LOGGER.info("Data Fabric Export Successfull");
+		} catch (ValidationException e) {
+			LOGGER.warn("Validation failure", e);
+			deleteIncompleteExportFile(fileName);
+			if (!StringUtils.isEmpty(scan.getScanId())) {
+				LOGGER.error("There was an validation error while processing Scan ID : " + scan.getScanId());
+				updateFailedScan(scan.getScanId(), STATUS_FAILED, e.getMessage());
+			}
+		} catch (ScanException e) {
+			LOGGER.error("Scan Exception failure", e);
+			deleteIncompleteExportFile(fileName);
+			if (!StringUtils.isEmpty(scan.getScanId())) {
+				LOGGER.error("There was an ScanException while processing Scan ID : " + scan.getScanId(), e);
+				updateFailedScan(scan.getScanId(), STATUS_FAILED, e.getMessage());
+			}
+		} catch (Exception e) {
+			LOGGER.error("Exception failure", e);
+			deleteIncompleteExportFile(fileName);
+			if (!StringUtils.isEmpty(scan.getScanId())) {
+				LOGGER.error("There was an error while processing Scan ID : {}", scan.getScanId());
+				updateFailedScan(scan.getScanId(), STATUS_FAILED, EMPTY);
+			}
+		}
+		return result;
+	}
+
+	/**
+	 * Description : Method to prepare Email Notification content
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 25-02-2022
+	 * @param scan
+	 */
+	private EmailContent populateEmailNotification(DfExportScan scan) {
+		LoggedInUserDetails userDetails = BlotterUtil.getLoggedInUserDetails(scan.getRequestedUserId());
+		StringBuilder emailContent = new StringBuilder();
+		String filePath = generateOutputFileName(scan.getExportName(), EXT_ZIP);
+		if (filePath.startsWith("/apps/tntr-vol/ignite")) {
+			filePath = filePath.replace("/apps/tntr-vol/ignite", "\\\\eurfiler6\\TNTRCIFS\\ignite");
+			filePath = filePath.replace("/", "\\");
+		} else if (filePath.startsWith("/apps/tntr-vol/data")) {
+			filePath = filePath.replace("/apps/tntr-vol/data", "\\\\eurfiler6\\IGNITE\\tntrprod\\data");
+			filePath = filePath.replace("/", "\\");
+		}
+		emailContent.append(
+				"<html>\r\n   <head>\r\n      <title>Blotter Export Notification</title>\r\n   </head>\r\n   <body bgcolor=white lang=EN-GB link=blue vlink=blue style='tab-interval:36.0pt;\r\n      word-wrap:break-word'>\r\n      <div align=center>\r\n      <table  border=0 cellspacing=0 cellpadding=0 width=600>\r\n      <tr>\r\n         <td style='background:#F2EAF9;padding:15.0pt 22.5pt 15.0pt 6.0pt'>\r\n            <table >\r\n               <tr>\r\n                  <td>\r\n                     <p ><b><span style='font-size:28.5pt;font-family:\"RN House Sans\";\r\n                        mso-fareast-font-family:\"Times New Roman\";color:#5A287D'>Blotter Export\r\n                        Notification</span></b>\r\n                     </p>\r\n                  </td>\r\n                  <td>\r\n                     <p align=right style='text-align:right'><img width=85\r\n                        height=129 id=\"_x0000_i1025\"\r\n                        src=\"https://natwestgroup.newsweaver.com/v2files/shard4/88131/67/40b8731b766a9de8a22699.png\"></p>\r\n                  </td>\r\n               </tr>\r\n            </table>\r\n         </td>\r\n      </tr>\r\n      <tr >\r\n         <td style='background:#5A287D;padding:6.0pt 11.25pt 6.0pt 11.25pt'>    \r\n         </td>\r\n      </tr>\r\n      <tr>\r\n         <td style='background:#F2EAF9; padding:6.0pt 6.0pt 6.0pt 6.0pt'>\r\n            <div style='background:#F2EAF9;padding:11.25pt 11.25pt 11.25pt 11.25pt;font-size:12.0pt;font-family:\"RN House Sans\";\r\n               color:#5A287D'>\r\n            <p>Dear "
+						+ userDetails.getName() + ",</p>");
+		emailContent.append("<p>Export triggered from " + scan.getBlotterName()
+				+ " completed successfully at " + scan.getLastExecutionDateTime());
+		emailContent.append(". Total " + scan.getExportRecordCount() + " records were exported & ")
+				.append("export took " + scan.getExecutionTime() + " seconds to complete.</p>");
+		emailContent.append("<p>You can download the extracted zip file from <a href = \"").append(filePath)
+		.append(" \">").append("here</a>.</p>");
+		emailContent.append(
+				"<p>Thanks</p>\r\n</div>\r\n</td>\r\n</tr>\r\n<tr >\r\n   <td>\r\n      <p align=center style='text-align:center;font-size:9.0pt;\r\n         font-family:\"RN House Sans\";color:#646068'>Copyright \u00A9 Natwest Group 2022</p>\r\n   </td>\r\n</tr>\r\n</table>\r\n</div>\r\n</body>\r\n</html>");
+		return new EmailBuilder().withEmailSubject("Blotter Export Notification").withEmailBody(emailContent.toString())
+				.withEmailFrom(emailFrom).withEmailTo(userDetails.getEmail().split(","))
+				.withSmtpHost(smtpHost).buildSimpleEmail();
+	}
+
+
+	/**
+	 * Description : Method to prepare Email Notification content
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 07-09-2022
+	 * @param scan scan
+	 * @return EmailContent
+	 */
+	private EmailContent populateEmailWithAttachment(DfExportScan scan) {
+
+		return new EmailBuilder().withEmailSubject("Blotter Export Notification").withEmailTo(miReceiverEmail.split(","))
+				.withEmailFrom(emailFrom).withEmailBody(generateMiMailContent(scan))
+				.withAttachmentFileName(scan.getExportName().concat(DOT).concat(EXT_ZIP))
+				.withAttachmentFile(
+						new FileSystemResource(new File(generateOutputFileName(scan.getExportName(), EXT_ZIP))))
+				.withSmtpHost(smtpHost).buildAttachmentEmail();
+	}
+
+	private String generateMiMailContent(DfExportScan scan) {
+		String filePath = generateOutputFileName(scan.getExportName(), EXT_ZIP);
+		if (filePath.startsWith("/apps/tntr-vol/ignite")) {
+			filePath = filePath.replace("/apps/tntr-vol/ignite", "\\\\eurfiler6\\TNTRCIFS\\ignite");
+			filePath = filePath.replace("/", "\\");
+		} else if (filePath.startsWith("/apps/tntr-vol/data")) {
+			filePath = filePath.replace("/apps/tntr-vol/data", "\\\\eurfiler6\\IGNITE\\tntrprod\\data");
+			filePath = filePath.replace("/", "\\");
+		}
+		StringBuilder emailContent = new StringBuilder();
+		emailContent.append(
+				"<html>\r\n   <head>\r\n      <title>Blotter Export Notification</title>\r\n   </head>\r\n   <body bgcolor=white lang=EN-GB link=blue vlink=blue style='tab-interval:36.0pt;\r\n      word-wrap:break-word'>\r\n      <div align=center>\r\n      <table  border=0 cellspacing=0 cellpadding=0 width=600>\r\n      <tr>\r\n         <td style='background:#F2EAF9;padding:15.0pt 22.5pt 15.0pt 6.0pt'>\r\n            <table >\r\n               <tr>\r\n                  <td>\r\n                     <p ><b><span style='font-size:28.5pt;font-family:\"RN House Sans\";\r\n                        mso-fareast-font-family:\"Times New Roman\";color:#5A287D'>Blotter Export\r\n                        Notification</span></b>\r\n                     </p>\r\n                  </td>\r\n                  <td>\r\n                     <p align=right style='text-align:right'><img width=85\r\n                        height=129 id=\"_x0000_i1025\"\r\n                        src=\"https://natwestgroup.newsweaver.com/v2files/shard4/88131/67/40b8731b766a9de8a22699.png\"></p>\r\n                  </td>\r\n               </tr>\r\n            </table>\r\n         </td>\r\n      </tr>\r\n      <tr >\r\n         <td style='background:#5A287D;padding:6.0pt 11.25pt 6.0pt 11.25pt'>    \r\n         </td>\r\n      </tr>\r\n      <tr>\r\n         <td style='background:#F2EAF9; padding:6.0pt 6.0pt 6.0pt 6.0pt'>\r\n            <div style='background:#F2EAF9;padding:11.25pt 11.25pt 11.25pt 11.25pt;font-size:12.0pt;font-family:\"RN House Sans\";\r\n               color:#5A287D'>\r\n            <p>Dear User,</p>");
+		String currentDate = DateTime.now().toString("dd-MM-yyyy HH:mm:ss");
+		switch (scan.getCollectionName()) {
+		case CONTROL_MI:
+			emailContent.append("<p>Export for CONTROL MI was successful at ").append(currentDate);
+			emailContent.append(". Total ").append(scan.getExportRecordCount()).append(" records are exported.");
+			break;
+		case MI_DAILY_CLM:
+			emailContent.append("<p>Export for DAILY MI was successful at ").append(currentDate);
+			break;
+		case MI_SNAPSHOT_COLLECTION:
+			emailContent.append("<p>Export for MI SNAPSHOT was successful at ").append(currentDate);
+			break;
+		case FO_MI_SNAPSHOT:
+			emailContent.append("<p>Export for FO MI SNAPSHOT was successful at ").append(currentDate);
+			break;
+		case MI_KNOWN:
+			emailContent.append("<p>Export for WEEKLY KNOWN MI was successful at ").append(currentDate);
+			break;
+		case MI_UNKNOWN:
+			emailContent.append("<p>Export for WEEKLY UNKNOWN MI was successful at ").append(currentDate);
+			break;
+		default:
+			emailContent.append("<p>MI Export was successful.");
+			break;
+		}
+
+		emailContent.append("<p>You can download the extracted zip file from <a href = \"").append(filePath)
+				.append(" \">").append("here</a>.</p>");
+		emailContent.append(
+				"<p>Thanks</p>\r\n</div>\r\n</td>\r\n</tr>\r\n<tr >\r\n   <td>\r\n      <p align=center style='text-align:center;font-size:9.0pt;\r\n         font-family:\"RN House Sans\";color:#646068'>Copyright \u00A9 Natwest Group 2022</p>\r\n   </td>\r\n</tr>\r\n</table>\r\n</div>\r\n</body>\r\n</html>");
+		return emailContent.toString();
+	}
+
+	/**
+	 * Description : Method to generate Export File Name
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 21-12-2021
+	 * @param userName
+	 * @return
+	 */
+	@Override
+	public String generateExportFileName(String blotterName, String userName) {
+		String fileName;
+		fileName = userName.concat(UNDERSCORE).concat(blotterName).concat(UNDERSCORE)
+				.concat(DateTime.now().toString("ddMMyyyyHHmmss"));
+		return fileName;
+	}
+
+	/**
+	 * Description : Method to delete incomplete export file
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 21-12-2021
+	 * @param fileName
+	 */
+	private void deleteIncompleteExportFile(String fileName) {
+		String csvOutputFile = generateOutputFileName(fileName, EXT_CSV);
+		File currentFile = new File(csvOutputFile);
+		if (currentFile.exists()) {
+			if (FileUtils.deleteQuietly(currentFile))
+				LOGGER.info("{} deleted successfully", csvOutputFile);
+			else
+				LOGGER.info("{} could not get deleted successfully", csvOutputFile);
+		} else
+			LOGGER.info("{}  doesnt exist for deletion", csvOutputFile);
+	}
+
+	private void deleteIncompleteZipFile(String zippedFile) {
+		File currentFile = new File(zippedFile);
+		if (currentFile.exists()) {
+			if (FileUtils.deleteQuietly(currentFile))
+				LOGGER.info("{} deleted successfully after failed scan", zippedFile);
+			else
+				LOGGER.info("{} could not get deleted successfully after failed scan", zippedFile);
+		} else
+			LOGGER.info("{}  doesnt exist for deletion", zippedFile);
+	}
+
+	private void zipExportFile(String fileName) {
+		String sourceFile = generateOutputFileName(fileName, EXT_CSV);
+		String outputZippedFile = generateOutputFileName(fileName, EXT_ZIP);
+
+		LOGGER.info("Source File : {} will be zipped into {}", sourceFile, outputZippedFile);
+
+		try {
+			File fileToZip = new File(sourceFile);
+			if (fileToZip.exists()) {
+				FileOutputStream fos = new FileOutputStream(outputZippedFile);
+				ZipOutputStream zipOut = new ZipOutputStream(fos);
+				FileInputStream fis = new FileInputStream(fileToZip);
+				ZipEntry zipEntry = new ZipEntry(fileToZip.getName());
+				zipOut.putNextEntry(zipEntry);
+				byte[] bytes = new byte[1024];
+				int length;
+				while ((length = fis.read(bytes)) >= 0) {
+					zipOut.write(bytes, 0, length);
+				}
+				zipOut.close();
+				fis.close();
+				fos.close();
+				LOGGER.info("Deleting {} after successfully zipping it", fileName);
+				deleteIncompleteExportFile(fileName);
+			}
+		} catch (IOException e) {
+			LOGGER.error("Error while Zipping the file", e);
+			deleteIncompleteZipFile(outputZippedFile);
+		}
+
+	}
+
+	/**
+	 * Description : Method to fetch data from Records & Export to file
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 16-12-2021
+	 * @param scan
+	 * @param headersList
+	 * @param fileName
+	 * @param recordList
+	 * @throws JsonProcessingException
+	 * @throws IOException
+	 */
+	private int exportDataToFile(DfExportScan scan, Set<String> headersList, String fileName, String collectionName,
+			List<Record> recordList) throws JsonProcessingException, IOException {
+		List<Map<String, String>> parsedRecordsList = new ArrayList<Map<String, String>>();
+		parsedRecordsList.addAll(dataFabricExportUtil.convertScannedRecords(recordList, collectionName,scan));
+		if (MI_UNKNOWN.contentEquals(collectionName)) {
+			parsedRecordsList.forEach(record -> record.put("Age Bucket in Days", breakAgeBucket));
+		}
+		List<String[]> rows = fetchCsvRecords(parsedRecordsList, headersList, true);
+		LOGGER.info("Total {} records added to File for collection : {} ", rows.size(), collectionName);
+		boolean result = writeDataToFile(scan, fileName, rows);
+		if (!result) {
+			LOGGER.error("Error while writing data to file");
+			throw new BlotterRunTimeException("Error while writing data to file");
+		}
+		return rows.size();
+	}
+
+	/**
+	 * Description : Method to write data into file
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 16-12-2021
+	 * @param scan
+	 * @param fileName
+	 * @param rows
+	 * @return
+	 * @throws IOException
+	 */
+	private boolean writeDataToFile(DfExportScan scan, String fileName, List<String[]> rows) throws IOException {
+
+		// Write extracted data into CSV
+		String csvOutputFile = generateOutputFileName(fileName, EXT_CSV);
+		LOGGER.info("Output will be extracted at : {}", csvOutputFile);
+		String outputFileFolder = outputFilePath.concat(FORWARD_SLASH)
+				.concat(dateTimeService.getUTCDateAsString(dateTimeService.getCurrentUTCDateTime()));
+		if (fileName.startsWith("MI_")) {
+			outputFileFolder = outputFileFolder.concat(FORWARD_SLASH).concat(MI_FOLDER);
+		}
+		return csvWriter.generateCsvFile(rows, csvOutputFile, outputFileFolder);
+
+		/*		if (!StringUtils.isEmpty(scan.getExportFileFormat())
+						&& EXCEL.contentEquals(scan.getExportFileFormat())) {
+					// Write extracted data into Excel
+					String excelOutputFile = outputFilePath.concat(FORWARD_SLASH).concat(fileName)
+							.concat(DOT).concat(EXT_EXCEL);
+					LOGGER.debug("Output will be extracted at : {}", excelOutputFile);
+					return excelWriter.exportExcel(rows, excelOutputFile, fileName);
+				} else {
+					// Write extracted data into CSV
+					String csvOutputFile = outputFilePath.concat(FORWARD_SLASH).concat(fileName)
+							.concat(DOT).concat(EXT_CSV);
+					LOGGER.debug("Output will be extracted at : {}", csvOutputFile);
+					return csvWriter.generateCsvFile(rows, csvOutputFile, outputFilePath);
+				}
+		*/
+	}
+
+	/**
+	 * Description : 
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 12-01-2022
+	 * @param fileName
+	 * @return
+	 */
+	private String generateOutputFileName(String fileName, String ext) {
+		if (fileName.startsWith("MI_")) {
+			return outputFilePath.concat(FORWARD_SLASH)
+					.concat(dateTimeService.getUTCDateAsString(dateTimeService.getCurrentUTCDateTime()))
+					.concat(FORWARD_SLASH).concat(MI_FOLDER).concat(FORWARD_SLASH).concat(fileName).concat(DOT)
+					.concat(ext);
+		} else {
+			return outputFilePath.concat(FORWARD_SLASH)
+					.concat(dateTimeService.getUTCDateAsString(dateTimeService.getCurrentUTCDateTime()))
+					.concat(FORWARD_SLASH).concat(fileName).concat(DOT).concat(ext);
+		}
+
+	}
+
+	@Override
+	public String getMiFolderPath(){
+		return outputFilePath.concat(FORWARD_SLASH)
+				.concat(dateTimeService.getUTCDateAsString(dateTimeService.getCurrentUTCDateTime()))
+				.concat(FORWARD_SLASH).concat(MI_FOLDER);
+	}
+	/**
+	* Tasks submitted to the queue
+	* @param jobDetail job detail
+	* @return boolean
+	*/
+	@Override
+	public boolean submitTask(DfExportJob jobDetail) {
+		try {
+			LOGGER.info("Submitting Job for DF Export in queue : {}", jobDetail);
+			queue.put(jobDetail);
+			LOGGER.info("Total {} requests are present into Export queue", queue.size());
+			return true;
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			LOGGER.error("Df Export failed while submitting task with JobDetail {}", jobDetail);
+			return false;
+		}
+	}
+
+	/**
+	 * Scheduler to start all the jobs
+	 */
+	public void startScheduledJob() {
+		LOGGER.info("Starting Data Fabric Export Job Executor");
+		thread = new Thread(() -> {
+			while (true) {
+				try {
+					DfExportJob jobDetail = queue.take();
+					LOGGER.info("Executing Job for DF Export : {}", jobDetail);
+					DfExportScan scan = jobDetail.getScan();
+					if (jobDetail.isSavedScan() && !StringUtils.isEmpty(scan.getScanId())) {
+						scan.setExecutionStatus(STATUS_IN_PROGRESS);
+						scan.setRemarks("Export is in progress");
+						updateDfScan(Lists.newArrayList(scan));
+						LOGGER.info("Scan ID : {} export in progress at {}", scan.getScanId(), dateTimeService.getCurrentDateTimeAsString());
+					}
+					fetchAndExportRecordsMultiCollection(jobDetail.getScanParamList(), jobDetail.getUserName(),
+							jobDetail.isSavedScan(), jobDetail.getScan(), jobDetail.getFileName(),
+							jobDetail.isForcedRun());
+				} catch (InterruptedException e) {
+					Thread.currentThread().interrupt();
+					LOGGER.error(e.getMessage(), e);
+					break;
+				}
+			}
+		});
+		thread.start();
+	}
+
+	/**
+	 * Description : 
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 07-01-2022
+	 * @param scanId
+	 * @param userName
+	 */
+	@Override
+	public void generateForcedExport(String scanId, String userName) {
+
+		if (StringUtils.isEmpty(scanId))
+			throw new ValidationException(ValidatorConstants.SCAN_ID_NOT_VALID);
+		DfExportScan scan = dfExportRepository.fetchDfScanById(scanId);
+		scan.setExportLocation(outputFilePath);
+		scan.setExecutionStatus(STATUS_IN_QUEUE);
+		scan.setRemarks("Scan is pushed into queue for forced export");
+		updateDfScan(Lists.newArrayList(scan));
+		LOGGER.info("Scan ID : {} export in progress", scanId);
+		List<DfScanParameters> scanParamList = getScanParamList(scan);
+		DfExportJob forcedJob = new DfExportJob(scanParamList, userName, true, scan,
+				generateExportFileName(scan.getBlotterName(), userName));
+		forcedJob.setForcedRun(true);
+		submitTask(forcedJob);
+	}
+
+	@Override
+	public void generateMiSnapShotReport(List<DfScanParameters> scanParamList, DfExportScan scan, String fileName) {
+		try {
+
+			Set<String> headersList = new LinkedHashSet<String>();
+			headersList.addAll(Lists.newArrayList(METRICS, RECORD_COUNT, PERCENT, KNOWN_BREAKS, UNKNOWN_BREAKS,
+					JURISDICTION, FLOW));
+			List<String[]> rows = fetchCsvRecords(Lists.newArrayList(), headersList, false);
+			writeDataToFile(scan, fileName, rows);
+			LOGGER.info("Headers written to file with total Columns : {}", headersList.size());
+
+			DataFabricClient dfClient = dataFabricExportUtil.getDataFabricClient();
+
+			for (DfScanParameters dfScanParameter : scanParamList) {
+				ScanRequestBuilder scanRequestBuilder = dataFabricExportUtil
+						.getNativeScanRequestBuilder(dfScanParameter);
+				PagedScanResult pagedScan = dfClient.pagedScan(scanRequestBuilder);
+				if (!pagedScan.getRecords().isEmpty()) {
+					List<Record> recordList = pagedScan.getRecords();
+					List<Map<String, String>> parsedRecordsList = dataFabricExportUtil.convertScannedRecords(recordList,
+							dfScanParameter.getBlotterName(),scan);
+
+					Map<String, Map<String, String>> assetWiseMap = new HashMap<>();
+					parsedRecordsList.forEach(assetMap -> {
+						LOGGER.info("Data retrieved from DF : {}", assetMap);
+						assetWiseMap.put(assetMap.get("assetClass"), assetMap);
+					});
+
+					parsedRecordsList.clear();
+
+					parsedRecordsList.addAll(processSnapshotMetric(assetWiseMap, REPORTABLE, REPORTABLE));
+					parsedRecordsList.addAll(processSnapshotMetric(assetWiseMap, COMPLETE, REPORTABLE));
+					parsedRecordsList.addAll(processSnapshotMetric(assetWiseMap, "Accurate", COMPLETE));
+					parsedRecordsList.addAll(processSnapshotMetric(assetWiseMap, "Timely", COMPLETE));
+					parsedRecordsList.addAll(processSnapshotMetric(assetWiseMap, "CAT", REPORTABLE));
+					parsedRecordsList.addAll(processSnapshotPreviousCat(assetWiseMap, "CAT Previous Day"));
+					parsedRecordsList.addAll(processSnapshotPreviousCat(assetWiseMap, "CAT Weekly (Avg)"));
+					parsedRecordsList.addAll(processSnapshotPreviousCat(assetWiseMap, "CAT Monthly (Avg)"));
+					parsedRecordsList
+							.addAll(processKnownUnknownMetric(assetWiseMap, "Mis-reported", COMPLETE, "misReported"));
+					parsedRecordsList
+							.addAll(processKnownUnknownMetric(assetWiseMap, "Late Reported", COMPLETE, "lateReported"));
+
+					parsedRecordsList.addAll(
+							processKnownUnknownMetric(assetWiseMap, "Rejected by TR", REPORTABLE, "rejectedByTR"));
+					parsedRecordsList
+							.addAll(processKnownUnknownMetric(assetWiseMap, "No response", REPORTABLE, "noResponse"));
+					parsedRecordsList
+							.addAll(processKnownUnknownMetric(assetWiseMap, "In Process", REPORTABLE, "inProcess"));
+					parsedRecordsList.addAll(
+							processKnownUnknownMetric(assetWiseMap, "Failed to Submit", REPORTABLE, "failedToSubmit"));
+					parsedRecordsList.addAll(processKnownUnknownMetric(assetWiseMap, "Ignored", REPORTABLE, "ignored"));
+					parsedRecordsList.addAll(
+							processKnownUnknownMetric(assetWiseMap, "Over Reported", REPORTABLE, "overReported"));
+					parsedRecordsList.addAll(processSnapshotMetric(assetWiseMap, "tradeEdited", "tradeEdited"));
+					parsedRecordsList.addAll(processSnapshotMetric(assetWiseMap, "tradeReplayed", "tradeReplayed"));
+					rows = fetchCsvRecords(parsedRecordsList, headersList, true);
+
+					writeDataToFile(scan, fileName, rows);
+					if(assetWiseMap.get(NONE) != null) {
+						LOGGER.info("MI Snapshot exported for : {} & {}", assetWiseMap.get(NONE).get(JURISDICTION),
+								assetWiseMap.get(NONE).get(FLOW));
+					}else{
+						List<String> assetClasses = new ArrayList<>(assetWiseMap.keySet());
+						LOGGER.info("MI Snapshot exported for : {} & {}", assetWiseMap.get(assetClasses.get(0)).get(JURISDICTION),
+								assetWiseMap.get(assetClasses.get(0)).get(FLOW));
+					}
+				}
+			}
+
+			if (zippedExportFeature) {
+				LOGGER.info("Zipping export feature enable, so output will be zipped");
+				zipExportFile(fileName);
+			}
+
+			if (emailNotificationFeature) {
+				scan.setExportLocation(outputFilePath);
+				scan.setExportName(fileName);
+				emailService.sendEmailWithAttachment(populateEmailWithAttachment(scan));
+			}
+
+		} catch (IOException | StartableException | ScanException e) {
+			LOGGER.error("Error while processing MI SNAPSHOT Export", e);
+			deleteIncompleteExportFile(fileName);
+		} catch(Exception e){
+			LOGGER.error("Error while processing MI SNAPSHOT Export", e);
+			deleteIncompleteExportFile(fileName);
+		}
+	}
+
+	private List<Map<String, String>> processSnapshotPreviousCat(Map<String, Map<String, String>> assetWiseMap,
+			String metric) {
+		Map<String, String> csvRecordMap;
+		if(assetWiseMap.get(NONE) != null) {
+			csvRecordMap = getCsvRecordMap(assetWiseMap.get(NONE).get(JURISDICTION),
+					assetWiseMap.get(NONE).get(FLOW));
+		}else{
+			List<String> assetClasses = new ArrayList<>(assetWiseMap.keySet());
+			csvRecordMap = getCsvRecordMap(assetWiseMap.get(assetClasses.get(0)).get(JURISDICTION),
+					assetWiseMap.get(assetClasses.get(0)).get(FLOW));
+		}
+		List<Map<String, String>> parsedRecordsList = new ArrayList<>();
+		csvRecordMap.put(METRICS, metric);
+		String catName;
+		String reportableName;
+
+		switch (metric) {
+		case "CAT Previous Day":
+			catName = "previousDayCAT";
+			reportableName = "previousDayReportable";
+			break;
+		case "CAT Weekly (Avg)":
+			catName = "weeklyCAT";
+			reportableName = "weeklyReportable";
+			break;
+		case "CAT Monthly (Avg)":
+			catName = "monthlyCAT";
+			reportableName = "monthlyReportable";
+			break;
+		default:
+			catName = EMPTY;
+			reportableName = EMPTY;
+			break;
+		}
+
+		if (assetWiseMap.get(NONE) != null){
+			int percentBaseCount = Integer.parseInt(assetWiseMap.get(NONE).get(reportableName));
+			String metricTotal = assetWiseMap.get(NONE).get(catName);
+			csvRecordMap.put(RECORD_COUNT, metricTotal);
+			csvRecordMap.put(PERCENT, getPercentMetric(metricTotal, percentBaseCount).concat(PERCENT_SIGN));
+			parsedRecordsList.add(getRecordMap(csvRecordMap));
+		} else{
+			List<String> assetClasses = new ArrayList<>(assetWiseMap.keySet());
+			int percentBaseCount = getTotalFromMap(assetWiseMap, reportableName,assetClasses);
+			String metricTotal = String.valueOf(getTotalFromMap(assetWiseMap, catName,assetClasses));
+			csvRecordMap.put(RECORD_COUNT, metricTotal);
+			csvRecordMap.put(PERCENT, getPercentMetric(metricTotal, percentBaseCount).concat(PERCENT_SIGN));
+			parsedRecordsList.add(getRecordMap(csvRecordMap));
+		}
+
+		return parsedRecordsList;
+	}
+
+	private List<Map<String, String>> processSnapshotMetric(Map<String, Map<String, String>> assetWiseMap,
+															String metric, String percentBase) {
+		LOGGER.info("Processing for metric : {} & assetMap : {}", metric, assetWiseMap);
+
+		List<Map<String, String>> parsedRecordsList = new ArrayList<>();
+		Map<String, String> csvRecordMap;
+		
+		if (assetWiseMap.get(NONE) != null) {
+			csvRecordMap = getCsvRecordMap(assetWiseMap.get(NONE).get(JURISDICTION),
+					assetWiseMap.get(NONE).get(FLOW));
+			csvRecordMap.put(METRICS, metric);
+			if (metric.equals(EDITED_TRADE))
+				csvRecordMap.put(METRICS, TRADE_EDITED);
+			else if (metric.equals(TRADE_REPLAYED))
+				csvRecordMap.put(METRICS, REPLAY_TRADES);
+
+			int percentBaseCount = Integer.parseInt(assetWiseMap.get(NONE).get(percentBase));
+
+			String metricTotal = assetWiseMap.get(NONE).get(metric);
+			csvRecordMap.put(RECORD_COUNT, metricTotal);
+			csvRecordMap.put(PERCENT, getPercentMetric(metricTotal, percentBaseCount).concat(PERCENT_SIGN));
+			parsedRecordsList.add(getRecordMap(csvRecordMap));
+		} else {
+			List<String> assetClasses = new ArrayList<>(assetWiseMap.keySet());
+			csvRecordMap = getCsvRecordMap(assetWiseMap.get(assetClasses.get(0)).get(JURISDICTION),
+					assetWiseMap.get(assetClasses.get(0)).get(FLOW));
+			csvRecordMap.put(METRICS, metric);
+
+			if (metric.equals(EDITED_TRADE))
+				csvRecordMap.put(METRICS, TRADE_EDITED);
+			else if (metric.equals(TRADE_REPLAYED))
+				csvRecordMap.put(METRICS, REPLAY_TRADES);
+
+			int percentBaseCount = getTotalFromMap(assetWiseMap, percentBase, assetClasses);
+			String metricTotal = String.valueOf(getTotalFromMap(assetWiseMap, metric, assetClasses));
+			csvRecordMap.put(RECORD_COUNT, metricTotal);
+			csvRecordMap.put(PERCENT, getPercentMetric(metricTotal, percentBaseCount).concat(PERCENT_SIGN));
+			parsedRecordsList.add(getRecordMap(csvRecordMap));
+
+			for (String assetClass : assetClasses){
+				csvRecordMap.put(METRICS, getAssetClassCsvName(assetClass));
+				csvRecordMap.put(RECORD_COUNT, assetWiseMap.get(assetClass).get(metric));
+				csvRecordMap.put(PERCENT,
+						getOverReportedPercent(getPercentMetric(metricTotal, percentBaseCount),
+								Integer.parseInt(assetWiseMap.get(assetClass).get(metric)), Integer.parseInt(metricTotal))
+								.concat(PERCENT_SIGN));
+				parsedRecordsList.add(getRecordMap(csvRecordMap));
+			}
+
+		}
+
+		return parsedRecordsList;
+	}
+
+	private List<Map<String, String>> processKnownUnknownMetric(Map<String, Map<String, String>> assetWiseMap,
+																String metric, String percentBase, String dfMetricName) {
+		final String known = dfMetricName.concat("Known");
+		final String unKnown = dfMetricName.concat("UnKnown");
+		List<Map<String, String>> parsedRecordsList = new ArrayList<>();
+		Map<String, String> csvRecordMap;
+		if (assetWiseMap.get(NONE) != null) {
+			csvRecordMap = getCsvRecordMap(assetWiseMap.get(NONE).get(JURISDICTION),
+					assetWiseMap.get(NONE).get(FLOW));
+
+			csvRecordMap.put(METRICS, metric);
+
+			int percentBaseCount = Integer.parseInt(assetWiseMap.get(NONE).get(percentBase));
+
+			String metricTotal = String.valueOf(Integer.parseInt(assetWiseMap.get(NONE).get(known))
+					+ Integer.parseInt(assetWiseMap.get(NONE).get(unKnown)));
+
+			String assetTotal = String.valueOf(Integer.parseInt(assetWiseMap.get(NONE).get(known))
+					+ Integer.parseInt(assetWiseMap.get(NONE).get(unKnown)));
+			// csvRecordMap.put(METRICS, NONE);
+			csvRecordMap.put(RECORD_COUNT, assetTotal);
+			csvRecordMap.put(KNOWN_BREAKS, assetWiseMap.get(NONE).get(known));
+			csvRecordMap.put(UNKNOWN_BREAKS, assetWiseMap.get(NONE).get(unKnown));
+			csvRecordMap.put(PERCENT, getOverReportedPercent(getPercentMetric(metricTotal, percentBaseCount),
+					Integer.parseInt(assetTotal), Integer.parseInt(metricTotal)).concat(PERCENT_SIGN));
+			parsedRecordsList.add(getRecordMap(csvRecordMap));
+		}  else {
+			List<String> assetClasses = new ArrayList<>(assetWiseMap.keySet());
+			csvRecordMap = getCsvRecordMap(assetWiseMap.get(assetClasses.get(0)).get(JURISDICTION),
+					assetWiseMap.get(assetClasses.get(0)).get(FLOW));
+
+			csvRecordMap.put(METRICS, metric);
+
+			int percentBaseCount = getTotalFromMap(assetWiseMap, percentBase, assetClasses);
+
+			String metricTotal = String.valueOf(getTotalFromMap(assetWiseMap, known, assetClasses)
+					+ getTotalFromMap(assetWiseMap, unKnown, assetClasses));
+
+			csvRecordMap.put(RECORD_COUNT, metricTotal);
+			csvRecordMap.put(PERCENT, getPercentMetric(metricTotal, percentBaseCount).concat(PERCENT_SIGN));
+			parsedRecordsList.add(getRecordMap(csvRecordMap));
+
+			for (String assetClass : assetClasses){
+				String assetTotal = String.valueOf(Integer.parseInt(assetWiseMap.get(assetClass).get(known))
+						+ Integer.parseInt(assetWiseMap.get(assetClass).get(unKnown)));
+				csvRecordMap.put(METRICS, getAssetClassCsvName(assetClass));
+				csvRecordMap.put(RECORD_COUNT, assetTotal);
+				csvRecordMap.put(KNOWN_BREAKS, assetWiseMap.get(assetClass).get(known));
+				csvRecordMap.put(UNKNOWN_BREAKS, assetWiseMap.get(assetClass).get(unKnown));
+				csvRecordMap.put(PERCENT, getOverReportedPercent(getPercentMetric(metricTotal, percentBaseCount),
+						Integer.parseInt(assetTotal), Integer.parseInt(metricTotal)).concat(PERCENT_SIGN));
+				parsedRecordsList.add(getRecordMap(csvRecordMap));
+			}
+
+		}
+		return parsedRecordsList;
+	}
+
+	private String getAssetClassCsvName(String assetClass) {
+		String assetClassCsvNmae;
+		switch (AssetClass.fromValue(assetClass)){
+			case FOREIGN_EXCHANGE:
+				assetClassCsvNmae = "FX";
+				break;
+			case INTEREST_RATE:
+				assetClassCsvNmae = "Rates";
+				break;
+			case CREDIT:
+				assetClassCsvNmae = "Credit";
+				break;
+			case BONDS:
+				assetClassCsvNmae = "Bonds";
+				break;
+			case ETD:
+				assetClassCsvNmae = "ETD";
+				break;
+			case SFT:
+				assetClassCsvNmae = "SFT";
+				break;
+			default:
+				assetClassCsvNmae = NONE;
+		}
+		return assetClassCsvNmae;
+	}
+
+	/**
+	 * Description : Method to calculate total from Asset Map
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 12-06-2023
+	 * @param assetWiseMap
+	 * @param fieldName
+	 * @return
+	 */
+	private int getTotalFromMap(Map<String, Map<String, String>> assetWiseMap, String fieldName,
+			List<String> assetClassList) {
+		int total = 0;
+		for (String assetClass : assetClassList) {
+			if (assetWiseMap.containsKey(assetClass))
+				total += Integer.parseInt(assetWiseMap.get(assetClass).get(fieldName));
+		}
+		return total;
+	}
+
+	private String getPercentMetric(String assetCount, int metric) {
+		if (metric == 0 && Integer.parseInt(assetCount) == 0) {
+			return "0.0";
+		} else {
+			return String.valueOf((Integer.parseInt(assetCount) * 100d) / metric);
+		}
+	}
+
+	private String getOverReportedPercent(String assetCount, int assetTotal, int metricTotal) {
+		if (assetTotal == 0 && metricTotal == 0 && assetCount.contentEquals("0.0")) {
+			return "0.0";
+		} else {
+			return String.valueOf((Double.valueOf(assetCount) * assetTotal) / metricTotal);
+		}
+	}
+
+	private Map<String, String> getRecordMap(Map<String, String> csvRecordMap) {
+		Map<String, String> recordMap = new HashMap<>();
+		recordMap.putAll(csvRecordMap);
+		return recordMap;
+	}
+
+	private Map<String, String> getCsvRecordMap(String jurisdiction, String flow) {
+		Map<String, String> csvRecordMap = new HashMap<>();
+		csvRecordMap.put(METRICS, EMPTY);
+		csvRecordMap.put(RECORD_COUNT, EMPTY);
+		csvRecordMap.put(PERCENT, EMPTY);
+		csvRecordMap.put(KNOWN_BREAKS, EMPTY);
+		csvRecordMap.put(UNKNOWN_BREAKS, EMPTY);
+		csvRecordMap.put(JURISDICTION, jurisdiction);
+		csvRecordMap.put(FLOW, flow);
+		return csvRecordMap;
+	}
+
+	/**
+	 * Description : Method to generate Weekly Known MI
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 26-01-2022
+	 * @param scanParamList
+	 * @param scan
+	 * @param fileName
+	 * @return
+	 */
+	@Override
+	public boolean generateWeeklyKnownMiExport(List<DfScanParameters> scanParamList, DfExportScan scan,
+			String fileName) {
+		boolean result = true;
+		try {
+			Set<String> headersList = new LinkedHashSet<>();
+			dataFabricExportUtil.populateAllHeaders(scanParamList);
+			headersList.addAll(dataFabricExportUtil.getAllHeaders());
+			if (MI_EXTRACT.equals(scan.getRequestedUserId())) {
+				headersList.remove(FLOW);
+			}
+			DataFabricClient dfClient = dataFabricExportUtil.getDataFabricClient();
+			for (DfScanParameters dfScanParameter : scanParamList) {
+				if (MI_EXTRACT.equals(scan.getRequestedUserId())) {
+					dfScanParameter.setAsOf(dateTimeService
+							.getCurrentStartDateTime(dateTimeService.getCurrentUTCDateTime()).getMillis());
+					dfScanParameter.setSelect(MI_WEEKLY_SELECT);
+				}
+
+				// Method to Fetch ScanResult from DF
+				ScanRequestBuilder scanRequestBuilder = dataFabricExportUtil.getScanRequestBuilder(dfScanParameter);
+				ScanResult records = dfClient.scan(scanRequestBuilder);
+				List<Record> recordList = Lists.newArrayList();
+				if (null != records) {
+					Iterator<Record> iterator = records.iterator();
+					while (iterator.hasNext()) {
+						recordList.add(iterator.next());
+					}
+				}
+
+				if (recordList.isEmpty()) {
+					LOGGER.info("No records found, so no report will be generated");
+					return result;
+				}
+
+				List<String[]> rows = fetchCsvRecords(Lists.newArrayList(), headersList, false);
+				writeDataToFile(scan, fileName, rows);
+				LOGGER.info("Headers written to file with total Columns : {}", headersList.size());
+
+				List<Map<String, String>> parsedRecordsList = new ArrayList<Map<String, String>>();
+				parsedRecordsList.addAll(
+						dataFabricExportUtil.convertScannedRecords(recordList, dfScanParameter.getCollectionName(),scan));
+
+				parsedRecordsList = bifurcateKnownRecords(parsedRecordsList);
+
+				rows = fetchCsvRecords(parsedRecordsList, headersList, true);
+				LOGGER.info("Total {} records added to File for collection : {} ", rows.size(),
+						dfScanParameter.getCollectionName());
+				result = writeDataToFile(scan, fileName, rows);
+			}
+
+			if (zippedExportFeature) {
+				LOGGER.info("Zipping export feature enable, so output will be zipped");
+				zipExportFile(fileName);
+			}
+
+			if (emailNotificationFeature) {
+				scan.setExportLocation(outputFilePath);
+				scan.setExportName(fileName);
+				emailService.sendEmailWithAttachment(populateEmailWithAttachment(scan));
+			}
+
+		} catch (IOException | StartableException | ScanException e) {
+			LOGGER.error("Error while processing Weekly Known Export", e);
+			deleteIncompleteExportFile(fileName);
+		} catch (Exception e) {
+			LOGGER.error("Error while processing Weekly Known Export", e);
+			deleteIncompleteExportFile(fileName);
+		}
+
+		return result;
+	}
+
+	/**
+	 * Description : Method to bifurcate Weekly KNOWN MI Reports
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 26-01-2022
+	 * @param parsedRecordsList
+	 * @return
+	 */
+	private List<Map<String, String>> bifurcateKnownRecords(List<Map<String, String>> parsedRecordsList) {
+		List<Map<String, String>> bifurcateList = new ArrayList<Map<String, String>>();
+		Map<String, Map<String, String>> bifurcationMap = new HashMap<>();
+		LOGGER.info("parsedRecordsList : {}", parsedRecordsList.size());
+
+		parsedRecordsList.forEach(knownMap -> {
+			if (!StringUtils.isEmpty(knownMap.get("Jira"))) {
+				List<String> jiraIdList = Arrays.asList(knownMap.get("Jira").split(","));
+				jiraIdList.forEach(jiraId -> {
+					String bifurcationKey = populateBifurcationKey(jiraId, knownMap);
+					if (bifurcationMap.containsKey(bifurcationKey)) {
+						Map<String, String> bifurcationKnownMap = bifurcationMap.get(bifurcationKey);
+						bifurcationKnownMap.put("Count",
+								String.valueOf(Integer.parseInt(bifurcationKnownMap.get("Count"))
+										+ Integer.parseInt(knownMap.get("Count"))));
+						bifurcationMap.put(bifurcationKey, bifurcationKnownMap);
+					} else {
+						Map<String, String> bifurcationKnownMap = new HashMap<>();
+						bifurcationKnownMap.putAll(knownMap);
+						bifurcationKnownMap.put("Jira", jiraId);
+						bifurcationMap.put(bifurcationKey, bifurcationKnownMap);
+					}
+				});
+			} else {
+				String bifurcationKey = populateBifurcationKey(EMPTY, knownMap);
+				bifurcationMap.put(bifurcationKey, knownMap);
+			}
+
+		});
+
+		LOGGER.info("bifurcateList : {}", bifurcationMap.keySet().size());
+		bifurcateList.addAll(bifurcationMap.values());
+		return bifurcateList;
+	}
+
+	/**
+	 * Description : Method to get Bifurcation Key
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 26-01-2022
+	 * @param jiraId
+	 * @param knownMap
+	 * @return
+	 */
+	private String populateBifurcationKey(String jiraId, Map<String, String> knownMap) {
+		String bifurcationKey = jiraId.concat(knownMap.get("Asset Class Final"))
+				.concat(knownMap.get("Execution Entity Final")).concat(knownMap.get("Delegated"))
+				.concat(knownMap.get("Regulator")).concat(knownMap.get("Message Type"));
+		bifurcationKey = bifurcationKey.replaceAll("\\s", "");
+		return bifurcationKey;
+	}
+
+	/**
+	 * Description : Method to generate dynamic dates for where clause
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 14-03-2022
+	 * @param clause
+	 * @return
+	 */
+	private String populateDynamicDate(String clause) {
+		Pattern pattern = Pattern.compile(DYNAMIC_DATE_REGEX, Pattern.CASE_INSENSITIVE);
+		Matcher matcher = pattern.matcher(clause);
+		Set<String> dynamicDateSet = new HashSet<>();
+		while (matcher.find()) {
+			dynamicDateSet.add(matcher.group());
+		}
+		if (dynamicDateSet.size() > 0) {
+			for (String dateFrequency : dynamicDateSet) {
+				int days = Integer.parseInt(dateFrequency.substring(2));
+				String newDate = SINGLE_QUOTE.concat(dateTimeService
+						.asString(dateTimeService.getPastDateTime(
+								dateTimeService.getCurrentStartDateTime(dateTimeService.getCurrentUTCDateTime()),
+								days)))
+						.concat(SINGLE_QUOTE);
+				clause = clause.replace(dateFrequency, newDate);
+			}
+		}
+		return clause;
+	}
+	
+	/**
+	 * Description : Method to resume all scans stuck with IN QUEUE Status
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 04-07-2022
+	 */
+	@Scheduled(cron = "${df.export.daily.resume.scan.cron}")
+	private void resumeInQueueScans() {
+		LOGGER.info("Resuming IN QUEUE scans at : {}", dateTimeService.getCurrentDateTimeAsString());
+		if (!queue.isEmpty()) {
+			LOGGER.info("There are {} jobs in queue which will get cleared", queue.size());
+			queue.clear();
+		}
+
+		List<DfExportScan> scanList = dfExportRepository.fetchScansWithStatus(STATUS_IN_QUEUE);
+		if (!scanList.isEmpty()) {
+			LOGGER.info("Total {} scans found with IN QUEUE status & will be resubmitted for execution",
+					scanList.size());
+			for (DfExportScan scan : scanList) {
+				LOGGER.info("Re-running export for Scan ID : {}", scan.getScanId()); 
+				try {
+					scan.setExportLocation(outputFilePath);
+					List<DfScanParameters> scanParamList = getScanParamList(scan);
+					submitTask(new DfExportJob(scanParamList, scan.getRequestedUserId(), true, scan,
+							generateExportFileName(scan.getBlotterName(), scan.getRequestedUserId())));
+				} catch (Exception e) {
+					LOGGER.error("Error while Processing Scan : {}", scan);
+					updateFailedScan(scan.getScanId(), STATUS_FAILED, e.getMessage());
+				}
+			}
+		} else
+			LOGGER.info("No IN QUEUE scans present in collection.");
+
+	}
+
+	/**
+	 * Description : Method to resume IN QUEUE scans at service startup
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 03-01-2023
+	 */
+	@Scheduled(fixedDelay = Long.MAX_VALUE, initialDelayString = "${df.export.scheduleFrequencyIntialDelay}")
+	private void resumeInQueueScansAtStartup() {
+		LOGGER.info("Resuming IN QUEUE scans at : {}", dateTimeService.getCurrentDateTimeAsString());
+		resumeInQueueScans();
+	}
+
+
+}
+
+
+Existing test class:
+
+package com.rbs.tntr.business.blotter.services;
+
+import com.rbs.tntr.business.blotter.search.querybuilder.DfExportScan;
+import com.rbs.tntr.business.blotter.search.querybuilder.DfScanParameters;
+import com.rbs.tntr.domain.blotter.exceptions.ValidationException;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.mockito.Mock;
+import org.mockito.InjectMocks;
 import org.mockito.MockitoAnnotations;
-import org.mockito.runners.MockitoJUnitRunner;
-
 import java.util.*;
 
-import static org.junit.Assert.*;
-import static org.mockito.Mockito.*;
+public class DataFabricExportServiceImplTest {
 
-@RunWith(MockitoJUnitRunner.class)
-public class EntityComparatorTest {
-
-    @Mock
-    private EntityComparator.ID idFetcher;
+    @InjectMocks
+    private DataFabricExportServiceImpl dataFabricExportService;
 
     @Before
     public void setUp() {
         MockitoAnnotations.initMocks(this);
     }
 
-    // Existing Tests
+    @Test(expected = ValidationException.class)
+    public void testFetchAndExportRecordsValidationFailure() {
+        // Invalid scan parameters
+        DfScanParameters scanParameters = new DfScanParameters(); // assume it has empty fields
+        String userName = "testUser";
 
-    @Test
-    public void testCompare_PrimitivesEqual() {
-        String source = "test";
-        String target = "test";
-
-        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
-
-        assertNotNull(deltas);
-        assertTrue(deltas.isEmpty());
+        // Act
+        dataFabricExportService.fetchAndExportRecords(scanParameters, userName, false, new DfExportScan());
     }
 
-    @Test
-    public void testCompare_PrimitivesDifferent() {
-        Integer source = 42;
-        Integer target = 43;
+    @Test(expected = ValidationException.class)
+    public void testUpdateDfScanInvalidScanId() {
+        List<DfExportScan> scans = new ArrayList<>();
+        DfExportScan scan = new DfExportScan();
+        scan.setScanId(null); // Invalid scan ID
+        scans.add(scan);
 
-        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
-
-        assertNotNull(deltas);
-        assertEquals(1, deltas.size());
-        EntityComparator.Delta delta = deltas.get(0);
-        assertEquals(EntityComparator.ROOT, delta.getFieldName());
-        assertEquals(source, delta.getSourceValue());
-        assertEquals(target, delta.getTargetValue());
-        assertEquals(EntityComparator.Delta.Command.OBJECT_ASSIGN_FIELD, delta.getCmd());
+        dataFabricExportService.updateDfScan(scans);
     }
 
-    @Test
-    public void testCompare_NullVsNonNull() {
-        String source = null;
-        String target = "test";
-
-        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
-
-        assertNotNull(deltas);
-        assertEquals(1, deltas.size());
-        EntityComparator.Delta delta = deltas.get(0);
-        assertEquals(EntityComparator.ROOT, delta.getFieldName());
-        assertNull(delta.getSourceValue());
-        assertEquals(target, delta.getTargetValue());
-        assertEquals(EntityComparator.Delta.Command.OBJECT_ASSIGN_FIELD, delta.getCmd());
+    @Test(expected = ValidationException.class)
+    public void testFetchScanByIdAndGenerateExportWithEmptyScanId() {
+        dataFabricExportService.fetchScanByIdAndGenerateExport("", "testUser");
     }
 
-    @Test
-    public void testCompare_SimpleObjects() {
-        class TestObject {
-            private String name;
-            private int value;
-
-            public TestObject(String name, int value) {
-                this.name = name;
-                this.value = value;
-            }
-        }
-
-        TestObject source = new TestObject("foo", 100);
-        TestObject target = new TestObject("bar", 200);
-
-        when(idFetcher.getId(source)).thenReturn("obj1");
-        when(idFetcher.getId(target)).thenReturn("obj1");
-
-        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
-
-        assertNotNull(deltas);
-        assertEquals(2, deltas.size());
-        boolean foundName = false;
-        boolean foundValue = false;
-        for (EntityComparator.Delta delta : deltas) {
-            if ("name".equals(delta.getFieldName())) {
-                assertEquals("foo", delta.getSourceValue());
-                assertEquals("bar", delta.getTargetValue());
-                assertEquals(EntityComparator.Delta.Command.OBJECT_ASSIGN_FIELD, delta.getCmd());
-                foundName = true;
-            } else if ("value".equals(delta.getFieldName())) {
-                assertEquals(100, delta.getSourceValue());
-                assertEquals(200, delta.getTargetValue());
-                assertEquals(EntityComparator.Delta.Command.OBJECT_ASSIGN_FIELD, delta.getCmd());
-                foundValue = true;
-            }
-        }
-        assertTrue(foundName && foundValue);
-    }
-
-    @Test
-    public void testCompare_ArraysDifferentLength() {
-        int[] source = {1, 2};
-        int[] target = {1, 2, 3};
-
-        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
-
-        assertNotNull(deltas);
-        assertEquals(2, deltas.size());
-        boolean foundResize = false;
-        boolean foundSet = false;
-        for (EntityComparator.Delta delta : deltas) {
-            if (delta.getCmd() == EntityComparator.Delta.Command.ARRAY_RESIZE) {
-                assertEquals(3, delta.getOptionalKey());
-                foundResize = true;
-            } else if (delta.getCmd() == EntityComparator.Delta.Command.ARRAY_SET_ELEMENT) {
-                assertEquals(2, delta.getOptionalKey());
-                assertNull(delta.getSourceValue());
-                assertEquals(3, delta.getTargetValue());
-                foundSet = true;
-            }
-        }
-        assertTrue(foundResize && foundSet);
-    }
-
-    @Test
-    public void testCompare_ListsDifferentElements() {
-        List<String> source = Arrays.asList("a", "b");
-        List<String> target = Arrays.asList("a", "c");
-
-        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
-
-        assertNotNull(deltas);
-        assertEquals(1, deltas.size());
-        EntityComparator.Delta delta = deltas.get(0);
-        assertEquals(1, delta.getOptionalKey());
-        assertEquals("b", delta.getSourceValue());
-        assertEquals("c", delta.getTargetValue());
-        assertEquals(EntityComparator.Delta.Command.LIST_SET_ELEMENT, delta.getCmd());
-    }
-
-    @Test
-    public void testCompare_SetsDifferentElements() {
-        Set<String> source = new LinkedHashSet<>(Arrays.asList("a", "b"));
-        Set<String> target = new LinkedHashSet<>(Arrays.asList("a", "c"));
-
-        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
-
-        assertNotNull(deltas);
-        assertEquals(2, deltas.size());
-        boolean foundRemove = false;
-        boolean foundAdd = false;
-        for (EntityComparator.Delta delta : deltas) {
-            if (delta.getCmd() == EntityComparator.Delta.Command.SET_REMOVE) {
-                assertEquals("b", delta.getSourceValue());
-                assertNull(delta.getTargetValue());
-                foundRemove = true;
-            } else if (delta.getCmd() == EntityComparator.Delta.Command.SET_ADD) {
-                assertNull(delta.getSourceValue());
-                assertEquals("c", delta.getTargetValue());
-                foundAdd = true;
-            }
-        }
-        assertTrue(foundRemove && foundAdd);
-    }
-
-    @Test
-    public void testCompare_MapsDifferentValues() {
-        Map<String, Integer> source = new HashMap<>();
-        source.put("key1", 1);
-        source.put("key2", 2);
-        Map<String, Integer> target = new HashMap<>();
-        target.put("key1", 1);
-        target.put("key2", 3);
-
-        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
-
-        assertNotNull(deltas);
-        assertEquals(1, deltas.size());
-        EntityComparator.Delta delta = deltas.get(0);
-        assertEquals("key2", delta.getOptionalKey());
-        assertEquals(2, delta.getSourceValue());
-        assertEquals(3, delta.getTargetValue());
-        assertEquals(EntityComparator.Delta.Command.MAP_PUT, delta.getCmd());
-    }
-
-    @Test
-    public void testCompare_DifferentObjectTypes() {
-        Integer source = 42;
-        String target = "42";
-
-        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
-
-        assertNotNull(deltas);
-        assertEquals(1, deltas.size());
-        EntityComparator.Delta delta = deltas.get(0);
-        assertEquals(EntityComparator.ROOT, delta.getFieldName());
-        assertEquals(source, delta.getSourceValue());
-        assertEquals(target, delta.getTargetValue());
-        assertEquals(EntityComparator.Delta.Command.OBJECT_FIELD_TYPE_CHANGED, delta.getCmd());
-    }
-
-    @Test
-    public void testCompare_BothNull() {
-        Object source = null;
-        Object target = null;
-
-        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
-
-        assertNotNull(deltas);
-        assertTrue(deltas.isEmpty());
-    }
-
-    @Test
-    public void testCompare_SetsWithNullValues() {
-        Set<String> source = new LinkedHashSet<>(Arrays.asList("a", null));
-        Set<String> target = new LinkedHashSet<>(Arrays.asList("a", "b"));
-
-        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
-
-        assertNotNull(deltas);
-        assertEquals(2, deltas.size());
-        boolean foundRemove = false;
-        boolean foundAdd = false;
-        for (EntityComparator.Delta delta : deltas) {
-            if (delta.getCmd() == EntityComparator.Delta.Command.SET_REMOVE) {
-                assertNull(delta.getSourceValue());
-                foundRemove = true;
-            } else if (delta.getCmd() == EntityComparator.Delta.Command.SET_ADD) {
-                assertEquals("b", delta.getTargetValue());
-                foundAdd = true;
-            }
-        }
-        assertTrue(foundRemove && foundAdd);
-    }
-
-    @Test
-    public void testCompare_MapsWithNullValues() {
-        Map<String, Integer> source = new HashMap<>();
-        source.put("key1", null);
-        source.put("key2", 2);
-        Map<String, Integer> target = new HashMap<>();
-        target.put("key1", 1);
-        target.put("key2", null);
-
-        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
-
-        assertNotNull(deltas);
-        assertEquals(2, deltas.size());
-        boolean foundKey1 = false;
-        boolean foundKey2 = false;
-        for (EntityComparator.Delta delta : deltas) {
-            if ("key1".equals(delta.getOptionalKey())) {
-                assertNull(delta.getSourceValue());
-                assertEquals(1, delta.getTargetValue());
-                assertEquals(EntityComparator.Delta.Command.MAP_PUT, delta.getCmd());
-                foundKey1 = true;
-            } else if ("key2".equals(delta.getOptionalKey())) {
-                assertEquals(2, delta.getSourceValue());
-                assertNull(delta.getTargetValue());
-                assertEquals(EntityComparator.Delta.Command.MAP_PUT, delta.getCmd());
-                foundKey2 = true;
-            }
-        }
-        assertTrue(foundKey1 && foundKey2);
-    }
-
-    @Test
-    public void testCompare_ArraysWithNullElements() {
-        String[] source = {null, "b"};
-        String[] target = {"a", "b"};
-
-        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
-
-        assertNotNull(deltas);
-        assertEquals(1, deltas.size());
-        EntityComparator.Delta delta = deltas.get(0);
-        assertEquals(0, delta.getOptionalKey());
-        assertNull(delta.getSourceValue());
-        assertEquals("a", delta.getTargetValue());
-        assertEquals(EntityComparator.Delta.Command.ARRAY_SET_ELEMENT, delta.getCmd());
-    }
-
-    @Test
-    public void testCompare_DifferentObjectTypesWithNull() {
-        Integer source = null;
-        String target = "42";
-
-        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
-
-        assertNotNull(deltas);
-        assertEquals(1, deltas.size());
-        EntityComparator.Delta delta = deltas.get(0);
-        assertEquals(EntityComparator.ROOT, delta.getFieldName());
-        assertNull(delta.getSourceValue());
-        assertEquals(target, delta.getTargetValue());
-        assertEquals(EntityComparator.Delta.Command.OBJECT_ASSIGN_FIELD, delta.getCmd());
-    }
-
-    @Test
-    public void testCompare_OrphanObjects() {
-        class TestObject {
-            private String id;
-
-            public TestObject(String id) {
-                this.id = id;
-            }
-
-            public String getId() {
-                return id;
-            }
-        }
-
-        TestObject source = new TestObject("obj1");
-
-        when(idFetcher.getId(source)).thenReturn("obj1");
-
-        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, null, idFetcher);
-
-        assertNotNull(deltas);
-        assertEquals(2, deltas.size());
-        boolean foundAssign = false;
-        boolean foundOrphan = false;
-        for (EntityComparator.Delta delta : deltas) {
-            if (delta.getCmd() == EntityComparator.Delta.Command.OBJECT_ASSIGN_FIELD) {
-                assertEquals(source, delta.getSourceValue());
-                assertNull(delta.getTargetValue());
-                foundAssign = true;
-            } else if (delta.getCmd() == EntityComparator.Delta.Command.OBJECT_ORPHAN) {
-                assertEquals("obj1", delta.getId());
-                foundOrphan = true;
-            }
-        }
-        assertTrue(foundAssign && foundOrphan);
-    }
-
-    // Additional Tests
-
-    @Test(expected = RuntimeException.class)
-    public void testCompare_CustomCollection() {
-        Collection<String> source = new ArrayDeque<>(Arrays.asList("a", "b"));
-        Collection<String> target = new ArrayDeque<>(Arrays.asList("a", "c"));
-
-        EntityComparator.compare(source, target, idFetcher);
-    }
-
-    @Test
-    public void testCompare_IdObjectsDifferentIds() {
-        class Person {
-            private String id;
-            private String name;
-
-            public Person(String id, String name) {
-                this.id = id;
-                this.name = name;
-            }
-
-            public String getId() {
-                return id;
-            }
-        }
-
-        Person source = new Person("1", "Alice");
-        Person target = new Person("2", "Bob");
-
-        when(idFetcher.getId(source)).thenReturn("1");
-        when(idFetcher.getId(target)).thenReturn("2");
-
-        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
-
-        assertNotNull(deltas);
-        assertEquals(1, deltas.size());
-        EntityComparator.Delta delta = deltas.get(0);
-        assertEquals(EntityComparator.ROOT, delta.getFieldName());
-        assertEquals(source, delta.getSourceValue());
-        assertEquals(target, delta.getTargetValue());
-        assertEquals(EntityComparator.Delta.Command.OBJECT_ASSIGN_FIELD, delta.getCmd());
-    }
-
-    @Test
-    public void testCompare_IdObjectsSameIds() {
-        class Person {
-            private String id;
-            private String name;
-
-            public Person(String id, String name) {
-                this.id = id;
-                this.name = name;
-            }
-
-            public String getId() {
-                return id;
-            }
-        }
-
-        Person source = new Person("1", "Alice");
-        Person target = new Person("1", "Alicia");
-
-        when(idFetcher.getId(source)).thenReturn("1");
-        when(idFetcher.getId(target)).thenReturn("1");
-
-        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
-
-        assertNotNull(deltas);
-        assertEquals(1, deltas.size());
-        EntityComparator.Delta delta = deltas.get(0);
-        assertEquals("name", delta.getFieldName());
-        assertEquals("Alice", delta.getSourceValue());
-        assertEquals("Alicia", delta.getTargetValue());
-        assertEquals(EntityComparator.Delta.Command.OBJECT_ASSIGN_FIELD, delta.getCmd());
-    }
-
-    @Test
-    public void testCompare_ArraysOfObjects() {
-        class Person {
-            private String id;
-            private String name;
-
-            public Person(String id, String name) {
-                this.id = id;
-                this.name = name;
-            }
-
-            public String getId() {
-                return id;
-            }
-        }
-
-        Person[] source = {new Person("1", "Alice"), new Person("2", "Bob")};
-        Person[] target = {new Person("1", "Alicia"), new Person("3", "Charlie")};
-
-        when(idFetcher.getId(source[0])).thenReturn("1");
-        when(idFetcher.getId(target[0])).thenReturn("1");
-        when(idFetcher.getId(source[1])).thenReturn("2");
-        when(idFetcher.getId(target[1])).thenReturn("3");
-
-        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
-
-        assertNotNull(deltas);
-        assertEquals(2, deltas.size());
-        boolean foundNameDelta = false;
-        boolean foundElementDelta = false;
-        for (EntityComparator.Delta delta : deltas) {
-            if (delta.getCmd() == EntityComparator.Delta.Command.OBJECT_ASSIGN_FIELD && "name".equals(delta.getFieldName())) {
-                assertEquals("Alice", delta.getSourceValue());
-                assertEquals("Alicia", delta.getTargetValue());
-                foundNameDelta = true;
-            } else if (delta.getCmd() == EntityComparator.Delta.Command.ARRAY_SET_ELEMENT) {
-                assertEquals(1, delta.getOptionalKey());
-                assertEquals(source[1], delta.getSourceValue());
-                assertEquals(target[1], delta.getTargetValue());
-                foundElementDelta = true;
-            }
-        }
-        assertTrue(foundNameDelta && foundElementDelta);
-    }
-
-    @Test
-    public void testCompare_SetsOfObjects() {
-        class Person {
-            private String id;
-            private String name;
-
-            public Person(String id, String name) {
-                this.id = id;
-                this.name = name;
-            }
-
-            public String getId() {
-                return id;
-            }
-        }
-
-        Person p1Source = new Person("1", "Alice");
-        Person p2Source = new Person("2", "Bob");
-        Set<Person> source = new LinkedHashSet<>(Arrays.asList(p1Source, p2Source));
-
-        Person p1Target = new Person("1", "Alicia");
-        Person p3Target = new Person("3", "Charlie");
-        Set<Person> target = new LinkedHashSet<>(Arrays.asList(p1Target, p3Target));
-
-        when(idFetcher.getId(p1Source)).thenReturn("1");
-        when(idFetcher.getId(p1Target)).thenReturn("1");
-        when(idFetcher.getId(p2Source)).thenReturn("2");
-        when(idFetcher.getId(p3Target)).thenReturn("3");
-
-        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
-
-        assertNotNull(deltas);
-        assertEquals(3, deltas.size());
-        boolean foundRemove = false;
-        boolean foundAdd = false;
-        boolean foundUpdate = false;
-        for (EntityComparator.Delta delta : deltas) {
-            if (delta.getCmd() == EntityComparator.Delta.Command.SET_REMOVE) {
-                assertEquals(p2Source, delta.getSourceValue());
-                foundRemove = true;
-            } else if (delta.getCmd() == EntityComparator.Delta.Command.SET_ADD) {
-                assertEquals(p3Target, delta.getTargetValue());
-                foundAdd = true;
-            } else if (delta.getCmd() == EntityComparator.Delta.Command.OBJECT_ASSIGN_FIELD && "name".equals(delta.getFieldName())) {
-                assertEquals("Alice", delta.getSourceValue());
-                assertEquals("Alicia", delta.getTargetValue());
-                foundUpdate = true;
-            }
-        }
-        assertTrue(foundRemove && foundAdd && foundUpdate);
-    }
-
-    @Test
-    public void testCompare_MapsWithObjectValues() {
-        class Person {
-            private String id;
-            private String name;
-
-            public Person(String id, String name) {
-                this.id = id;
-                this.name = name;
-            }
-
-            public String getId() {
-                return id;
-            }
-        }
-
-        Person p1Source = new Person("1", "Alice");
-        Person p2Source = new Person("2", "Bob");
-        Map<String, Person> source = new HashMap<>();
-        source.put("key1", p1Source);
-        source.put("key2", p2Source);
-
-        Person p1Target = new Person("1", "Alicia");
-        Person p3Target = new Person("3", "Charlie");
-        Map<String, Person> target = new HashMap<>();
-        target.put("key1", p1Target);
-        target.put("key3", p3Target);
-
-        when(idFetcher.getId(p1Source)).thenReturn("1");
-        when(idFetcher.getId(p1Target)).thenReturn("1");
-        when(idFetcher.getId(p2Source)).thenReturn("2");
-        when(idFetcher.getId(p3Target)).thenReturn("3");
-
-        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
-
-        assertNotNull(deltas);
-        assertEquals(3, deltas.size());
-        boolean foundUpdate = false;
-        boolean foundRemove = false;
-        boolean foundAdd = false;
-        for (EntityComparator.Delta delta : deltas) {
-            if (delta.getCmd() == EntityComparator.Delta.Command.OBJECT_ASSIGN_FIELD && "name".equals(delta.getFieldName())) {
-                assertEquals("Alice", delta.getSourceValue());
-                assertEquals("Alicia", delta.getTargetValue());
-                foundUpdate = true;
-            } else if (delta.getCmd() == EntityComparator.Delta.Command.MAP_REMOVE) {
-                assertEquals("key2", delta.getOptionalKey());
-                assertEquals(p2Source, delta.getSourceValue());
-                foundRemove = true;
-            } else if (delta.getCmd() == EntityComparator.Delta.Command.MAP_PUT) {
-                assertEquals("key3", delta.getOptionalKey());
-                assertEquals(p3Target, delta.getTargetValue());
-                foundAdd = true;
-            }
-        }
-        assertTrue(foundUpdate && foundRemove && foundAdd);
-    }
-
-    @Test
-    public void testCompare_OrphanDetection() {
-        class Person {
-            private String id;
-            private String name;
-
-            public Person(String id, String name) {
-                this.id = id;
-                this.name = name;
-            }
-
-            public String getId() {
-                return id;
-            }
-        }
-
-        List<Person> source = Arrays.asList(new Person("1", "Alice"), new Person("2", "Bob"));
-        List<Person> target = Arrays.asList(new Person("1", "Alice"));
-
-        when(idFetcher.getId(source.get(0))).thenReturn("1");
-        when(idFetcher.getId(source.get(1))).thenReturn("2");
-        when(idFetcher.getId(target.get(0))).thenReturn("1");
-
-        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
-
-        assertNotNull(deltas);
-        assertEquals(2, deltas.size());
-        boolean foundResize = false;
-        boolean foundOrphan = false;
-        for (EntityComparator.Delta delta : deltas) {
-            if (delta.getCmd() == EntityComparator.Delta.Command.LIST_RESIZE) {
-                assertEquals(1, delta.getOptionalKey());
-                foundResize = true;
-            } else if (delta.getCmd() == EntityComparator.Delta.Command.OBJECT_ORPHAN) {
-                assertEquals("2", delta.getId());
-                foundOrphan = true;
-            }
-        }
-        assertTrue(foundResize && foundOrphan);
-    }
-
-    @Test
-    public void testCompare_NonIdObjects() {
-        class NonIdObject {
-            private String name;
-
-            public NonIdObject(String name) {
-                this.name = name;
-            }
-        }
-
-        NonIdObject source = new NonIdObject("foo");
-        NonIdObject target = new NonIdObject("bar");
-
-        when(idFetcher.getId(source)).thenThrow(new RuntimeException("No ID"));
-        when(idFetcher.getId(target)).thenThrow(new RuntimeException("No ID"));
-
-        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
-
-        assertNotNull(deltas);
-        assertEquals(1, deltas.size());
-        EntityComparator.Delta delta = deltas.get(0);
-        assertEquals(EntityComparator.ROOT, delta.getFieldName());
-        assertEquals(source, delta.getSourceValue());
-        assertEquals(target, delta.getTargetValue());
-        assertEquals(EntityComparator.Delta.Command.OBJECT_ASSIGN_FIELD, delta.getCmd());
-    }
-
-    @Test
-    public void testCompare_NonIdObjectsEqual() {
-        class NonIdObject {
-            private String name;
-
-            public NonIdObject(String name) {
-                this.name = name;
-            }
-        }
-
-        NonIdObject source = new NonIdObject("foo");
-        NonIdObject target = new NonIdObject("foo");
-
-        when(idFetcher.getId(source)).thenThrow(new RuntimeException("No ID"));
-        when(idFetcher.getId(target)).thenThrow(new RuntimeException("No ID"));
-
-        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
-
-        assertNotNull(deltas);
-        assertTrue(deltas.isEmpty());
-    }
 }
+
+Don't use power mockito as i m using older mockito version. Also for private methods try to use reflection. Plus we can't change any file other than the above test class. 
