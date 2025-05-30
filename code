@@ -1,328 +1,850 @@
-package com.rbs.tntr.business.taggingService.service.common;
+Could you write all the additional test cases for below java class to cover all the remaining scenarios or methods and make the test coverage or code coverage as 100% using junit 4 and old mockito version and java 8:
+
+package com.rbs.tntr.business.blotter.utility;
+
+import com.cedarsoftware.util.DeepEquals;
+import com.cedarsoftware.util.ReflectionUtils;
+import com.cedarsoftware.util.Traverser;
+import java.io.Serializable;
+import java.lang.reflect.Array;
+import java.lang.reflect.Field;
+import java.time.ZonedDateTime;
+import java.util.*;
+import java.util.Map.Entry;
+
+public class EntityComparator{
+    public static final String ROOT = "-root-";
+
+    public EntityComparator() {
+    }
+
+    public static List<EntityComparator.Delta> compare(Object source, Object target, final EntityComparator.ID idFetcher) {
+        Set<EntityComparator.Delta> deltas = new LinkedHashSet();
+        Set<String> visited = new HashSet();
+        LinkedList<EntityComparator.Delta> stack = new LinkedList();
+        stack.push(new EntityComparator.Delta(0L, ROOT, ROOT, source, target, null));
+
+        Object targetValue;
+        while(!stack.isEmpty()) {
+            EntityComparator.Delta delta = stack.pop();
+            String path = delta.srcPtr;
+            if (!stack.isEmpty()) {
+                path = path + "." + System.identityHashCode(stack.peek().srcValue);
+            }
+
+            if (!visited.contains(path)) {
+                Object srcValue = delta.srcValue;
+                targetValue = delta.targetValue;
+                visited.add(path);
+                if (srcValue != targetValue) {
+                    if (srcValue != null && targetValue != null) {
+                        if (srcValue.getClass().equals(targetValue.getClass()) || srcValue instanceof Map && targetValue instanceof Map || srcValue instanceof Set && targetValue instanceof Set || srcValue instanceof List && targetValue instanceof List) {
+                            if (isLogicalPrimitive(srcValue.getClass())) {
+                                if (!srcValue.equals(targetValue)) {
+                                    delta.setCmd(EntityComparator.Delta.Command.OBJECT_ASSIGN_FIELD);
+                                    deltas.add(delta);
+                                }
+                            } else if (srcValue.getClass().isArray()) {
+                                compareArrays(delta, deltas, stack, idFetcher);
+                            } else if (srcValue instanceof Set) {
+                                compareSets(delta, deltas, stack, idFetcher);
+                            } else if (srcValue instanceof Map) {
+                                compareMaps(delta, deltas, stack, idFetcher);
+                            } else if (srcValue instanceof List) {
+                                compareLists(delta, deltas, stack, idFetcher);
+                            } else {
+                                if (srcValue instanceof Collection) {
+                                    throw new RuntimeException("Detected custom Collection that does not extend List or Set: " + srcValue.getClass().getName() + ". GraphUtils.compare() needs to be updated to support it, obj id: " + delta.id + ", field: " + delta.fieldName);
+                                }
+
+                                if (isIdObject(srcValue, idFetcher) && isIdObject(targetValue, idFetcher)) {
+                                    Object srcId = idFetcher.getId(srcValue);
+                                    Object targetId = idFetcher.getId(targetValue);
+                                    if (!srcId.equals(targetId)) {
+                                        delta.setCmd(EntityComparator.Delta.Command.OBJECT_ASSIGN_FIELD);
+                                        deltas.add(delta);
+                                    } else {
+                                        Collection<Field> fields = ReflectionUtils.getDeepDeclaredFields(srcValue.getClass());
+                                        String sysId = "(" + System.identityHashCode(srcValue) + ").";
+                                        Iterator var14 = fields.iterator();
+
+                                        while(var14.hasNext()) {
+                                            Field field = (Field)var14.next();
+
+                                            try {
+                                                String srcPtr = sysId + field.getName();
+                                                stack.push(new EntityComparator.Delta(srcId, field.getName(), srcPtr, field.get(srcValue), field.get(targetValue), (Object)null));
+                                            } catch (Exception var17) {
+                                            }
+                                        }
+                                    }
+                                } else if (!DeepEquals.deepEquals(srcValue, targetValue)) {
+                                    delta.setCmd(EntityComparator.Delta.Command.OBJECT_ASSIGN_FIELD);
+                                    deltas.add(delta);
+                                }
+                            }
+                        } else {
+                            delta.setCmd(EntityComparator.Delta.Command.OBJECT_FIELD_TYPE_CHANGED);
+                            deltas.add(delta);
+                        }
+                    } else {
+                        delta.setCmd(EntityComparator.Delta.Command.OBJECT_ASSIGN_FIELD);
+                        deltas.add(delta);
+                    }
+                }
+            }
+        }
+
+        final Set potentialOrphans = new HashSet();
+        Traverser.traverse(source, o -> {
+            if (EntityComparator.isIdObject(o, idFetcher)) {
+                potentialOrphans.add(idFetcher.getId(o));
+            }
+
+        });
+        Traverser.traverse(target, o -> {
+            if (EntityComparator.isIdObject(o, idFetcher)) {
+                potentialOrphans.remove(idFetcher.getId(o));
+            }
+
+        });
+        List forReturn = new ArrayList(deltas);
+        Iterator var20 = potentialOrphans.iterator();
+
+        while(var20.hasNext()) {
+            targetValue = var20.next();
+            EntityComparator.Delta orphanDelta = new EntityComparator.Delta(targetValue, null, "", null, null, null);
+            orphanDelta.setCmd(EntityComparator.Delta.Command.OBJECT_ORPHAN);
+            forReturn.add(orphanDelta);
+        }
+
+        return forReturn;
+    }
+
+    private static boolean isLogicalPrimitive(Class c) {
+        return c.isPrimitive() || String.class == c || Date.class.isAssignableFrom(c) || Number.class.isAssignableFrom(c) || Boolean.class.isAssignableFrom(c) || Calendar.class.isAssignableFrom(c) || TimeZone.class.isAssignableFrom(c) || Character.class == c || ZonedDateTime.class.isAssignableFrom(c);
+    }
+
+    private static boolean isIdObject(Object o, EntityComparator.ID idFetcher) {
+        if (o == null) {
+            return false;
+        } else {
+            Class c = o.getClass();
+            if (!isLogicalPrimitive(c) && !c.isArray() && !Collection.class.isAssignableFrom(c) && !Map.class.isAssignableFrom(c) && Object.class != c) {
+                try {
+                    idFetcher.getId(o);
+                    return true;
+                } catch (Exception var4) {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+    }
+
+    private static void compareArrays(EntityComparator.Delta delta, Collection deltas, LinkedList stack, EntityComparator.ID idFetcher) {
+        int srcLen = Array.getLength(delta.srcValue);
+        int targetLen = Array.getLength(delta.targetValue);
+        if (srcLen != targetLen) {
+            delta.setCmd(EntityComparator.Delta.Command.ARRAY_RESIZE);
+            delta.setOptionalKey(targetLen);
+            deltas.add(delta);
+        }
+
+        String sysId = "(" + System.identityHashCode(delta.srcValue) + ')';
+        Class compType = delta.targetValue.getClass().getComponentType();
+        int i;
+        Object targetValue;
+        String srcPtr;
+        Object srcValue;
+        if (isLogicalPrimitive(compType)) {
+            for(i = 0; i < targetLen; ++i) {
+                targetValue = Array.get(delta.targetValue, i);
+                srcPtr = sysId + '[' + i + ']';
+                if (i >= srcLen) {
+                    copyArrayElement(delta, deltas, srcPtr, (Object)null, targetValue, i);
+                } else {
+                    srcValue = Array.get(delta.srcValue, i);
+                    if (srcValue == null && targetValue != null || srcValue != null && targetValue == null || !srcValue.equals(targetValue)) {
+                        copyArrayElement(delta, deltas, srcPtr, srcValue, targetValue, i);
+                    }
+                }
+            }
+        } else {
+            for(i = targetLen - 1; i >= 0; --i) {
+                targetValue = Array.get(delta.targetValue, i);
+                srcPtr = sysId + '[' + i + ']';
+                if (i < srcLen) {
+                    srcValue = Array.get(delta.srcValue, i);
+                    if (targetValue != null && srcValue != null) {
+                        if (isIdObject(srcValue, idFetcher) && isIdObject(targetValue, idFetcher)) {
+                            Object srcId = idFetcher.getId(srcValue);
+                            Object targetId = idFetcher.getId(targetValue);
+                            if (targetId.equals(srcId)) {
+                                stack.push(new EntityComparator.Delta(delta.id, delta.fieldName, srcPtr, srcValue, targetValue, i));
+                            } else {
+                                copyArrayElement(delta, deltas, srcPtr, srcValue, targetValue, i);
+                            }
+                        } else if (!DeepEquals.deepEquals(srcValue, targetValue)) {
+                            copyArrayElement(delta, deltas, srcPtr, srcValue, targetValue, i);
+                        }
+                    } else if (srcValue != targetValue) {
+                        copyArrayElement(delta, deltas, srcPtr, srcValue, targetValue, i);
+                    }
+                } else {
+                    copyArrayElement(delta, deltas, srcPtr, (Object)null, targetValue, i);
+                }
+            }
+        }
+
+    }
+
+    private static void copyArrayElement(EntityComparator.Delta delta, Collection deltas, String srcPtr, Object srcValue, Object targetValue, int index) {
+        EntityComparator.Delta copyDelta = new EntityComparator.Delta(delta.id, delta.fieldName, srcPtr, srcValue, targetValue, index);
+        copyDelta.setCmd(EntityComparator.Delta.Command.ARRAY_SET_ELEMENT);
+        deltas.add(copyDelta);
+    }
+
+    private static void compareSets(EntityComparator.Delta delta, Collection deltas, LinkedList stack, EntityComparator.ID idFetcher) {
+        Set srcSet = (Set)delta.srcValue;
+        Set targetSet = (Set)delta.targetValue;
+        Map targetIdToValue = new HashMap();
+        Iterator var7 = targetSet.iterator();
+
+        while(var7.hasNext()) {
+            Object targetValue = var7.next();
+            if (targetValue != null && isIdObject(targetValue, idFetcher)) {
+                targetIdToValue.put(idFetcher.getId(targetValue), targetValue);
+            }
+        }
+
+        Map srcIdToValue = new HashMap();
+        String sysId = "(" + System.identityHashCode(srcSet) + ").remove(";
+        Iterator var9 = srcSet.iterator();
+
+        Object targetValue;
+        String srcPtr;
+        Object targetId;
+        EntityComparator.Delta addDelta;
+        while(var9.hasNext()) {
+            targetValue = var9.next();
+            srcPtr = sysId + System.identityHashCode(targetValue) + ')';
+            if (isIdObject(targetValue, idFetcher)) {
+                targetId = idFetcher.getId(targetValue);
+                srcIdToValue.put(targetId, targetValue);
+                if (targetIdToValue.containsKey(targetId)) {
+                    stack.push(new EntityComparator.Delta(delta.id, delta.fieldName, srcPtr, targetValue, targetIdToValue.get(targetId), (Object)null));
+                } else {
+                    addDelta = new EntityComparator.Delta(delta.id, delta.fieldName, srcPtr, targetValue, (Object)null, (Object)null);
+                    addDelta.setCmd(EntityComparator.Delta.Command.SET_REMOVE);
+                    deltas.add(addDelta);
+                }
+            } else if (!targetSet.contains(targetValue)) {
+                addDelta = new EntityComparator.Delta(delta.id, delta.fieldName, srcPtr, targetValue, (Object)null, (Object)null);
+                addDelta.setCmd(EntityComparator.Delta.Command.SET_REMOVE);
+                deltas.add(addDelta);
+            }
+        }
+
+        sysId = "(" + System.identityHashCode(targetSet) + ").add(";
+        var9 = targetSet.iterator();
+
+        while(var9.hasNext()) {
+            targetValue = var9.next();
+            srcPtr = sysId + System.identityHashCode(targetValue) + ')';
+            if (isIdObject(targetValue, idFetcher)) {
+                targetId = idFetcher.getId(targetValue);
+                if (!srcIdToValue.containsKey(targetId)) {
+                    addDelta = new EntityComparator.Delta(delta.id, delta.fieldName, srcPtr, (Object)null, targetValue, (Object)null);
+                    addDelta.setCmd(EntityComparator.Delta.Command.SET_ADD);
+                    deltas.add(addDelta);
+                }
+            } else if (!srcSet.contains(targetValue)) {
+                addDelta = new EntityComparator.Delta(delta.id, delta.fieldName, srcPtr, (Object)null, targetValue, (Object)null);
+                addDelta.setCmd(EntityComparator.Delta.Command.SET_ADD);
+                deltas.add(addDelta);
+            }
+        }
+
+    }
+
+    private static void compareMaps(EntityComparator.Delta delta, Collection deltas, LinkedList stack, EntityComparator.ID idFetcher) {
+        Map<Object, Object> srcMap = (Map)delta.srcValue;
+        Map<Object, Object> targetMap = (Map)delta.targetValue;
+        String sysId = "(" + System.identityHashCode(srcMap) + ')';
+        Iterator var7 = srcMap.entrySet().iterator();
+
+        while(true) {
+            while(true) {
+                while(true) {
+                    Entry entry;
+                    Object srcKey;
+                    while(var7.hasNext()) {
+                        entry = (Entry)var7.next();
+                        srcKey = entry.getKey();
+                        Object srcValue = entry.getValue();
+                        String srcPtr = sysId + "['" + System.identityHashCode(srcKey) + "']";
+                        if (targetMap.containsKey(srcKey)) {
+                            Object targetValue = targetMap.get(srcKey);
+                            if (srcValue != null && targetValue != null) {
+                                if (isIdObject(srcValue, idFetcher) && isIdObject(targetValue, idFetcher)) {
+                                    if (idFetcher.getId(srcValue).equals(idFetcher.getId(targetValue))) {
+                                        stack.push(new EntityComparator.Delta(delta.id, delta.fieldName, srcPtr, srcValue, targetValue, (Object)null));
+                                    } else {
+                                        addMapPutDelta(delta, deltas, srcPtr, targetValue, srcKey);
+                                    }
+                                } else if (!DeepEquals.deepEquals(srcValue, targetValue)) {
+                                    addMapPutDelta(delta, deltas, srcPtr, targetValue, srcKey);
+                                }
+                            } else if (srcValue != targetValue) {
+                                addMapPutDelta(delta, deltas, srcPtr, targetValue, srcKey);
+                            }
+                        } else {
+                            EntityComparator.Delta removeDelta = new EntityComparator.Delta(delta.id, delta.fieldName, srcPtr, srcValue, (Object)null, srcKey);
+                            removeDelta.setCmd(EntityComparator.Delta.Command.MAP_REMOVE);
+                            deltas.add(removeDelta);
+                        }
+                    }
+
+                    var7 = targetMap.entrySet().iterator();
+
+                    while(var7.hasNext()) {
+                        entry = (Entry)var7.next();
+                        srcKey = entry.getKey();
+                        String srcPtr = sysId + "['" + System.identityHashCode(srcKey) + "']";
+                        if (!srcMap.containsKey(srcKey)) {
+                            EntityComparator.Delta putDelta = new EntityComparator.Delta(delta.id, delta.fieldName, srcPtr, (Object)null, entry.getValue(), srcKey);
+                            putDelta.setCmd(EntityComparator.Delta.Command.MAP_PUT);
+                            deltas.add(putDelta);
+                        }
+                    }
+
+                    return;
+                }
+            }
+        }
+    }
+
+    private static void addMapPutDelta(EntityComparator.Delta delta, Collection deltas, String srcPtr, Object targetValue, Object key) {
+        EntityComparator.Delta putDelta = new EntityComparator.Delta(delta.id, delta.fieldName, srcPtr, (Object)null, targetValue, key);
+        putDelta.setCmd(EntityComparator.Delta.Command.MAP_PUT);
+        deltas.add(putDelta);
+    }
+
+    private static void compareLists(EntityComparator.Delta delta, Collection deltas, LinkedList stack, EntityComparator.ID idFetcher) {
+        List srcList = (List)delta.srcValue;
+        List targetList = (List)delta.targetValue;
+        int srcLen = srcList.size();
+        int targetLen = targetList.size();
+        if (srcLen != targetLen) {
+            delta.setCmd(EntityComparator.Delta.Command.LIST_RESIZE);
+            delta.setOptionalKey(targetLen);
+            deltas.add(delta);
+        }
+
+        String sysId = "(" + System.identityHashCode(srcList) + ')';
+
+        for(int i = targetLen - 1; i >= 0; --i) {
+            Object targetValue = targetList.get(i);
+            String srcPtr = sysId + '{' + i + '}';
+            if (i < srcLen) {
+                Object srcValue = srcList.get(i);
+                if (targetValue != null && srcValue != null) {
+                    if (isIdObject(srcValue, idFetcher) && isIdObject(targetValue, idFetcher)) {
+                        Object srcId = idFetcher.getId(srcValue);
+                        Object targetId = idFetcher.getId(targetValue);
+                        if (targetId.equals(srcId)) {
+                            stack.push(new EntityComparator.Delta(delta.id, delta.fieldName, srcPtr, srcValue, targetValue, i));
+                        } else {
+                            copyListElement(delta, deltas, srcPtr, srcValue, targetValue, i);
+                        }
+                    } else if (!DeepEquals.deepEquals(srcValue, targetValue)) {
+                        copyListElement(delta, deltas, srcPtr, srcValue, targetValue, i);
+                    }
+                } else if (srcValue != targetValue) {
+                    copyListElement(delta, deltas, srcPtr, srcValue, targetValue, i);
+                }
+            } else {
+                copyListElement(delta, deltas, srcPtr, (Object)null, targetValue, i);
+            }
+        }
+
+    }
+
+    private static void copyListElement(EntityComparator.Delta delta, Collection deltas, String srcPtr, Object srcValue, Object targetValue, int index) {
+        EntityComparator.Delta copyDelta = new EntityComparator.Delta(delta.id, delta.fieldName, srcPtr, srcValue, targetValue, index);
+        copyDelta.setCmd(EntityComparator.Delta.Command.LIST_SET_ELEMENT);
+        deltas.add(copyDelta);
+    }
+
+    public static class Delta implements Serializable {
+        private static final long serialVersionUID = -4388236892818050806L;
+        private String srcPtr;
+        private Object id;
+        private String fieldName;
+        private Object srcValue;
+        private Object targetValue;
+        private Object optionalKey;
+        private EntityComparator.Delta.Command cmd;
+
+        public Delta(Object id, String fieldName, String srcPtr, Object srcValue, Object targetValue, Object optKey) {
+            this.id = id;
+            this.fieldName = fieldName;
+            this.srcPtr = srcPtr;
+            this.srcValue = srcValue;
+            this.targetValue = targetValue;
+            this.optionalKey = optKey;
+        }
+
+        public Object getId() {
+            return this.id;
+        }
+
+        public void setId(Object id) {
+            this.id = id;
+        }
+
+        public String getFieldName() {
+            return this.fieldName;
+        }
+
+        public void setFieldName(String fieldName) {
+            this.fieldName = fieldName;
+        }
+
+        public Object getSourceValue() {
+            return this.srcValue;
+        }
+
+        public void setSourceValue(Object srcValue) {
+            this.srcValue = srcValue;
+        }
+
+        public Object getTargetValue() {
+            return this.targetValue;
+        }
+
+        public void setTargetValue(Object targetValue) {
+            this.targetValue = targetValue;
+        }
+
+        public Object getOptionalKey() {
+            return this.optionalKey;
+        }
+
+        public void setOptionalKey(Object optionalKey) {
+            this.optionalKey = optionalKey;
+        }
+
+        public EntityComparator.Delta.Command getCmd() {
+            return this.cmd;
+        }
+
+        public void setCmd(EntityComparator.Delta.Command cmd) {
+            this.cmd = cmd;
+        }
+
+        public String toString() {
+            return "Delta {id=" + this.id + ", fieldName='" + this.fieldName + '\'' + ", srcPtr=" + this.srcPtr + ", srcValue=" + this.srcValue + ", targetValue=" + this.targetValue + ", optionalKey=" + this.optionalKey + ", cmd='" + this.cmd + '\'' + '}';
+        }
+
+        public boolean equals(Object other) {
+            if (this == other) {
+                return true;
+            } else if (other != null && this.getClass() == other.getClass()) {
+                EntityComparator.Delta delta = (EntityComparator.Delta)other;
+                return this.srcPtr.equals(delta.srcPtr);
+            } else {
+                return false;
+            }
+        }
+
+        public int hashCode() {
+            return this.srcPtr.hashCode();
+        }
+
+        public static enum Command {
+            ARRAY_SET_ELEMENT("array.setElement"),
+            ARRAY_RESIZE("array.resize"),
+            OBJECT_ASSIGN_FIELD("object.assignField"),
+            OBJECT_ORPHAN("object.orphan"),
+            OBJECT_FIELD_TYPE_CHANGED("object.fieldTypeChanged"),
+            SET_ADD("set.add"),
+            SET_REMOVE("set.remove"),
+            MAP_PUT("map.put"),
+            MAP_REMOVE("map.remove"),
+            LIST_RESIZE("list.resize"),
+            LIST_SET_ELEMENT("list.setElement");
+
+            private String name;
+
+            private Command(String name) {
+                this.name = name.intern();
+            }
+
+            public String getName() {
+                return this.name;
+            }
+
+            public static EntityComparator.Delta.Command fromName(String name) {
+                if (name != null && !"".equals(name.trim())) {
+                    name = name.toLowerCase();
+                    EntityComparator.Delta.Command[] var1 = values();
+                    int var2 = var1.length;
+
+                    for(int var3 = 0; var3 < var2; ++var3) {
+                        EntityComparator.Delta.Command t = var1[var3];
+                        if (t.getName().equals(name)) {
+                            return t;
+                        }
+                    }
+
+                    throw new IllegalArgumentException("Unknown Command enum: " + name);
+                } else {
+                    throw new IllegalArgumentException("Name is required for Command.forName()");
+                }
+            }
+        }
+    }
+
+    public interface ID {
+        Object getId(Object var1);
+    }
+}
+
+
+Existing test class:
+
+package com.rbs.tntr.business.blotter.utility;
 
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.Rule;
-import org.junit.rules.TemporaryFolder;
-import org.mockito.*;
-import java.io.File;
-import java.io.FilenameFilter;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.StandardOpenOption;
-import static org.mockito.Mockito.*;
+import org.junit.runner.RunWith;
+import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
+import org.mockito.runners.MockitoJUnitRunner;
+import java.util.*;
+
 import static org.junit.Assert.*;
+import static org.mockito.Mockito.when;
 
-public class FileSystemServiceImplTest {
+@RunWith(MockitoJUnitRunner.class)
+public class EntityComparatorTest {
 
-    @InjectMocks
-    private FileSystemServiceImpl fileSystemService;
-
-    private File mockFile;
-    private File[] mockFiles;
-    private FilenameFilter mockFilter;
-
-    @Rule
-    public TemporaryFolder tempFolder = new TemporaryFolder();
+    @Mock
+    private EntityComparator.ID idFetcher;
 
     @Before
     public void setUp() {
         MockitoAnnotations.initMocks(this);
-        mockFile = mock(File.class);
-        mockFiles = new File[] { mockFile };
-        mockFilter = mock(FilenameFilter.class);
     }
 
-    /**
-     * Test listFiles when files are returned by directory.listFiles().
-     */
     @Test
-    public void testListFiles() {
-        // Arrange
-        File directory = mock(File.class);
-        when(directory.listFiles(mockFilter)).thenReturn(mockFiles);
+    public void testCompare_PrimitivesEqual() {
+        String source = "test";
+        String target = "test";
 
-        // Act
-        File[] result = fileSystemService.listFiles(directory, mockFilter);
+        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
 
-        // Assert
-        assertNotNull(result);
-        assertEquals(1, result.length);
-        assertEquals(mockFile, result[0]);
+        assertNotNull(deltas);
+        assertTrue(deltas.isEmpty());
     }
 
-    /**
-     * Test listFiles when directory returns null.
-     */
     @Test
-    public void testListFilesWithNull() {
-        // Arrange
-        File directory = mock(File.class);
-        when(directory.listFiles(mockFilter)).thenReturn(null);
+    public void testCompare_PrimitivesDifferent() {
+        Integer source = 42;
+        Integer target = 43;
 
-        // Act
-        File[] result = fileSystemService.listFiles(directory, mockFilter);
+        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
 
-        // Assert
-        assertNull(result);
+        assertNotNull(deltas);
+        assertEquals(1, deltas.size());
+        EntityComparator.Delta delta = deltas.get(0);
+        assertEquals(EntityComparator.ROOT, delta.getFieldName());
+        assertEquals(source, delta.getSourceValue());
+        assertEquals(target, delta.getTargetValue());
+        assertEquals(EntityComparator.Delta.Command.OBJECT_ASSIGN_FIELD, delta.getCmd());
     }
 
-    /**
-     * Test listFiles when directory has no files.
-     */
     @Test
-    public void testListFilesWithEmptyDirectory() {
-        // Arrange
-        File directory = mock(File.class);
-        when(directory.listFiles(mockFilter)).thenReturn(new File[0]);
+    public void testCompare_NullVsNonNull() {
+        String source = null;
+        String target = "test";
 
-        // Act
-        File[] result = fileSystemService.listFiles(directory, mockFilter);
+        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
 
-        // Assert
-        assertNotNull(result);
-        assertEquals(0, result.length);
+        assertNotNull(deltas);
+        assertEquals(1, deltas.size());
+        EntityComparator.Delta delta = deltas.get(0);
+        assertEquals(EntityComparator.ROOT, delta.getFieldName());
+        assertNull(delta.getSourceValue());
+        assertEquals(target, delta.getTargetValue());
+        assertEquals(EntityComparator.Delta.Command.OBJECT_ASSIGN_FIELD, delta.getCmd());
     }
 
-    /**
-     * Test getFile method.
-     */
     @Test
-    public void testGetFile() {
-        // Arrange
-        String path = "mock/path";
-        File expectedFile = new File(path);
+    public void testCompare_SimpleObjects() {
+        class TestObject {
+            private String name;
+            private int value;
 
-        // Act
-        File result = fileSystemService.getFile(path);
+            public TestObject(String name, int value) {
+                this.name = name;
+                this.value = value;
+            }
+        }
 
-        // Assert
-        assertEquals(expectedFile.getPath(), result.getPath());
+        TestObject source = new TestObject("foo", 100);
+        TestObject target = new TestObject("bar", 200);
+
+        when(idFetcher.getId(source)).thenReturn("obj1");
+        when(idFetcher.getId(target)).thenReturn("obj1");
+
+        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
+
+        assertNotNull(deltas);
+        assertEquals(2, deltas.size());
+        // Expect deltas for 'name' and 'value' fields
+        boolean foundName = false;
+        boolean foundValue = false;
+        for (EntityComparator.Delta delta : deltas) {
+            if ("name".equals(delta.getFieldName())) {
+                assertEquals("foo", delta.getSourceValue());
+                assertEquals("bar", delta.getTargetValue());
+                assertEquals(EntityComparator.Delta.Command.OBJECT_ASSIGN_FIELD, delta.getCmd());
+                foundName = true;
+            } else if ("value".equals(delta.getFieldName())) {
+                assertEquals(100, delta.getSourceValue());
+                assertEquals(200, delta.getTargetValue());
+                assertEquals(EntityComparator.Delta.Command.OBJECT_ASSIGN_FIELD, delta.getCmd());
+                foundValue = true;
+            }
+        }
+        assertTrue(foundName && foundValue);
     }
 
-    /**
-     * Test getFile method with null path.
-     */
     @Test
-    public void testGetFileWithNullPath() {
-        // Act
-        File result = fileSystemService.getFile(null);
+    public void testCompare_ArraysDifferentLength() {
+        int[] source = {1, 2};
+        int[] target = {1, 2, 3};
 
-        // Assert
-        assertNotNull(result);
-        assertEquals("null", result.getPath());
+        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
+
+        assertNotNull(deltas);
+        assertEquals(2, deltas.size());
+        // Expect ARRAY_RESIZE and ARRAY_SET_ELEMENT
+        boolean foundResize = false;
+        boolean foundSet = false;
+        for (EntityComparator.Delta delta : deltas) {
+            if (delta.getCmd() == EntityComparator.Delta.Command.ARRAY_RESIZE) {
+                assertEquals(3, delta.getOptionalKey());
+                foundResize = true;
+            } else if (delta.getCmd() == EntityComparator.Delta.Command.ARRAY_SET_ELEMENT) {
+                assertEquals(2, delta.getOptionalKey());
+                assertNull(delta.getSourceValue());
+                assertEquals(3, delta.getTargetValue());
+                foundSet = true;
+            }
+        }
+        assertTrue(foundResize && foundSet);
     }
 
-    /**
-     * Test getFile method with empty string path.
-     */
     @Test
-    public void testGetFileWithEmptyPath() {
-        // Act
-        File result = fileSystemService.getFile("");
+    public void testCompare_ListsDifferentElements() {
+        List<String> source = Arrays.asList("a", "b");
+        List<String> target = Arrays.asList("a", "c");
 
-        // Assert
-        assertNotNull(result);
-        assertEquals("", result.getPath());
+        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
+
+        assertNotNull(deltas);
+        assertEquals(1, deltas.size());
+        EntityComparator.Delta delta = deltas.get(0);
+        assertEquals(1, delta.getOptionalKey());
+        assertEquals("b", delta.getSourceValue());
+        assertEquals("c", delta.getTargetValue());
+        assertEquals(EntityComparator.Delta.Command.LIST_SET_ELEMENT, delta.getCmd());
     }
 
-    /**
-     * Test copyFile method with successful copy operation.
-     */
     @Test
-    public void testCopyFileSuccess() throws IOException {
-        // Arrange
-        File sourceFile = tempFolder.newFile("source.txt");
-        File destFile = new File(tempFolder.getRoot(), "dest.txt");
-        
-        // Write some content to source file
-        Files.write(sourceFile.toPath(), "test content".getBytes(), StandardOpenOption.CREATE);
+    public void testCompare_SetsDifferentElements() {
+        Set<String> source = new LinkedHashSet<>(Arrays.asList("a", "b"));
+        Set<String> target = new LinkedHashSet<>(Arrays.asList("a", "c"));
 
-        // Act
-        fileSystemService.copyFile(sourceFile, destFile);
+        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
 
-        // Assert
-        assertTrue("Destination file should exist", destFile.exists());
-        assertEquals("File contents should match", 
-                     new String(Files.readAllBytes(sourceFile.toPath())),
-                     new String(Files.readAllBytes(destFile.toPath())));
+        assertNotNull(deltas);
+        assertEquals(2, deltas.size());
+        boolean foundRemove = false;
+        boolean foundAdd = false;
+        for (EntityComparator.Delta delta : deltas) {
+            if (delta.getCmd() == EntityComparator.Delta.Command.SET_REMOVE) {
+                assertEquals("b", delta.getSourceValue());
+                assertNull(delta.getTargetValue());
+                foundRemove = true;
+            } else if (delta.getCmd() == EntityComparator.Delta.Command.SET_ADD) {
+                assertNull(delta.getSourceValue());
+                assertEquals("c", delta.getTargetValue());
+                foundAdd = true;
+            }
+        }
+        assertTrue(foundRemove && foundAdd);
     }
 
-    /**
-     * Test copyFile method when source file doesn't exist.
-     */
-    @Test(expected = IOException.class)
-    public void testCopyFileSourceNotExists() throws IOException {
-        // Arrange
-        File sourceFile = new File(tempFolder.getRoot(), "nonexistent.txt");
-        File destFile = new File(tempFolder.getRoot(), "dest.txt");
-
-        // Act
-        fileSystemService.copyFile(sourceFile, destFile);
-    }
-
-    /**
-     * Test copyFile method when destination directory doesn't exist.
-     */
     @Test
-    public void testCopyFileDestinationDirNotExists() throws IOException {
-        // Arrange
-        File sourceFile = tempFolder.newFile("source.txt");
-        File destFile = new File(tempFolder.getRoot(), "subdir/dest.txt");
-        
-        // Write some content to source file
-        Files.write(sourceFile.toPath(), "test content".getBytes(), StandardOpenOption.CREATE);
+    public void testCompare_MapsDifferentValues() {
+        Map<String, Integer> source = new HashMap<>();
+        source.put("key1", 1);
+        source.put("key2", 2);
+        Map<String, Integer> target = new HashMap<>();
+        target.put("key1", 1);
+        target.put("key2", 3);
 
-        // Act
-        fileSystemService.copyFile(sourceFile, destFile);
+        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
 
-        // Assert
-        assertTrue("Destination file should exist", destFile.exists());
-        assertTrue("Destination directory should be created", destFile.getParentFile().exists());
+        assertNotNull(deltas);
+        assertEquals(1, deltas.size());
+        EntityComparator.Delta delta = deltas.get(0);
+        assertEquals("key2", delta.getOptionalKey());
     }
 
-    /**
-     * Test copyFile method with same source and destination.
-     */
     @Test
-    public void testCopyFileSameSourceAndDest() throws IOException {
-        // Arrange
-        File file = tempFolder.newFile("same.txt");
-        Files.write(file.toPath(), "test content".getBytes(), StandardOpenOption.CREATE);
+    public void testCompare_DifferentObjectTypes() {
+        Integer source = 42;
+        String target = "42";
 
-        // Act
-        fileSystemService.copyFile(file, file);
+        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
 
-        // Assert - should not throw exception, file should still exist
-        assertTrue("File should still exist", file.exists());
+        assertNotNull(deltas);
+        assertEquals(1, deltas.size());
+        EntityComparator.Delta delta = deltas.get(0);
+        assertEquals(EntityComparator.ROOT, delta.getFieldName());
+        assertEquals(source, delta.getSourceValue());
+        assertEquals(target, delta.getTargetValue());
+        assertEquals(EntityComparator.Delta.Command.OBJECT_FIELD_TYPE_CHANGED, delta.getCmd());
     }
 
-    /**
-     * Test moveFile method with successful move operation.
-     */
     @Test
-    public void testMoveFileSuccess() throws IOException {
-        // Arrange
-        File sourceFile = tempFolder.newFile("source.txt");
-        File destFile = new File(tempFolder.getRoot(), "dest.txt");
-        
-        // Write some content to source file
-        String content = "test content";
-        Files.write(sourceFile.toPath(), content.getBytes(), StandardOpenOption.CREATE);
+    public void testCompare_BothNull() {
+        Object source = null;
+        Object target = null;
 
-        // Act
-        fileSystemService.moveFile(sourceFile, destFile);
+        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
 
-        // Assert
-        assertFalse("Source file should not exist after move", sourceFile.exists());
-        assertTrue("Destination file should exist", destFile.exists());
-        assertEquals("File contents should match", content,
-                     new String(Files.readAllBytes(destFile.toPath())));
+        assertNotNull(deltas);
+        assertTrue(deltas.isEmpty());
     }
 
-    /**
-     * Test moveFile method when source file doesn't exist.
-     */
-    @Test(expected = IOException.class)
-    public void testMoveFileSourceNotExists() throws IOException {
-        // Arrange
-        File sourceFile = new File(tempFolder.getRoot(), "nonexistent.txt");
-        File destFile = new File(tempFolder.getRoot(), "dest.txt");
-
-        // Act
-        fileSystemService.moveFile(sourceFile, destFile);
-    }
-
-    /**
-     * Test moveFile method when destination directory doesn't exist.
-     */
     @Test
-    public void testMoveFileDestinationDirNotExists() throws IOException {
-        // Arrange
-        File sourceFile = tempFolder.newFile("source.txt");
-        File destFile = new File(tempFolder.getRoot(), "subdir/dest.txt");
-        
-        // Write some content to source file
-        String content = "test content";
-        Files.write(sourceFile.toPath(), content.getBytes(), StandardOpenOption.CREATE);
+    public void testCompare_SetsWithNullValues() {
+        Set<String> source = new LinkedHashSet<>(Arrays.asList("a", null));
+        Set<String> target = new LinkedHashSet<>(Arrays.asList("a", "b"));
 
-        // Act
-        fileSystemService.moveFile(sourceFile, destFile);
+        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
 
-        // Assert
-        assertFalse("Source file should not exist after move", sourceFile.exists());
-        assertTrue("Destination file should exist", destFile.exists());
-        assertTrue("Destination directory should be created", destFile.getParentFile().exists());
-        assertEquals("File contents should match", content,
-                     new String(Files.readAllBytes(destFile.toPath())));
+        assertNotNull(deltas);
+        assertEquals(2, deltas.size());
+
+        boolean foundRemove = false;
+        boolean foundAdd = false;
+        for (EntityComparator.Delta delta : deltas) {
+            if (delta.getCmd() == EntityComparator.Delta.Command.SET_REMOVE) {
+                assertEquals(null, delta.getSourceValue());
+                foundRemove = true;
+            } else if (delta.getCmd() == EntityComparator.Delta.Command.SET_ADD) {
+                assertEquals("b", delta.getTargetValue());
+                foundAdd = true;
+            }
+        }
+        assertTrue(foundRemove && foundAdd);
     }
 
-    /**
-     * Test moveFile method with same source and destination.
-     */
     @Test
-    public void testMoveFileSameSourceAndDest() throws IOException {
-        // Arrange
-        File file = tempFolder.newFile("same.txt");
-        String content = "test content";
-        Files.write(file.toPath(), content.getBytes(), StandardOpenOption.CREATE);
+    public void testCompare_MapsWithNullValues() {
+        Map<String, Integer> source = new HashMap<>();
+        source.put("key1", null);
+        source.put("key2", 2);
+        Map<String, Integer> target = new HashMap<>();
+        target.put("key1", 1);
+        target.put("key2", null);
 
-        // Act
-        fileSystemService.moveFile(file, file);
+        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
 
-        // Assert - should not throw exception, file should still exist
-        assertTrue("File should still exist", file.exists());
-        assertEquals("File contents should match", content,
-                     new String(Files.readAllBytes(file.toPath())));
+        assertNotNull(deltas);
+        assertEquals(2, deltas.size());
+
+        boolean foundPut = false;
+        for (EntityComparator.Delta delta : deltas) {
+            if (delta.getCmd() == EntityComparator.Delta.Command.MAP_PUT) {
+                assertNull(delta.getSourceValue());
+                foundPut = true;
+            }
+        }
+        assertTrue(foundPut);
     }
 
-    /**
-     * Test moveFile method when destination file already exists.
-     */
     @Test
-    public void testMoveFileDestinationExists() throws IOException {
-        // Arrange
-        File sourceFile = tempFolder.newFile("source.txt");
-        File destFile = tempFolder.newFile("dest.txt");
-        
-        String sourceContent = "source content";
-        String destContent = "dest content";
-        Files.write(sourceFile.toPath(), sourceContent.getBytes(), StandardOpenOption.CREATE);
-        Files.write(destFile.toPath(), destContent.getBytes(), StandardOpenOption.CREATE);
+    public void testCompare_ArraysWithNullElements() {
+        String[] source = {null, "b"};
+        String[] target = {"a", "b"};
 
-        // Act
-        fileSystemService.moveFile(sourceFile, destFile);
+        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
 
-        // Assert
-        assertFalse("Source file should not exist after move", sourceFile.exists());
-        assertTrue("Destination file should exist", destFile.exists());
-        assertEquals("Destination file should have source content", sourceContent,
-                     new String(Files.readAllBytes(destFile.toPath())));
+        assertNotNull(deltas);
+        assertEquals(1, deltas.size());
+
+        boolean foundFirstNull = false;
+        for (EntityComparator.Delta delta : deltas) {
+            if (delta.getCmd() == EntityComparator.Delta.Command.ARRAY_SET_ELEMENT) {
+                assertEquals(0, delta.getOptionalKey());
+                assertNull(delta.getSourceValue());
+                assertEquals("a", delta.getTargetValue());
+                foundFirstNull = true;
+            }
+        }
+        assertTrue(foundFirstNull);
     }
 
-    /**
-     * Test copyFile method when destination file already exists.
-     */
     @Test
-    public void testCopyFileDestinationExists() throws IOException {
-        // Arrange
-        File sourceFile = tempFolder.newFile("source.txt");
-        File destFile = tempFolder.newFile("dest.txt");
-        
-        String sourceContent = "source content";
-        String destContent = "dest content";
-        Files.write(sourceFile.toPath(), sourceContent.getBytes(), StandardOpenOption.CREATE);
-        Files.write(destFile.toPath(), destContent.getBytes(), StandardOpenOption.CREATE);
+    public void testCompare_DifferentObjectTypesWithNull() {
+        Integer source = null;
+        String target = "42";
 
-        // Act
-        fileSystemService.copyFile(sourceFile, destFile);
+        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
 
-        // Assert
-        assertTrue("Source file should still exist after copy", sourceFile.exists());
-        assertTrue("Destination file should exist", destFile.exists());
-        assertEquals("Destination file should have source content", sourceContent,
-                     new String(Files.readAllBytes(destFile.toPath())));
-        assertEquals("Source file should retain its content", sourceContent,
-                     new String(Files.readAllBytes(sourceFile.toPath())));
+        assertNotNull(deltas);
+        assertEquals(1, deltas.size());
+        EntityComparator.Delta delta = deltas.get(0);
+        assertEquals(EntityComparator.ROOT, delta.getFieldName());
+        assertNull(delta.getSourceValue());
+        assertEquals(target, delta.getTargetValue());
+        assertEquals(EntityComparator.Delta.Command.OBJECT_ASSIGN_FIELD, delta.getCmd());
     }
+
+    @Test
+    public void testCompare_OrphanObjects() {
+        class TestObject {
+            private String name;
+
+            public TestObject(String name) {
+                this.name = name;
+            }
+        }
+
+        TestObject source = new TestObject("foo");
+        TestObject target = new TestObject("bar");
+
+        when(idFetcher.getId(target)).thenReturn("obj1");
+
+        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, null, idFetcher);
+
+        assertNotNull(deltas);
+        assertEquals(2, deltas.size());
+        EntityComparator.Delta delta = deltas.get(0);
+        assertNotNull(delta.getSourceValue());
+        assertEquals(EntityComparator.Delta.Command.OBJECT_ASSIGN_FIELD, delta.getCmd());
+    }
+
 }
+
+Don't use power mockito as i m using older mockito version. Also for private methods try to use reflection. Plus we can't change any file other than the above test class. 
