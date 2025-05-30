@@ -1,521 +1,3 @@
-Could you write all the additional test cases for below java class to cover all the remaining scenarios or methods and make the test coverage or code coverage as 100% using junit 4 and old mockito version and java 8:
-
-package com.rbs.tntr.business.blotter.utility;
-
-import com.cedarsoftware.util.DeepEquals;
-import com.cedarsoftware.util.ReflectionUtils;
-import com.cedarsoftware.util.Traverser;
-import java.io.Serializable;
-import java.lang.reflect.Array;
-import java.lang.reflect.Field;
-import java.time.ZonedDateTime;
-import java.util.*;
-import java.util.Map.Entry;
-
-public class EntityComparator{
-    public static final String ROOT = "-root-";
-
-    public EntityComparator() {
-    }
-
-    public static List<EntityComparator.Delta> compare(Object source, Object target, final EntityComparator.ID idFetcher) {
-        Set<EntityComparator.Delta> deltas = new LinkedHashSet();
-        Set<String> visited = new HashSet();
-        LinkedList<EntityComparator.Delta> stack = new LinkedList();
-        stack.push(new EntityComparator.Delta(0L, ROOT, ROOT, source, target, null));
-
-        Object targetValue;
-        while(!stack.isEmpty()) {
-            EntityComparator.Delta delta = stack.pop();
-            String path = delta.srcPtr;
-            if (!stack.isEmpty()) {
-                path = path + "." + System.identityHashCode(stack.peek().srcValue);
-            }
-
-            if (!visited.contains(path)) {
-                Object srcValue = delta.srcValue;
-                targetValue = delta.targetValue;
-                visited.add(path);
-                if (srcValue != targetValue) {
-                    if (srcValue != null && targetValue != null) {
-                        if (srcValue.getClass().equals(targetValue.getClass()) || srcValue instanceof Map && targetValue instanceof Map || srcValue instanceof Set && targetValue instanceof Set || srcValue instanceof List && targetValue instanceof List) {
-                            if (isLogicalPrimitive(srcValue.getClass())) {
-                                if (!srcValue.equals(targetValue)) {
-                                    delta.setCmd(EntityComparator.Delta.Command.OBJECT_ASSIGN_FIELD);
-                                    deltas.add(delta);
-                                }
-                            } else if (srcValue.getClass().isArray()) {
-                                compareArrays(delta, deltas, stack, idFetcher);
-                            } else if (srcValue instanceof Set) {
-                                compareSets(delta, deltas, stack, idFetcher);
-                            } else if (srcValue instanceof Map) {
-                                compareMaps(delta, deltas, stack, idFetcher);
-                            } else if (srcValue instanceof List) {
-                                compareLists(delta, deltas, stack, idFetcher);
-                            } else {
-                                if (srcValue instanceof Collection) {
-                                    throw new RuntimeException("Detected custom Collection that does not extend List or Set: " + srcValue.getClass().getName() + ". GraphUtils.compare() needs to be updated to support it, obj id: " + delta.id + ", field: " + delta.fieldName);
-                                }
-
-                                if (isIdObject(srcValue, idFetcher) && isIdObject(targetValue, idFetcher)) {
-                                    Object srcId = idFetcher.getId(srcValue);
-                                    Object targetId = idFetcher.getId(targetValue);
-                                    if (!srcId.equals(targetId)) {
-                                        delta.setCmd(EntityComparator.Delta.Command.OBJECT_ASSIGN_FIELD);
-                                        deltas.add(delta);
-                                    } else {
-                                        Collection<Field> fields = ReflectionUtils.getDeepDeclaredFields(srcValue.getClass());
-                                        String sysId = "(" + System.identityHashCode(srcValue) + ").";
-                                        Iterator var14 = fields.iterator();
-
-                                        while(var14.hasNext()) {
-                                            Field field = (Field)var14.next();
-
-                                            try {
-                                                String srcPtr = sysId + field.getName();
-                                                stack.push(new EntityComparator.Delta(srcId, field.getName(), srcPtr, field.get(srcValue), field.get(targetValue), (Object)null));
-                                            } catch (Exception var17) {
-                                            }
-                                        }
-                                    }
-                                } else if (!DeepEquals.deepEquals(srcValue, targetValue)) {
-                                    delta.setCmd(EntityComparator.Delta.Command.OBJECT_ASSIGN_FIELD);
-                                    deltas.add(delta);
-                                }
-                            }
-                        } else {
-                            delta.setCmd(EntityComparator.Delta.Command.OBJECT_FIELD_TYPE_CHANGED);
-                            deltas.add(delta);
-                        }
-                    } else {
-                        delta.setCmd(EntityComparator.Delta.Command.OBJECT_ASSIGN_FIELD);
-                        deltas.add(delta);
-                    }
-                }
-            }
-        }
-
-        final Set potentialOrphans = new HashSet();
-        Traverser.traverse(source, o -> {
-            if (EntityComparator.isIdObject(o, idFetcher)) {
-                potentialOrphans.add(idFetcher.getId(o));
-            }
-
-        });
-        Traverser.traverse(target, o -> {
-            if (EntityComparator.isIdObject(o, idFetcher)) {
-                potentialOrphans.remove(idFetcher.getId(o));
-            }
-
-        });
-        List forReturn = new ArrayList(deltas);
-        Iterator var20 = potentialOrphans.iterator();
-
-        while(var20.hasNext()) {
-            targetValue = var20.next();
-            EntityComparator.Delta orphanDelta = new EntityComparator.Delta(targetValue, null, "", null, null, null);
-            orphanDelta.setCmd(EntityComparator.Delta.Command.OBJECT_ORPHAN);
-            forReturn.add(orphanDelta);
-        }
-
-        return forReturn;
-    }
-
-    private static boolean isLogicalPrimitive(Class c) {
-        return c.isPrimitive() || String.class == c || Date.class.isAssignableFrom(c) || Number.class.isAssignableFrom(c) || Boolean.class.isAssignableFrom(c) || Calendar.class.isAssignableFrom(c) || TimeZone.class.isAssignableFrom(c) || Character.class == c || ZonedDateTime.class.isAssignableFrom(c);
-    }
-
-    private static boolean isIdObject(Object o, EntityComparator.ID idFetcher) {
-        if (o == null) {
-            return false;
-        } else {
-            Class c = o.getClass();
-            if (!isLogicalPrimitive(c) && !c.isArray() && !Collection.class.isAssignableFrom(c) && !Map.class.isAssignableFrom(c) && Object.class != c) {
-                try {
-                    idFetcher.getId(o);
-                    return true;
-                } catch (Exception var4) {
-                    return false;
-                }
-            } else {
-                return false;
-            }
-        }
-    }
-
-    private static void compareArrays(EntityComparator.Delta delta, Collection deltas, LinkedList stack, EntityComparator.ID idFetcher) {
-        int srcLen = Array.getLength(delta.srcValue);
-        int targetLen = Array.getLength(delta.targetValue);
-        if (srcLen != targetLen) {
-            delta.setCmd(EntityComparator.Delta.Command.ARRAY_RESIZE);
-            delta.setOptionalKey(targetLen);
-            deltas.add(delta);
-        }
-
-        String sysId = "(" + System.identityHashCode(delta.srcValue) + ')';
-        Class compType = delta.targetValue.getClass().getComponentType();
-        int i;
-        Object targetValue;
-        String srcPtr;
-        Object srcValue;
-        if (isLogicalPrimitive(compType)) {
-            for(i = 0; i < targetLen; ++i) {
-                targetValue = Array.get(delta.targetValue, i);
-                srcPtr = sysId + '[' + i + ']';
-                if (i >= srcLen) {
-                    copyArrayElement(delta, deltas, srcPtr, (Object)null, targetValue, i);
-                } else {
-                    srcValue = Array.get(delta.srcValue, i);
-                    if (srcValue == null && targetValue != null || srcValue != null && targetValue == null || !srcValue.equals(targetValue)) {
-                        copyArrayElement(delta, deltas, srcPtr, srcValue, targetValue, i);
-                    }
-                }
-            }
-        } else {
-            for(i = targetLen - 1; i >= 0; --i) {
-                targetValue = Array.get(delta.targetValue, i);
-                srcPtr = sysId + '[' + i + ']';
-                if (i < srcLen) {
-                    srcValue = Array.get(delta.srcValue, i);
-                    if (targetValue != null && srcValue != null) {
-                        if (isIdObject(srcValue, idFetcher) && isIdObject(targetValue, idFetcher)) {
-                            Object srcId = idFetcher.getId(srcValue);
-                            Object targetId = idFetcher.getId(targetValue);
-                            if (targetId.equals(srcId)) {
-                                stack.push(new EntityComparator.Delta(delta.id, delta.fieldName, srcPtr, srcValue, targetValue, i));
-                            } else {
-                                copyArrayElement(delta, deltas, srcPtr, srcValue, targetValue, i);
-                            }
-                        } else if (!DeepEquals.deepEquals(srcValue, targetValue)) {
-                            copyArrayElement(delta, deltas, srcPtr, srcValue, targetValue, i);
-                        }
-                    } else if (srcValue != targetValue) {
-                        copyArrayElement(delta, deltas, srcPtr, srcValue, targetValue, i);
-                    }
-                } else {
-                    copyArrayElement(delta, deltas, srcPtr, (Object)null, targetValue, i);
-                }
-            }
-        }
-
-    }
-
-    private static void copyArrayElement(EntityComparator.Delta delta, Collection deltas, String srcPtr, Object srcValue, Object targetValue, int index) {
-        EntityComparator.Delta copyDelta = new EntityComparator.Delta(delta.id, delta.fieldName, srcPtr, srcValue, targetValue, index);
-        copyDelta.setCmd(EntityComparator.Delta.Command.ARRAY_SET_ELEMENT);
-        deltas.add(copyDelta);
-    }
-
-    private static void compareSets(EntityComparator.Delta delta, Collection deltas, LinkedList stack, EntityComparator.ID idFetcher) {
-        Set srcSet = (Set)delta.srcValue;
-        Set targetSet = (Set)delta.targetValue;
-        Map targetIdToValue = new HashMap();
-        Iterator var7 = targetSet.iterator();
-
-        while(var7.hasNext()) {
-            Object targetValue = var7.next();
-            if (targetValue != null && isIdObject(targetValue, idFetcher)) {
-                targetIdToValue.put(idFetcher.getId(targetValue), targetValue);
-            }
-        }
-
-        Map srcIdToValue = new HashMap();
-        String sysId = "(" + System.identityHashCode(srcSet) + ").remove(";
-        Iterator var9 = srcSet.iterator();
-
-        Object targetValue;
-        String srcPtr;
-        Object targetId;
-        EntityComparator.Delta addDelta;
-        while(var9.hasNext()) {
-            targetValue = var9.next();
-            srcPtr = sysId + System.identityHashCode(targetValue) + ')';
-            if (isIdObject(targetValue, idFetcher)) {
-                targetId = idFetcher.getId(targetValue);
-                srcIdToValue.put(targetId, targetValue);
-                if (targetIdToValue.containsKey(targetId)) {
-                    stack.push(new EntityComparator.Delta(delta.id, delta.fieldName, srcPtr, targetValue, targetIdToValue.get(targetId), (Object)null));
-                } else {
-                    addDelta = new EntityComparator.Delta(delta.id, delta.fieldName, srcPtr, targetValue, (Object)null, (Object)null);
-                    addDelta.setCmd(EntityComparator.Delta.Command.SET_REMOVE);
-                    deltas.add(addDelta);
-                }
-            } else if (!targetSet.contains(targetValue)) {
-                addDelta = new EntityComparator.Delta(delta.id, delta.fieldName, srcPtr, targetValue, (Object)null, (Object)null);
-                addDelta.setCmd(EntityComparator.Delta.Command.SET_REMOVE);
-                deltas.add(addDelta);
-            }
-        }
-
-        sysId = "(" + System.identityHashCode(targetSet) + ").add(";
-        var9 = targetSet.iterator();
-
-        while(var9.hasNext()) {
-            targetValue = var9.next();
-            srcPtr = sysId + System.identityHashCode(targetValue) + ')';
-            if (isIdObject(targetValue, idFetcher)) {
-                targetId = idFetcher.getId(targetValue);
-                if (!srcIdToValue.containsKey(targetId)) {
-                    addDelta = new EntityComparator.Delta(delta.id, delta.fieldName, srcPtr, (Object)null, targetValue, (Object)null);
-                    addDelta.setCmd(EntityComparator.Delta.Command.SET_ADD);
-                    deltas.add(addDelta);
-                }
-            } else if (!srcSet.contains(targetValue)) {
-                addDelta = new EntityComparator.Delta(delta.id, delta.fieldName, srcPtr, (Object)null, targetValue, (Object)null);
-                addDelta.setCmd(EntityComparator.Delta.Command.SET_ADD);
-                deltas.add(addDelta);
-            }
-        }
-
-    }
-
-    private static void compareMaps(EntityComparator.Delta delta, Collection deltas, LinkedList stack, EntityComparator.ID idFetcher) {
-        Map<Object, Object> srcMap = (Map)delta.srcValue;
-        Map<Object, Object> targetMap = (Map)delta.targetValue;
-        String sysId = "(" + System.identityHashCode(srcMap) + ')';
-        Iterator var7 = srcMap.entrySet().iterator();
-
-        while(true) {
-            while(true) {
-                while(true) {
-                    Entry entry;
-                    Object srcKey;
-                    while(var7.hasNext()) {
-                        entry = (Entry)var7.next();
-                        srcKey = entry.getKey();
-                        Object srcValue = entry.getValue();
-                        String srcPtr = sysId + "['" + System.identityHashCode(srcKey) + "']";
-                        if (targetMap.containsKey(srcKey)) {
-                            Object targetValue = targetMap.get(srcKey);
-                            if (srcValue != null && targetValue != null) {
-                                if (isIdObject(srcValue, idFetcher) && isIdObject(targetValue, idFetcher)) {
-                                    if (idFetcher.getId(srcValue).equals(idFetcher.getId(targetValue))) {
-                                        stack.push(new EntityComparator.Delta(delta.id, delta.fieldName, srcPtr, srcValue, targetValue, (Object)null));
-                                    } else {
-                                        addMapPutDelta(delta, deltas, srcPtr, targetValue, srcKey);
-                                    }
-                                } else if (!DeepEquals.deepEquals(srcValue, targetValue)) {
-                                    addMapPutDelta(delta, deltas, srcPtr, targetValue, srcKey);
-                                }
-                            } else if (srcValue != targetValue) {
-                                addMapPutDelta(delta, deltas, srcPtr, targetValue, srcKey);
-                            }
-                        } else {
-                            EntityComparator.Delta removeDelta = new EntityComparator.Delta(delta.id, delta.fieldName, srcPtr, srcValue, (Object)null, srcKey);
-                            removeDelta.setCmd(EntityComparator.Delta.Command.MAP_REMOVE);
-                            deltas.add(removeDelta);
-                        }
-                    }
-
-                    var7 = targetMap.entrySet().iterator();
-
-                    while(var7.hasNext()) {
-                        entry = (Entry)var7.next();
-                        srcKey = entry.getKey();
-                        String srcPtr = sysId + "['" + System.identityHashCode(srcKey) + "']";
-                        if (!srcMap.containsKey(srcKey)) {
-                            EntityComparator.Delta putDelta = new EntityComparator.Delta(delta.id, delta.fieldName, srcPtr, (Object)null, entry.getValue(), srcKey);
-                            putDelta.setCmd(EntityComparator.Delta.Command.MAP_PUT);
-                            deltas.add(putDelta);
-                        }
-                    }
-
-                    return;
-                }
-            }
-        }
-    }
-
-    private static void addMapPutDelta(EntityComparator.Delta delta, Collection deltas, String srcPtr, Object targetValue, Object key) {
-        EntityComparator.Delta putDelta = new EntityComparator.Delta(delta.id, delta.fieldName, srcPtr, (Object)null, targetValue, key);
-        putDelta.setCmd(EntityComparator.Delta.Command.MAP_PUT);
-        deltas.add(putDelta);
-    }
-
-    private static void compareLists(EntityComparator.Delta delta, Collection deltas, LinkedList stack, EntityComparator.ID idFetcher) {
-        List srcList = (List)delta.srcValue;
-        List targetList = (List)delta.targetValue;
-        int srcLen = srcList.size();
-        int targetLen = targetList.size();
-        if (srcLen != targetLen) {
-            delta.setCmd(EntityComparator.Delta.Command.LIST_RESIZE);
-            delta.setOptionalKey(targetLen);
-            deltas.add(delta);
-        }
-
-        String sysId = "(" + System.identityHashCode(srcList) + ')';
-
-        for(int i = targetLen - 1; i >= 0; --i) {
-            Object targetValue = targetList.get(i);
-            String srcPtr = sysId + '{' + i + '}';
-            if (i < srcLen) {
-                Object srcValue = srcList.get(i);
-                if (targetValue != null && srcValue != null) {
-                    if (isIdObject(srcValue, idFetcher) && isIdObject(targetValue, idFetcher)) {
-                        Object srcId = idFetcher.getId(srcValue);
-                        Object targetId = idFetcher.getId(targetValue);
-                        if (targetId.equals(srcId)) {
-                            stack.push(new EntityComparator.Delta(delta.id, delta.fieldName, srcPtr, srcValue, targetValue, i));
-                        } else {
-                            copyListElement(delta, deltas, srcPtr, srcValue, targetValue, i);
-                        }
-                    } else if (!DeepEquals.deepEquals(srcValue, targetValue)) {
-                        copyListElement(delta, deltas, srcPtr, srcValue, targetValue, i);
-                    }
-                } else if (srcValue != targetValue) {
-                    copyListElement(delta, deltas, srcPtr, srcValue, targetValue, i);
-                }
-            } else {
-                copyListElement(delta, deltas, srcPtr, (Object)null, targetValue, i);
-            }
-        }
-
-    }
-
-    private static void copyListElement(EntityComparator.Delta delta, Collection deltas, String srcPtr, Object srcValue, Object targetValue, int index) {
-        EntityComparator.Delta copyDelta = new EntityComparator.Delta(delta.id, delta.fieldName, srcPtr, srcValue, targetValue, index);
-        copyDelta.setCmd(EntityComparator.Delta.Command.LIST_SET_ELEMENT);
-        deltas.add(copyDelta);
-    }
-
-    public static class Delta implements Serializable {
-        private static final long serialVersionUID = -4388236892818050806L;
-        private String srcPtr;
-        private Object id;
-        private String fieldName;
-        private Object srcValue;
-        private Object targetValue;
-        private Object optionalKey;
-        private EntityComparator.Delta.Command cmd;
-
-        public Delta(Object id, String fieldName, String srcPtr, Object srcValue, Object targetValue, Object optKey) {
-            this.id = id;
-            this.fieldName = fieldName;
-            this.srcPtr = srcPtr;
-            this.srcValue = srcValue;
-            this.targetValue = targetValue;
-            this.optionalKey = optKey;
-        }
-
-        public Object getId() {
-            return this.id;
-        }
-
-        public void setId(Object id) {
-            this.id = id;
-        }
-
-        public String getFieldName() {
-            return this.fieldName;
-        }
-
-        public void setFieldName(String fieldName) {
-            this.fieldName = fieldName;
-        }
-
-        public Object getSourceValue() {
-            return this.srcValue;
-        }
-
-        public void setSourceValue(Object srcValue) {
-            this.srcValue = srcValue;
-        }
-
-        public Object getTargetValue() {
-            return this.targetValue;
-        }
-
-        public void setTargetValue(Object targetValue) {
-            this.targetValue = targetValue;
-        }
-
-        public Object getOptionalKey() {
-            return this.optionalKey;
-        }
-
-        public void setOptionalKey(Object optionalKey) {
-            this.optionalKey = optionalKey;
-        }
-
-        public EntityComparator.Delta.Command getCmd() {
-            return this.cmd;
-        }
-
-        public void setCmd(EntityComparator.Delta.Command cmd) {
-            this.cmd = cmd;
-        }
-
-        public String toString() {
-            return "Delta {id=" + this.id + ", fieldName='" + this.fieldName + '\'' + ", srcPtr=" + this.srcPtr + ", srcValue=" + this.srcValue + ", targetValue=" + this.targetValue + ", optionalKey=" + this.optionalKey + ", cmd='" + this.cmd + '\'' + '}';
-        }
-
-        public boolean equals(Object other) {
-            if (this == other) {
-                return true;
-            } else if (other != null && this.getClass() == other.getClass()) {
-                EntityComparator.Delta delta = (EntityComparator.Delta)other;
-                return this.srcPtr.equals(delta.srcPtr);
-            } else {
-                return false;
-            }
-        }
-
-        public int hashCode() {
-            return this.srcPtr.hashCode();
-        }
-
-        public static enum Command {
-            ARRAY_SET_ELEMENT("array.setElement"),
-            ARRAY_RESIZE("array.resize"),
-            OBJECT_ASSIGN_FIELD("object.assignField"),
-            OBJECT_ORPHAN("object.orphan"),
-            OBJECT_FIELD_TYPE_CHANGED("object.fieldTypeChanged"),
-            SET_ADD("set.add"),
-            SET_REMOVE("set.remove"),
-            MAP_PUT("map.put"),
-            MAP_REMOVE("map.remove"),
-            LIST_RESIZE("list.resize"),
-            LIST_SET_ELEMENT("list.setElement");
-
-            private String name;
-
-            private Command(String name) {
-                this.name = name.intern();
-            }
-
-            public String getName() {
-                return this.name;
-            }
-
-            public static EntityComparator.Delta.Command fromName(String name) {
-                if (name != null && !"".equals(name.trim())) {
-                    name = name.toLowerCase();
-                    EntityComparator.Delta.Command[] var1 = values();
-                    int var2 = var1.length;
-
-                    for(int var3 = 0; var3 < var2; ++var3) {
-                        EntityComparator.Delta.Command t = var1[var3];
-                        if (t.getName().equals(name)) {
-                            return t;
-                        }
-                    }
-
-                    throw new IllegalArgumentException("Unknown Command enum: " + name);
-                } else {
-                    throw new IllegalArgumentException("Name is required for Command.forName()");
-                }
-            }
-        }
-    }
-
-    public interface ID {
-        Object getId(Object var1);
-    }
-}
-
-
-Existing test class:
-
 package com.rbs.tntr.business.blotter.utility;
 
 import org.junit.Before;
@@ -524,10 +6,11 @@ import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.mockito.runners.MockitoJUnitRunner;
+
 import java.util.*;
 
 import static org.junit.Assert.*;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 @RunWith(MockitoJUnitRunner.class)
 public class EntityComparatorTest {
@@ -539,6 +22,8 @@ public class EntityComparatorTest {
     public void setUp() {
         MockitoAnnotations.initMocks(this);
     }
+
+    // Existing Tests
 
     @Test
     public void testCompare_PrimitivesEqual() {
@@ -605,7 +90,6 @@ public class EntityComparatorTest {
 
         assertNotNull(deltas);
         assertEquals(2, deltas.size());
-        // Expect deltas for 'name' and 'value' fields
         boolean foundName = false;
         boolean foundValue = false;
         for (EntityComparator.Delta delta : deltas) {
@@ -633,7 +117,6 @@ public class EntityComparatorTest {
 
         assertNotNull(deltas);
         assertEquals(2, deltas.size());
-        // Expect ARRAY_RESIZE and ARRAY_SET_ELEMENT
         boolean foundResize = false;
         boolean foundSet = false;
         for (EntityComparator.Delta delta : deltas) {
@@ -706,6 +189,9 @@ public class EntityComparatorTest {
         assertEquals(1, deltas.size());
         EntityComparator.Delta delta = deltas.get(0);
         assertEquals("key2", delta.getOptionalKey());
+        assertEquals(2, delta.getSourceValue());
+        assertEquals(3, delta.getTargetValue());
+        assertEquals(EntityComparator.Delta.Command.MAP_PUT, delta.getCmd());
     }
 
     @Test
@@ -744,12 +230,11 @@ public class EntityComparatorTest {
 
         assertNotNull(deltas);
         assertEquals(2, deltas.size());
-
         boolean foundRemove = false;
         boolean foundAdd = false;
         for (EntityComparator.Delta delta : deltas) {
             if (delta.getCmd() == EntityComparator.Delta.Command.SET_REMOVE) {
-                assertEquals(null, delta.getSourceValue());
+                assertNull(delta.getSourceValue());
                 foundRemove = true;
             } else if (delta.getCmd() == EntityComparator.Delta.Command.SET_ADD) {
                 assertEquals("b", delta.getTargetValue());
@@ -772,15 +257,22 @@ public class EntityComparatorTest {
 
         assertNotNull(deltas);
         assertEquals(2, deltas.size());
-
-        boolean foundPut = false;
+        boolean foundKey1 = false;
+        boolean foundKey2 = false;
         for (EntityComparator.Delta delta : deltas) {
-            if (delta.getCmd() == EntityComparator.Delta.Command.MAP_PUT) {
+            if ("key1".equals(delta.getOptionalKey())) {
                 assertNull(delta.getSourceValue());
-                foundPut = true;
+                assertEquals(1, delta.getTargetValue());
+                assertEquals(EntityComparator.Delta.Command.MAP_PUT, delta.getCmd());
+                foundKey1 = true;
+            } else if ("key2".equals(delta.getOptionalKey())) {
+                assertEquals(2, delta.getSourceValue());
+                assertNull(delta.getTargetValue());
+                assertEquals(EntityComparator.Delta.Command.MAP_PUT, delta.getCmd());
+                foundKey2 = true;
             }
         }
-        assertTrue(foundPut);
+        assertTrue(foundKey1 && foundKey2);
     }
 
     @Test
@@ -792,17 +284,11 @@ public class EntityComparatorTest {
 
         assertNotNull(deltas);
         assertEquals(1, deltas.size());
-
-        boolean foundFirstNull = false;
-        for (EntityComparator.Delta delta : deltas) {
-            if (delta.getCmd() == EntityComparator.Delta.Command.ARRAY_SET_ELEMENT) {
-                assertEquals(0, delta.getOptionalKey());
-                assertNull(delta.getSourceValue());
-                assertEquals("a", delta.getTargetValue());
-                foundFirstNull = true;
-            }
-        }
-        assertTrue(foundFirstNull);
+        EntityComparator.Delta delta = deltas.get(0);
+        assertEquals(0, delta.getOptionalKey());
+        assertNull(delta.getSourceValue());
+        assertEquals("a", delta.getTargetValue());
+        assertEquals(EntityComparator.Delta.Command.ARRAY_SET_ELEMENT, delta.getCmd());
     }
 
     @Test
@@ -824,27 +310,358 @@ public class EntityComparatorTest {
     @Test
     public void testCompare_OrphanObjects() {
         class TestObject {
-            private String name;
+            private String id;
 
-            public TestObject(String name) {
-                this.name = name;
+            public TestObject(String id) {
+                this.id = id;
+            }
+
+            public String getId() {
+                return id;
             }
         }
 
-        TestObject source = new TestObject("foo");
-        TestObject target = new TestObject("bar");
+        TestObject source = new TestObject("obj1");
 
-        when(idFetcher.getId(target)).thenReturn("obj1");
+        when(idFetcher.getId(source)).thenReturn("obj1");
 
         List<EntityComparator.Delta> deltas = EntityComparator.compare(source, null, idFetcher);
 
         assertNotNull(deltas);
         assertEquals(2, deltas.size());
+        boolean foundAssign = false;
+        boolean foundOrphan = false;
+        for (EntityComparator.Delta delta : deltas) {
+            if (delta.getCmd() == EntityComparator.Delta.Command.OBJECT_ASSIGN_FIELD) {
+                assertEquals(source, delta.getSourceValue());
+                assertNull(delta.getTargetValue());
+                foundAssign = true;
+            } else if (delta.getCmd() == EntityComparator.Delta.Command.OBJECT_ORPHAN) {
+                assertEquals("obj1", delta.getId());
+                foundOrphan = true;
+            }
+        }
+        assertTrue(foundAssign && foundOrphan);
+    }
+
+    // Additional Tests
+
+    @Test(expected = RuntimeException.class)
+    public void testCompare_CustomCollection() {
+        Collection<String> source = new ArrayDeque<>(Arrays.asList("a", "b"));
+        Collection<String> target = new ArrayDeque<>(Arrays.asList("a", "c"));
+
+        EntityComparator.compare(source, target, idFetcher);
+    }
+
+    @Test
+    public void testCompare_IdObjectsDifferentIds() {
+        class Person {
+            private String id;
+            private String name;
+
+            public Person(String id, String name) {
+                this.id = id;
+                this.name = name;
+            }
+
+            public String getId() {
+                return id;
+            }
+        }
+
+        Person source = new Person("1", "Alice");
+        Person target = new Person("2", "Bob");
+
+        when(idFetcher.getId(source)).thenReturn("1");
+        when(idFetcher.getId(target)).thenReturn("2");
+
+        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
+
+        assertNotNull(deltas);
+        assertEquals(1, deltas.size());
         EntityComparator.Delta delta = deltas.get(0);
-        assertNotNull(delta.getSourceValue());
+        assertEquals(EntityComparator.ROOT, delta.getFieldName());
+        assertEquals(source, delta.getSourceValue());
+        assertEquals(target, delta.getTargetValue());
         assertEquals(EntityComparator.Delta.Command.OBJECT_ASSIGN_FIELD, delta.getCmd());
     }
 
-}
+    @Test
+    public void testCompare_IdObjectsSameIds() {
+        class Person {
+            private String id;
+            private String name;
 
-Don't use power mockito as i m using older mockito version. Also for private methods try to use reflection. Plus we can't change any file other than the above test class. 
+            public Person(String id, String name) {
+                this.id = id;
+                this.name = name;
+            }
+
+            public String getId() {
+                return id;
+            }
+        }
+
+        Person source = new Person("1", "Alice");
+        Person target = new Person("1", "Alicia");
+
+        when(idFetcher.getId(source)).thenReturn("1");
+        when(idFetcher.getId(target)).thenReturn("1");
+
+        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
+
+        assertNotNull(deltas);
+        assertEquals(1, deltas.size());
+        EntityComparator.Delta delta = deltas.get(0);
+        assertEquals("name", delta.getFieldName());
+        assertEquals("Alice", delta.getSourceValue());
+        assertEquals("Alicia", delta.getTargetValue());
+        assertEquals(EntityComparator.Delta.Command.OBJECT_ASSIGN_FIELD, delta.getCmd());
+    }
+
+    @Test
+    public void testCompare_ArraysOfObjects() {
+        class Person {
+            private String id;
+            private String name;
+
+            public Person(String id, String name) {
+                this.id = id;
+                this.name = name;
+            }
+
+            public String getId() {
+                return id;
+            }
+        }
+
+        Person[] source = {new Person("1", "Alice"), new Person("2", "Bob")};
+        Person[] target = {new Person("1", "Alicia"), new Person("3", "Charlie")};
+
+        when(idFetcher.getId(source[0])).thenReturn("1");
+        when(idFetcher.getId(target[0])).thenReturn("1");
+        when(idFetcher.getId(source[1])).thenReturn("2");
+        when(idFetcher.getId(target[1])).thenReturn("3");
+
+        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
+
+        assertNotNull(deltas);
+        assertEquals(2, deltas.size());
+        boolean foundNameDelta = false;
+        boolean foundElementDelta = false;
+        for (EntityComparator.Delta delta : deltas) {
+            if (delta.getCmd() == EntityComparator.Delta.Command.OBJECT_ASSIGN_FIELD && "name".equals(delta.getFieldName())) {
+                assertEquals("Alice", delta.getSourceValue());
+                assertEquals("Alicia", delta.getTargetValue());
+                foundNameDelta = true;
+            } else if (delta.getCmd() == EntityComparator.Delta.Command.ARRAY_SET_ELEMENT) {
+                assertEquals(1, delta.getOptionalKey());
+                assertEquals(source[1], delta.getSourceValue());
+                assertEquals(target[1], delta.getTargetValue());
+                foundElementDelta = true;
+            }
+        }
+        assertTrue(foundNameDelta && foundElementDelta);
+    }
+
+    @Test
+    public void testCompare_SetsOfObjects() {
+        class Person {
+            private String id;
+            private String name;
+
+            public Person(String id, String name) {
+                this.id = id;
+                this.name = name;
+            }
+
+            public String getId() {
+                return id;
+            }
+        }
+
+        Person p1Source = new Person("1", "Alice");
+        Person p2Source = new Person("2", "Bob");
+        Set<Person> source = new LinkedHashSet<>(Arrays.asList(p1Source, p2Source));
+
+        Person p1Target = new Person("1", "Alicia");
+        Person p3Target = new Person("3", "Charlie");
+        Set<Person> target = new LinkedHashSet<>(Arrays.asList(p1Target, p3Target));
+
+        when(idFetcher.getId(p1Source)).thenReturn("1");
+        when(idFetcher.getId(p1Target)).thenReturn("1");
+        when(idFetcher.getId(p2Source)).thenReturn("2");
+        when(idFetcher.getId(p3Target)).thenReturn("3");
+
+        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
+
+        assertNotNull(deltas);
+        assertEquals(3, deltas.size());
+        boolean foundRemove = false;
+        boolean foundAdd = false;
+        boolean foundUpdate = false;
+        for (EntityComparator.Delta delta : deltas) {
+            if (delta.getCmd() == EntityComparator.Delta.Command.SET_REMOVE) {
+                assertEquals(p2Source, delta.getSourceValue());
+                foundRemove = true;
+            } else if (delta.getCmd() == EntityComparator.Delta.Command.SET_ADD) {
+                assertEquals(p3Target, delta.getTargetValue());
+                foundAdd = true;
+            } else if (delta.getCmd() == EntityComparator.Delta.Command.OBJECT_ASSIGN_FIELD && "name".equals(delta.getFieldName())) {
+                assertEquals("Alice", delta.getSourceValue());
+                assertEquals("Alicia", delta.getTargetValue());
+                foundUpdate = true;
+            }
+        }
+        assertTrue(foundRemove && foundAdd && foundUpdate);
+    }
+
+    @Test
+    public void testCompare_MapsWithObjectValues() {
+        class Person {
+            private String id;
+            private String name;
+
+            public Person(String id, String name) {
+                this.id = id;
+                this.name = name;
+            }
+
+            public String getId() {
+                return id;
+            }
+        }
+
+        Person p1Source = new Person("1", "Alice");
+        Person p2Source = new Person("2", "Bob");
+        Map<String, Person> source = new HashMap<>();
+        source.put("key1", p1Source);
+        source.put("key2", p2Source);
+
+        Person p1Target = new Person("1", "Alicia");
+        Person p3Target = new Person("3", "Charlie");
+        Map<String, Person> target = new HashMap<>();
+        target.put("key1", p1Target);
+        target.put("key3", p3Target);
+
+        when(idFetcher.getId(p1Source)).thenReturn("1");
+        when(idFetcher.getId(p1Target)).thenReturn("1");
+        when(idFetcher.getId(p2Source)).thenReturn("2");
+        when(idFetcher.getId(p3Target)).thenReturn("3");
+
+        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
+
+        assertNotNull(deltas);
+        assertEquals(3, deltas.size());
+        boolean foundUpdate = false;
+        boolean foundRemove = false;
+        boolean foundAdd = false;
+        for (EntityComparator.Delta delta : deltas) {
+            if (delta.getCmd() == EntityComparator.Delta.Command.OBJECT_ASSIGN_FIELD && "name".equals(delta.getFieldName())) {
+                assertEquals("Alice", delta.getSourceValue());
+                assertEquals("Alicia", delta.getTargetValue());
+                foundUpdate = true;
+            } else if (delta.getCmd() == EntityComparator.Delta.Command.MAP_REMOVE) {
+                assertEquals("key2", delta.getOptionalKey());
+                assertEquals(p2Source, delta.getSourceValue());
+                foundRemove = true;
+            } else if (delta.getCmd() == EntityComparator.Delta.Command.MAP_PUT) {
+                assertEquals("key3", delta.getOptionalKey());
+                assertEquals(p3Target, delta.getTargetValue());
+                foundAdd = true;
+            }
+        }
+        assertTrue(foundUpdate && foundRemove && foundAdd);
+    }
+
+    @Test
+    public void testCompare_OrphanDetection() {
+        class Person {
+            private String id;
+            private String name;
+
+            public Person(String id, String name) {
+                this.id = id;
+                this.name = name;
+            }
+
+            public String getId() {
+                return id;
+            }
+        }
+
+        List<Person> source = Arrays.asList(new Person("1", "Alice"), new Person("2", "Bob"));
+        List<Person> target = Arrays.asList(new Person("1", "Alice"));
+
+        when(idFetcher.getId(source.get(0))).thenReturn("1");
+        when(idFetcher.getId(source.get(1))).thenReturn("2");
+        when(idFetcher.getId(target.get(0))).thenReturn("1");
+
+        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
+
+        assertNotNull(deltas);
+        assertEquals(2, deltas.size());
+        boolean foundResize = false;
+        boolean foundOrphan = false;
+        for (EntityComparator.Delta delta : deltas) {
+            if (delta.getCmd() == EntityComparator.Delta.Command.LIST_RESIZE) {
+                assertEquals(1, delta.getOptionalKey());
+                foundResize = true;
+            } else if (delta.getCmd() == EntityComparator.Delta.Command.OBJECT_ORPHAN) {
+                assertEquals("2", delta.getId());
+                foundOrphan = true;
+            }
+        }
+        assertTrue(foundResize && foundOrphan);
+    }
+
+    @Test
+    public void testCompare_NonIdObjects() {
+        class NonIdObject {
+            private String name;
+
+            public NonIdObject(String name) {
+                this.name = name;
+            }
+        }
+
+        NonIdObject source = new NonIdObject("foo");
+        NonIdObject target = new NonIdObject("bar");
+
+        when(idFetcher.getId(source)).thenThrow(new RuntimeException("No ID"));
+        when(idFetcher.getId(target)).thenThrow(new RuntimeException("No ID"));
+
+        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
+
+        assertNotNull(deltas);
+        assertEquals(1, deltas.size());
+        EntityComparator.Delta delta = deltas.get(0);
+        assertEquals(EntityComparator.ROOT, delta.getFieldName());
+        assertEquals(source, delta.getSourceValue());
+        assertEquals(target, delta.getTargetValue());
+        assertEquals(EntityComparator.Delta.Command.OBJECT_ASSIGN_FIELD, delta.getCmd());
+    }
+
+    @Test
+    public void testCompare_NonIdObjectsEqual() {
+        class NonIdObject {
+            private String name;
+
+            public NonIdObject(String name) {
+                this.name = name;
+            }
+        }
+
+        NonIdObject source = new NonIdObject("foo");
+        NonIdObject target = new NonIdObject("foo");
+
+        when(idFetcher.getId(source)).thenThrow(new RuntimeException("No ID"));
+        when(idFetcher.getId(target)).thenThrow(new RuntimeException("No ID"));
+
+        List<EntityComparator.Delta> deltas = EntityComparator.compare(source, target, idFetcher);
+
+        assertNotNull(deltas);
+        assertTrue(deltas.isEmpty());
+    }
+}
