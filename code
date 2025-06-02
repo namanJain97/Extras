@@ -1,249 +1,3 @@
-Could you write all the additional test cases for below java class to cover all the remaining scenarios or methods and make the test coverage or code coverage as 100% using junit 4 and old mockito version and java 8. Also don't use power mockito as i m using older mockito version and for private methods try to use reflection. Plus we can't change any file other than the above test class. 
-
-package com.rbs.tntr.business.blotter.web.controllers;
-
-import java.util.HashSet;
-import java.util.List;
-import java.util.stream.Collectors;
-
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.security.access.annotation.Secured;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestMethod;
-import org.springframework.web.bind.annotation.ResponseBody;
-import org.springframework.web.bind.annotation.RestController;
-
-import com.google.common.collect.Sets;
-import com.rbs.tntr.business.blotter.security.BlotterSecurityService;
-import com.rbs.tntr.business.blotter.security.ISSApiClient;
-import com.rbs.tntr.business.blotter.security.TntrRole;
-import com.rbs.tntr.domain.blotter.enums.TntrAction;
-
-@RestController
-@RequestMapping("api/v1/iss")
-@Secured({TntrRole.Name.READONLY})
-public class ISSController {
-
-    enum BlotterName{
-        unknown,
-        futures,
-        trade,
-        collateral,
-        collateralreuse,
-        futuresCollateral,
-        futuresValuation,
-        margin,
-        tradereconciliation,
-        aggregationreconciliation,
-        ratesfxreconciliation,
-        creditsreconciliation,
-        commodityequityreconciliation,
-        etddashboard,
-        exception,
-        editBlotter,
-        autoAssign,
-        autoTagging,
-        reconciliationBreakManager
-    }
-    private final ISSApiClient issApiClient;
-
-    private  final BlotterSecurityService blotterSecurityService;
-
-    public ISSController(@Autowired ISSApiClient issApiClient,
-                         @Autowired BlotterSecurityService blotterSecurityService) {
-        this.issApiClient = issApiClient;
-        this.blotterSecurityService = blotterSecurityService;
-    }
-
-    @RequestMapping(value="users", method = RequestMethod.GET)
-    public List<String> getAllIssUsers() {
-          List<String> users=issApiClient.getAllUsers();
-          return  users;
-    }
-
-    @RequestMapping(value = "actions/{blotterName}", method = RequestMethod.GET)
-    public @ResponseBody
-    HashSet<String> getUserRoles(@PathVariable String blotterName) {
-        List<TntrAction> actions =
-                blotterSecurityService.getPermittedActions();
-
-        List<String> actionNames =actions.stream()
-                .map(action->action.getValue())
-                .collect(Collectors.toList());
-        HashSet<String> filteredActions = filterNotApplicableForBlotter(actionNames, blotterName);
-        return  filteredActions;
-    }
-
-    private HashSet<String> filterNotApplicableForBlotter(List<String> actionNames, String blotterName) {
-        HashSet<String> outputActions = new HashSet<String>(actionNames);
-        BlotterName blotter = BlotterName.valueOf(blotterName);
-        switch (blotter ){
-            case trade:
-                outputActions.remove(TntrAction.Resubmit.getValue());
-                outputActions.remove(TntrAction.AddWorkflow.getValue());
-                removeTradeReportActions(outputActions);
-                break;
-            case reconciliationBreakManager:
-            	getReconBreakManagerActions(outputActions);
-            	break;
-            case futures:
-                outputActions.remove(TntrAction.AddWorkflow.getValue());
-                removeTradeReportActions(outputActions);
-                break;
-            case collateral:
-            case collateralreuse:
-            case futuresCollateral:
-            case futuresValuation:
-            case margin:
-                outputActions.remove(TntrAction.Replay.getValue());
-                outputActions.remove(TntrAction.RequestReplay.getValue());
-                outputActions.remove(TntrAction.RejectReplay.getValue());
-                outputActions.remove(TntrAction.Resubmit.getValue());
-                outputActions.remove(TntrAction.AddWorkflow.getValue());
-                removeTradeReportActions(outputActions);
-                break;
-            case tradereconciliation:
-            case aggregationreconciliation:
-                outputActions.remove(TntrAction.Replay.getValue());
-                outputActions.remove(TntrAction.RequestReplay.getValue());
-                outputActions.remove(TntrAction.RejectReplay.getValue());
-                outputActions.remove(TntrAction.Resubmit.getValue());
-                outputActions.remove(TntrAction.CloseException.getValue());
-                outputActions.remove(TntrAction.OpenException.getValue());
-                outputActions.remove(TntrAction.AddWorkflow.getValue());
-                removeTradeReportActions(outputActions);
-                break;
-            case ratesfxreconciliation:
-            case creditsreconciliation:
-            case commodityequityreconciliation:
-                outputActions.remove(TntrAction.Replay.getValue());
-                outputActions.remove(TntrAction.RequestReplay.getValue());
-                outputActions.remove(TntrAction.RejectReplay.getValue());
-                outputActions.remove(TntrAction.Resubmit.getValue());
-                outputActions.remove(TntrAction.CloseException.getValue());
-                outputActions.remove(TntrAction.OpenException.getValue());
-                removeTradeReportActions(outputActions);
-                break;
-            case exception:
-                outputActions.remove(TntrAction.Assign.getValue());
-                outputActions.remove(TntrAction.AddJira.getValue());
-                outputActions.remove(TntrAction.RemoveJira.getValue());
-                outputActions.remove(TntrAction.Replay.getValue());
-                outputActions.remove(TntrAction.CloseException.getValue());
-                outputActions.remove(TntrAction.OpenException.getValue());
-                outputActions.remove(TntrAction.UpdateRule.getValue());
-				outputActions.remove(TntrAction.ExecuteRule.getValue());
-                outputActions.remove(TntrAction.EditApprove.getValue());
-                break;
-            case editBlotter:
-                getEditBlotterAction(outputActions);
-                break;
-            case autoTagging:
-            case autoAssign:
-                getAutoAssignAction(outputActions);
-                break;
-            case etddashboard:
-            case unknown:
-            default:
-                outputActions.clear();
-        }
-        return outputActions;
-    }
-
-    private void getReconBreakManagerActions(HashSet<String> outputActions){
-    	HashSet<String> totalActions = Sets.newHashSet(outputActions);
-    	outputActions.clear();
-    	
-    	// No Actions to be sent for REFDATAUSER
-    	if(blotterSecurityService.checkUserRole(TntrRole.REFDATAUSER.name()))
-    		return; 
-    	
-    	if (totalActions.contains(TntrAction.AddJiraId.getValue()))
-			outputActions.add(TntrAction.AddJiraId.getValue());
-    	if (totalActions.contains(TntrAction.RemoveJiraId.getValue()))
-			outputActions.add(TntrAction.RemoveJiraId.getValue());
-    	if (totalActions.contains(TntrAction.AddJiraType.getValue()))
-			outputActions.add(TntrAction.AddJiraType.getValue());
-    	if (totalActions.contains(TntrAction.RemoveJiraType.getValue()))
-			outputActions.add(TntrAction.RemoveJiraType.getValue());
-    	if (totalActions.contains(TntrAction.AddComments.getValue()))
-			outputActions.add(TntrAction.AddComments.getValue());
-    	if (totalActions.contains(TntrAction.AddWorkflow.getValue()))
-			outputActions.add(TntrAction.AddWorkflow.getValue());
-    	if (totalActions.contains(TntrAction.AssignSelf.getValue()))
-			outputActions.add(TntrAction.AssignSelf.getValue());
-    	if (totalActions.contains(TntrAction.AssignOther.getValue()))
-			outputActions.add(TntrAction.AssignOther.getValue());
-    	
-    }
-    private void getEditBlotterAction(HashSet<String> outputActions){
-		if (outputActions.contains(TntrAction.EditApprove.getValue())) {
-            outputActions.clear();
-			outputActions.add(TntrAction.EditApprove.getValue());
-        }else{
-            outputActions.clear();
-        }
-    }
-
-    private void getAutoAssignAction(HashSet<String> outputActions){
-		if (outputActions.contains(TntrAction.UpdateRule.getValue())
-				|| outputActions.contains(TntrAction.ExecuteRule.getValue())) {
-            outputActions.clear();
-            outputActions.add(TntrAction.UpdateRule.getValue());
-			outputActions.add(TntrAction.ExecuteRule.getValue());
-        }else{
-            outputActions.clear();
-        }
-    }
-
-    private void removeTradeReportActions(HashSet<String> outputActions){
-        outputActions.remove(TntrAction.RequestOpenException.getValue());
-        outputActions.remove(TntrAction.RejectOpenException.getValue());
-        outputActions.remove(TntrAction.ApproveOpenException.getValue());
-        outputActions.remove(TntrAction.RequestCloseException.getValue());
-        outputActions.remove(TntrAction.RejectCloseException.getValue());
-        outputActions.remove(TntrAction.ApproveCloseException.getValue());
-        outputActions.remove(TntrAction.RequestCancel.getValue());
-        outputActions.remove(TntrAction.RejectCancel.getValue());
-        outputActions.remove(TntrAction.ApproveCancel.getValue());
-        outputActions.remove(TntrAction.RequestRefresh.getValue());
-        outputActions.remove(TntrAction.RejectRefresh.getValue());
-        outputActions.remove(TntrAction.ApproveRefresh.getValue());
-        outputActions.remove(TntrAction.ApproveReplay.getValue());
-        outputActions.remove(TntrAction.RequestDummyAmend.getValue());
-        outputActions.remove(TntrAction.RejectDummyAmend.getValue());
-        outputActions.remove(TntrAction.ApproveDummyAmend.getValue());
-        outputActions.remove(TntrAction.RequestEdit.getValue());
-        outputActions.remove(TntrAction.RejectEdit.getValue());
-		outputActions.remove(TntrAction.EditApprove.getValue());
-		outputActions.remove(TntrAction.ApproveEdit.getValue());
-        outputActions.remove(TntrAction.UpdateRule.getValue());
-		outputActions.remove(TntrAction.ExecuteRule.getValue());
-        outputActions.remove(TntrAction.ViewSubmissionPayload.getValue());
-        outputActions.remove(TntrAction.ViewResponsePayload.getValue());
-        outputActions.remove(TntrAction.AddJiraType.getValue());
-        outputActions.remove(TntrAction.RemoveJiraType.getValue());
-        outputActions.remove(TntrAction.AssignOther.getValue());
-        outputActions.remove(TntrAction.AssignSelf.getValue());
-        outputActions.remove(TntrAction.AddJiraId.getValue());
-        outputActions.remove(TntrAction.RemoveJiraId.getValue());
-        outputActions.remove(TntrAction.ResetAction.getValue());
-        outputActions.remove(TntrAction.UserActionType.getValue());
-        outputActions.remove(TntrAction.ReplayValuationForBusinessDate.getValue());
-        outputActions.remove(TntrAction.UpdateDueDate.getValue());
-        outputActions.remove(TntrAction.AssignBreakResolution.getValue());
-        outputActions.remove(TntrAction.AssignActualBreakOwner.getValue());
-        outputActions.remove(TntrAction.AddCommentType.getValue());
-        outputActions.remove(TntrAction.RemoveCommentType.getValue());
-        outputActions.remove(TntrAction.ReplayCollateralForDateRange.getValue());
-    }
-
-}
-
-
-Exisitng test class:
-
 package com.rbs.tntr.business.blotter.web.controllers;
 
 import com.rbs.tntr.business.blotter.security.BlotterSecurityService;
@@ -256,14 +10,17 @@ import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Method;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public class ISSControllerTest {
 
-    ISSController controller;
-    BlotterSecurityService bss;
-    ISSApiClient issClient;
+    private ISSController controller;
+    private BlotterSecurityService bss;
+    private ISSApiClient issClient;
 
     @Before
     public void init() {
@@ -272,17 +29,36 @@ public class ISSControllerTest {
         controller = new ISSController(issClient, bss);
     }
 
+    // --- getAllIssUsers Method Tests ---
     @Test
-    public void getAllUsers() {
-        List<String> users = Lists.newArrayList("aUserRacf1", "aUserRacf2");
+    public void getAllUsers_ValidResponse() {
+        List<String> users = Lists.newArrayList("user1", "user2");
         Mockito.when(issClient.getAllUsers()).thenReturn(users);
 
-        List<String> usersResult = controller.getAllIssUsers();
-        Assert.assertEquals(users, usersResult);
+        List<String> result = controller.getAllIssUsers();
+        Assert.assertEquals(users, result);
     }
 
     @Test
-    public void getUserRoles_Trade() {
+    public void getAllUsers_EmptyList() {
+        List<String> users = Lists.newArrayList();
+        Mockito.when(issClient.getAllUsers()).thenReturn(users);
+
+        List<String> result = controller.getAllIssUsers();
+        Assert.assertTrue(result.isEmpty());
+    }
+
+    @Test
+    public void getAllUsers_NullResponse() {
+        Mockito.when(issClient.getAllUsers()).thenReturn(null);
+
+        List<String> result = controller.getAllIssUsers();
+        Assert.assertNull(result);
+    }
+
+    // --- getUserRoles Method Tests ---
+    @Test
+    public void getUserRoles_TradeBlotter() {
         List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments, TntrAction.AddWorkflow, TntrAction.Resubmit);
         Mockito.when(bss.getPermittedActions()).thenReturn(actions);
 
@@ -293,28 +69,165 @@ public class ISSControllerTest {
     }
 
     @Test
-    public void getUserRoles_Unknown() {
+    public void getUserRoles_FuturesBlotter() {
+        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments, TntrAction.AddWorkflow, TntrAction.Resubmit);
+        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
+
+        HashSet<String> permittedActions = controller.getUserRoles("futures");
+
+        Assert.assertEquals(1, permittedActions.size());
+        Assert.assertTrue(permittedActions.contains(TntrAction.AddComments.getValue()));
+    }
+
+    @Test
+    public void getUserRoles_CollateralBlotter() {
+        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments, TntrAction.Replay, TntrAction.Resubmit);
+        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
+
+        HashSet<String> permittedActions = controller.getUserRoles("collateral");
+
+        Assert.assertEquals(1, permittedActions.size());
+        Assert.assertTrue(permittedActions.contains(TntrAction.AddComments.getValue()));
+    }
+
+    @Test
+    public void getUserRoles_CollateralReuseBlotter() {
+        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments, TntrAction.Replay, TntrAction.Resubmit);
+        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
+
+        HashSet<String> permittedActions = controller.getUserRoles("collateralreuse");
+
+        Assert.assertEquals(1, permittedActions.size());
+        Assert.assertTrue(permittedActions.contains(TntrAction.AddComments.getValue()));
+    }
+
+    @Test
+    public void getUserRoles_FuturesCollateralBlotter() {
+        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments, TntrAction.Replay, TntrAction.Resubmit);
+        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
+
+        HashSet<String> permittedActions = controller.getUserRoles("futuresCollateral");
+
+        Assert.assertEquals(1, permittedActions.size());
+        Assert.assertTrue(permittedActions.contains(TntrAction.AddComments.getValue()));
+    }
+
+    @Test
+    public void getUserRoles_FuturesValuationBlotter() {
+        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments, TntrAction.Replay, TntrAction.Resubmit);
+        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
+
+        HashSet<String> permittedActions = controller.getUserRoles("futuresValuation");
+
+        Assert.assertEquals(1, permittedActions.size());
+        Assert.assertTrue(permittedActions.contains(TntrAction.AddComments.getValue()));
+    }
+
+    @Test
+    public void getUserRoles_MarginBlotter() {
+        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments, TntrAction.Replay, TntrAction.Resubmit);
+        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
+
+        HashSet<String> permittedActions = controller.getUserRoles("margin");
+
+        Assert.assertEquals(1, permittedActions.size());
+        Assert.assertTrue(permittedActions.contains(TntrAction.AddComments.getValue()));
+    }
+
+    @Test
+    public void getUserRoles_TradeReconciliationBlotter() {
+        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments, TntrAction.Replay, TntrAction.Resubmit);
+        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
+
+        HashSet<String> permittedActions = controller.getUserRoles("tradereconciliation");
+
+        Assert.assertEquals(1, permittedActions.size());
+        Assert.assertTrue(permittedActions.contains(TntrAction.AddComments.getValue()));
+    }
+
+    @Test
+    public void getUserRoles_AggregationReconciliationBlotter() {
+        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments, TntrAction.Replay, TntrAction.Resubmit);
+        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
+
+        HashSet<String> permittedActions = controller.getUserRoles("aggregationreconciliation");
+
+        Assert.assertEquals(1, permittedActions.size());
+        Assert.assertTrue(permittedActions.contains(TntrAction.AddComments.getValue()));
+    }
+
+    @Test
+    public void getUserRoles_RatesFxReconciliationBlotter() {
+        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments, TntrAction.Replay, TntrAction.Resubmit);
+        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
+
+        HashSet<String> permittedActions = controller.getUserRoles("ratesfxreconciliation");
+
+        Assert.assertEquals(1, permittedActions.size());
+        Assert.assertTrue(permittedActions.contains(TntrAction.AddComments.getValue()));
+    }
+
+    @Test
+    public void getUserRoles_CreditsReconciliationBlotter() {
+        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments, TntrAction.Replay, TntrAction.Resubmit);
+        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
+
+        HashSet<String> permittedActions = controller.getUserRoles("creditsreconciliation");
+
+        Assert.assertEquals(1, permittedActions.size());
+        Assert.assertTrue(permittedActions.contains(TntrAction.AddComments.getValue()));
+    }
+
+    @Test
+    public void getUserRoles_CommodityEquityReconciliationBlotter() {
+        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments, TntrAction.Replay, TntrAction.Resubmit);
+        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
+
+        HashSet<String> permittedActions = controller.getUserRoles("commodityequityreconciliation");
+
+        Assert.assertEquals(1, permittedActions.size());
+        Assert.assertTrue(permittedActions.contains(TntrAction.AddComments.getValue()));
+    }
+
+    @Test
+    public void getUserRoles_ExceptionBlotter() {
+        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments, TntrAction.Assign, TntrAction.AddJira);
+        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
+
+        HashSet<String> permittedActions = controller.getUserRoles("exception");
+
+        Assert.assertEquals(1, permittedActions.size());
+        Assert.assertTrue(permittedActions.contains(TntrAction.AddComments.getValue()));
+    }
+
+    @Test
+    public void getUserRoles_EtdDashboardBlotter() {
         List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments, TntrAction.AddJira);
         Mockito.when(bss.getPermittedActions()).thenReturn(actions);
 
-        HashSet<String> permittedActions = controller.getUserRoles("unknown");
+        HashSet<String> permittedActions = controller.getUserRoles("etddashboard");
 
         Assert.assertTrue(permittedActions.isEmpty());
     }
 
     @Test
     public void getUserRoles_ReconciliationBreakManager() {
-        Mockito.when(bss.getPermittedActions()).thenReturn(generateFullActionSet());
+        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments, TntrAction.AddJiraId, TntrAction.RemoveJiraId);
+        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
         Mockito.when(bss.checkUserRole(TntrRole.REFDATAUSER.name())).thenReturn(false);
 
         HashSet<String> permittedActions = controller.getUserRoles("reconciliationBreakManager");
 
-        Assert.assertFalse(permittedActions.isEmpty());
+        Assert.assertEquals(3, permittedActions.size());
+        Assert.assertTrue(permittedActions.contains(TntrAction.AddComments.getValue()));
+        Assert.assertTrue(permittedActions.contains(TntrAction.AddJiraId.getValue()));
+        Assert.assertTrue(permittedActions.contains(TntrAction.RemoveJiraId.getValue()));
     }
 
     @Test
-    public void getUserRoles_EmptyForRefDataUser() {
-        Mockito.when(bss.getPermittedActions()).thenReturn(generateFullActionSet());
+    public void getUserRoles_ReconciliationBreakManager_RefDataUser() {
+        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments, TntrAction.AddJiraId);
+        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
         Mockito.when(bss.checkUserRole(TntrRole.REFDATAUSER.name())).thenReturn(true);
 
         HashSet<String> permittedActions = controller.getUserRoles("reconciliationBreakManager");
@@ -323,8 +236,64 @@ public class ISSControllerTest {
     }
 
     @Test
-    public void getUserRoles_UnknownBlotterName() {
-        Mockito.when(bss.getPermittedActions()).thenReturn(generateFullActionSet());
+    public void getUserRoles_EditBlotter() {
+        List<TntrAction> actions = Lists.newArrayList(TntrAction.EditApprove);
+        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
+
+        HashSet<String> permittedActions = controller.getUserRoles("editBlotter");
+
+        Assert.assertEquals(1, permittedActions.size());
+        Assert.assertTrue(permittedActions.contains(TntrAction.EditApprove.getValue()));
+    }
+
+    @Test
+    public void getUserRoles_EditBlotter_NoEditApprove() {
+        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments);
+        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
+
+        HashSet<String> permittedActions = controller.getUserRoles("editBlotter");
+
+        Assert.assertTrue(permittedActions.isEmpty());
+    }
+
+    @Test
+    public void getUserRoles_AutoAssignBlotter() {
+        List<TntrAction> actions = Lists.newArrayList(TntrAction.UpdateRule, TntrAction.ExecuteRule);
+        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
+
+        HashSet<String> permittedActions = controller.getUserRoles("autoAssign");
+
+        Assert.assertEquals(2, permittedActions.size());
+        Assert.assertTrue(permittedActions.contains(TntrAction.UpdateRule.getValue()));
+        Assert.assertTrue(permittedActions.contains(TntrAction.ExecuteRule.getValue()));
+    }
+
+    @Test
+    public void getUserRoles_AutoTaggingBlotter() {
+        List<TntrAction> actions = Lists.newArrayList(TntrAction.UpdateRule, TntrAction.ExecuteRule);
+        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
+
+        HashSet<String> permittedActions = controller.getUserRoles("autoTagging");
+
+        Assert.assertEquals(2, permittedActions.size());
+        Assert.assertTrue(permittedActions.contains(TntrAction.UpdateRule.getValue()));
+        Assert.assertTrue(permittedActions.contains(TntrAction.ExecuteRule.getValue()));
+    }
+
+    @Test
+    public void getUserRoles_AutoAssignBlotter_NoRules() {
+        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments);
+        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
+
+        HashSet<String> permittedActions = controller.getUserRoles("autoAssign");
+
+        Assert.assertTrue(permittedActions.isEmpty());
+    }
+
+    @Test
+    public void getUserRoles_UnknownBlotter() {
+        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments, TntrAction.AddJira);
+        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
 
         HashSet<String> permittedActions = controller.getUserRoles("unknown");
 
@@ -333,18 +302,160 @@ public class ISSControllerTest {
 
     @Test(expected = IllegalArgumentException.class)
     public void getUserRoles_InvalidBlotterName() {
-        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments, TntrAction.AddJira);
+        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments);
         Mockito.when(bss.getPermittedActions()).thenReturn(actions);
 
         controller.getUserRoles("nonExistingBlotter");
     }
 
-    // Helper method to create a full set of action names
-    private List<TntrAction> generateFullActionSet() {
-        return Lists.newArrayList(
-                TntrAction.AddComments,
-                TntrAction.AddWorkflow,
-                TntrAction.Resubmit
-        );
+    // --- Private Method Tests via Reflection ---
+    @Test
+    public void testFilterNotApplicableForBlotter_Trade() throws Exception {
+        Method method = ISSController.class.getDeclaredMethod("filterNotApplicableForBlotter", List.class, String.class);
+        method.setAccessible(true);
+
+        List<String> actionNames = Lists.newArrayList(TntrAction.AddComments.getValue(), TntrAction.AddWorkflow.getValue(), TntrAction.Resubmit.getValue());
+        HashSet<String> result = (HashSet<String>) method.invoke(controller, actionNames, "trade");
+
+        Assert.assertEquals(1, result.size());
+        Assert.assertTrue(result.contains(TntrAction.AddComments.getValue()));
+    }
+
+    @Test
+    public void testFilterNotApplicableForBlotter_Futures() throws Exception {
+        Method method = ISSController.class.getDeclaredMethod("filterNotApplicableForBlotter", List.class, String.class);
+        method.setAccessible(true);
+
+        List<String> actionNames = Lists.newArrayList(TntrAction.AddComments.getValue(), TntrAction.AddWorkflow.getValue());
+        HashSet<String> result = (HashSet<String>) method.invoke(controller, actionNames, "futures");
+
+        Assert.assertEquals(1, result.size());
+        Assert.assertTrue(result.contains(TntrAction.AddComments.getValue()));
+    }
+
+    @Test
+    public void testFilterNotApplicableForBlotter_Collateral() throws Exception {
+        Method method = ISSController.class.getDeclaredMethod("filterNotApplicableForBlotter", List.class, String.class);
+        method.setAccessible(true);
+
+        List<String> actionNames = Lists.newArrayList(TntrAction.AddComments.getValue(), TntrAction.Replay.getValue());
+        HashSet<String> result = (HashSet<String>) method.invoke(controller, actionNames, "collateral");
+
+        Assert.assertEquals(1, result.size());
+        Assert.assertTrue(result.contains(TntrAction.AddComments.getValue()));
+    }
+
+    @Test
+    public void testFilterNotApplicableForBlotter_ReconciliationBreakManager() throws Exception {
+        Method method = ISSController.class.getDeclaredMethod("filterNotApplicableForBlotter", List.class, String.class);
+        method.setAccessible(true);
+
+        List<String> actionNames = Lists.newArrayList(TntrAction.AddComments.getValue(), TntrAction.AddJiraId.getValue(), TntrAction.RemoveJiraId.getValue());
+        Mockito.when(bss.checkUserRole(TntrRole.REFDATAUSER.name())).thenReturn(false);
+        HashSet<String> result = (HashSet<String>) method.invoke(controller, actionNames, "reconciliationBreakManager");
+
+        Assert.assertEquals(3, result.size());
+        Assert.assertTrue(result.contains(TntrAction.AddComments.getValue()));
+        Assert.assertTrue(result.contains(TntrAction.AddJiraId.getValue()));
+        Assert.assertTrue(result.contains(TntrAction.RemoveJiraId.getValue()));
+    }
+
+    @Test
+    public void testFilterNotApplicableForBlotter_Exception() throws Exception {
+        Method method = ISSController.class.getDeclaredMethod("filterNotApplicableForBlotter", List.class, String.class);
+        method.setAccessible(true);
+
+        List<String> actionNames = Lists.newArrayList(TntrAction.AddComments.getValue(), TntrAction.Assign.getValue());
+        HashSet<String> result = (HashSet<String>) method.invoke(controller, actionNames, "exception");
+
+        Assert.assertEquals(1, result.size());
+        Assert.assertTrue(result.contains(TntrAction.AddComments.getValue()));
+    }
+
+    @Test
+    public void testGetReconBreakManagerActions() throws Exception {
+        Method method = ISSController.class.getDeclaredMethod("getReconBreakManagerActions", HashSet.class);
+        method.setAccessible(true);
+
+        HashSet<String> outputActions = new HashSet<>(Lists.newArrayList(TntrAction.AddComments.getValue(), TntrAction.AddJiraId.getValue()));
+        Mockito.when(bss.checkUserRole(TntrRole.REFDATAUSER.name())).thenReturn(false);
+
+        method.invoke(controller, outputActions);
+
+        Assert.assertEquals(2, outputActions.size());
+        Assert.assertTrue(outputActions.contains(TntrAction.AddComments.getValue()));
+        Assert.assertTrue(outputActions.contains(TntrAction.AddJiraId.getValue()));
+    }
+
+    @Test
+    public void testGetReconBreakManagerActions_RefDataUser() throws Exception {
+        Method method = ISSController.class.getDeclaredMethod("getReconBreakManagerActions", HashSet.class);
+        method.setAccessible(true);
+
+        HashSet<String> outputActions = new HashSet<>(Lists.newArrayList(TntrAction.AddComments.getValue()));
+        Mockito.when(bss.checkUserRole(TntrRole.REFDATAUSER.name())).thenReturn(true);
+
+        method.invoke(controller, outputActions);
+
+        Assert.assertTrue(outputActions.isEmpty());
+    }
+
+    @Test
+    public void testGetEditBlotterAction_WithEditApprove() throws Exception {
+        Method method = ISSController.class.getDeclaredMethod("getEditBlotterAction", HashSet.class);
+        method.setAccessible(true);
+
+        HashSet<String> outputActions = new HashSet<>(Lists.newArrayList(TntrAction.EditApprove.getValue(), TntrAction.AddComments.getValue()));
+        method.invoke(controller, outputActions);
+
+        Assert.assertEquals(1, outputActions.size());
+        Assert.assertTrue(outputActions.contains(TntrAction.EditApprove.getValue()));
+    }
+
+    @Test
+    public void testGetEditBlotterAction_WithoutEditApprove() throws Exception {
+        Method method = ISSController.class.getDeclaredMethod("getEditBlotterAction", HashSet.class);
+        method.setAccessible(true);
+
+        HashSet<String> outputActions = new HashSet<>(Lists.newArrayList(TntrAction.AddComments.getValue()));
+        method.invoke(controller, outputActions);
+
+        Assert.assertTrue(outputActions.isEmpty());
+    }
+
+    @Test
+    public void testGetAutoAssignAction_WithRules() throws Exception {
+        Method method = ISSController.class.getDeclaredMethod("getAutoAssignAction", HashSet.class);
+        method.setAccessible(true);
+
+        HashSet<String> outputActions = new HashSet<>(Lists.newArrayList(TntrAction.UpdateRule.getValue(), TntrAction.AddComments.getValue()));
+        method.invoke(controller, outputActions);
+
+        Assert.assertEquals(2, outputActions.size());
+        Assert.assertTrue(outputActions.contains(TntrAction.UpdateRule.getValue()));
+        Assert.assertTrue(outputActions.contains(TntrAction.ExecuteRule.getValue()));
+    }
+
+    @Test
+    public void testGetAutoAssignAction_WithoutRules() throws Exception {
+        Method method = ISSController.class.getDeclaredMethod("getAutoAssignAction", HashSet.class);
+        method.setAccessible(true);
+
+        HashSet<String> outputActions = new HashSet<>(Lists.newArrayList(TntrAction.AddComments.getValue()));
+        method.invoke(controller, outputActions);
+
+        Assert.assertTrue(outputActions.isEmpty());
+    }
+
+    @Test
+    public void testRemoveTradeReportActions() throws Exception {
+        Method method = ISSController.class.getDeclaredMethod("removeTradeReportActions", HashSet.class);
+        method.setAccessible(true);
+
+        HashSet<String> outputActions = new HashSet<>(Lists.newArrayList(TntrAction.AddComments.getValue(), TntrAction.RequestOpenException.getValue()));
+        method.invoke(controller, outputActions);
+
+        Assert.assertEquals(1, outputActions.size());
+        Assert.assertTrue(outputActions.contains(TntrAction.AddComments.getValue()));
     }
 }
