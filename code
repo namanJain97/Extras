@@ -1,461 +1,295 @@
+Could you write all the additional test cases for below java class to cover all the remaining scenarios or methods and make the test coverage or code coverage as 100% using junit 4 and old mockito version and java 8. Also don't use power mockito as i m using older mockito version and for private methods try to use reflection. Plus we can't change any file other than the above test class. 
+
 package com.rbs.tntr.business.blotter.web.controllers;
 
-import com.rbs.tntr.business.blotter.security.BlotterSecurityService;
-import com.rbs.tntr.business.blotter.security.ISSApiClient;
+import com.rbs.datafabric.domain.RecordId;
 import com.rbs.tntr.business.blotter.security.TntrRole;
-import com.rbs.tntr.domain.blotter.enums.TntrAction;
-import org.assertj.core.util.Lists;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
-import org.mockito.Mockito;
+import com.rbs.tntr.business.blotter.services.blotterEvents.BlotterEventRepository;
+import com.rbs.tntr.business.blotter.services.blotterEvents.BlotterSubscriptionDeletionResult;
+import com.rbs.tntr.business.blotter.services.blotterEvents.IndexCreationResult;
+import com.rbs.tntr.business.blotter.services.blotterEvents.SubscriptionEventManager;
+import com.rbs.tntr.business.blotter.services.datetime.DateTimeService;
+import com.rbs.tntr.business.blotter.web.request.blotterEvents.BlotterEvent;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.annotation.Secured;
+import org.springframework.web.bind.annotation.*;
 
-import java.lang.reflect.Method;
-import java.util.HashSet;
+import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Set;
 import java.util.stream.Collectors;
 
-public class ISSControllerTest {
+@RestController
+@RequestMapping(value= "api/v1/blotter-events")
+@Secured({TntrRole.Name.READONLY})
+public class BlotterEventsController {
 
-    private ISSController controller;
-    private BlotterSecurityService bss;
-    private ISSApiClient issClient;
+    static final Logger LOGGER = LoggerFactory.getLogger(BlotterEventsController.class);
+
+    final BlotterEventRepository eventRepository;
+    final DateTimeService dateTimeService;
+    final SubscriptionEventManager subscriptionEventManager;
+
+    public BlotterEventsController(BlotterEventRepository eventRepository,
+                                   DateTimeService dateTimeService,
+                                   SubscriptionEventManager subscriptionEventManager
+                                   ) {
+        this.eventRepository = eventRepository;
+        this.dateTimeService = dateTimeService;
+        this.subscriptionEventManager = subscriptionEventManager;
+    }
+
+    @RequestMapping(method = RequestMethod.POST)
+    public ResponseEntity save(@RequestBody BlotterEvent blotterEvent){
+        try{
+            RecordId recordId = eventRepository.save(blotterEvent);
+            return new ResponseEntity(recordId, HttpStatus.OK);
+        }catch (Exception ex){
+            String message = String.format("Error saving blotter event %s",blotterEvent.getEventId());
+            LOGGER.error("Error saving blotter event {}",blotterEvent.getEventId(),ex);
+            return new ResponseEntity(message,HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+
+
+    @RequestMapping(value = "bulk",method = RequestMethod.POST)
+    public ResponseEntity saveAll(@RequestBody List<BlotterEvent> blotterEvents){
+        try{
+            List<RecordId> recordIds = eventRepository.saveAll(blotterEvents);
+            return new ResponseEntity(recordIds, HttpStatus.OK);
+        }catch (Exception ex){
+            List<String> eventIds = blotterEvents.stream().map(e->e.getEventId())
+                    .collect(Collectors.toList());
+            String message = String.format("Error saving blotter events %s",String.join(",",eventIds));
+            LOGGER.error(message,ex);
+            return new ResponseEntity(message,HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    @Secured({TntrRole.Name.ITSUPPORT})
+    @RequestMapping(value = "create-indexes",method = RequestMethod.POST)
+    public ResponseEntity createIndexesDropExisting(boolean dropExisting){
+        try{
+            HashMap<String, IndexCreationResult> result = eventRepository.dropAndCreateIndexes(dropExisting);
+            return new ResponseEntity(result, HttpStatus.OK);
+        }catch (Exception ex){
+            String message = String.format("Error in creating/recreating indexes");
+            LOGGER.error(message,ex);
+            return new ResponseEntity(message,HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    @RequestMapping(value="active-subscriptions",method = RequestMethod.GET)
+    public ResponseEntity getActiveSubscriptions(@RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") Date asOf){
+        try{
+            List<BlotterEvent> activeSubscriptions = eventRepository.getActiveSubscriptions(asOf);
+            return new ResponseEntity(activeSubscriptions, HttpStatus.OK);
+        }catch (Exception ex){
+            String message = String.format("Error fetching active subscriptions");
+            LOGGER.error(message,ex);
+            return new ResponseEntity(message,HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    @RequestMapping(value="by-date-range",method = RequestMethod.GET)
+    public ResponseEntity getEventsByDateTime(@RequestParam @DateTimeFormat(pattern = "yyyy-MM-dd") Date  from, @RequestParam @DateTimeFormat(pattern = "yyyy-MM-dd") Date to){
+        try{
+            List<BlotterEvent> activeSubscriptions = eventRepository.eventsByDateRange(from,to);
+            return new ResponseEntity(activeSubscriptions, HttpStatus.OK);
+        }catch (Exception ex){
+            String message = String.format("Error fetching subscriptions for date range");
+            LOGGER.error(message,ex);
+            return new ResponseEntity(message,HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    @RequestMapping(value = "{date}",method = RequestMethod.GET)
+    public ResponseEntity getEventsByDateTime(@PathVariable("date") @DateTimeFormat(pattern = "yyyy-MM-dd") Date date){
+        try{
+            Date from = date;
+            Date to =dateTimeService.addDays(date,1);
+            List<BlotterEvent> activeSubscriptions = eventRepository.eventsByDateRange(from,to);
+            return new ResponseEntity(activeSubscriptions, HttpStatus.OK);
+        }catch (Exception ex){
+            String message = String.format("Error fetching subscriptions for date");
+            LOGGER.error(message,ex);
+            return new ResponseEntity(message,HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    @RequestMapping(value="details",method = RequestMethod.POST)
+    public ResponseEntity getSubscriptions(@RequestBody List<String> eventIds){
+        try{
+            List<BlotterEvent> subscriptions = eventRepository.getEvents(eventIds);
+            return new ResponseEntity(subscriptions, HttpStatus.OK);
+        }catch (Exception ex){
+            String message="Error fetching blotter event details";
+            LOGGER.error(message,ex);
+            return new ResponseEntity(message,HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    @RequestMapping(value="details/sessions",method = RequestMethod.GET)
+    public ResponseEntity getSubscriptions(@RequestParam String sessionId){
+        try{
+            List<BlotterEvent> subscriptions = eventRepository.getEvents(sessionId);
+            return new ResponseEntity(subscriptions, HttpStatus.OK);
+        }catch (Exception ex){
+            String message="Error fetching blotter event details";
+            LOGGER.error(message,ex);
+            return new ResponseEntity(message,HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    @RequestMapping(value="by-user",method = RequestMethod.GET)
+    public ResponseEntity getEventsByUser(@RequestParam @DateTimeFormat(pattern = "yyyy-MM-dd") Date from, @RequestParam @DateTimeFormat(pattern = "yyyy-MM-dd") Date to, @RequestParam String userName){
+        try{
+            List<BlotterEvent> activeSubscriptions = eventRepository.getEventsByUser(from,to,userName);
+            return new ResponseEntity(activeSubscriptions, HttpStatus.OK);
+        }catch (Exception ex){
+            String message = String.format("Error fetching subscriptions for user");
+            LOGGER.error(message,ex);
+            return new ResponseEntity(message,HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    @Secured({TntrRole.Name.ITSUPPORT})
+    @RequestMapping(value="active-subscriptions",method = RequestMethod.DELETE)
+    public ResponseEntity deleteActiveSubscriptions(@RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") Date asOf){
+        try{
+
+            HashMap<String, BlotterSubscriptionDeletionResult> result
+                    = subscriptionEventManager.deleteAllActiveSubscriptions(asOf);
+            return new ResponseEntity(result, HttpStatus.OK);
+        }catch (Exception ex){
+            String message = String.format("Error deleting active subscriptions");
+            LOGGER.error(message,ex);
+            return new ResponseEntity(message,HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    @Secured({TntrRole.Name.ITSUPPORT})
+    @RequestMapping(value="subscriptions/delete",method = RequestMethod.POST)
+    public ResponseEntity deleteBlotterSubscriptions(@RequestBody List<String> blotterSubscriptionIds){
+        try{
+            HashMap<String, BlotterSubscriptionDeletionResult> result
+                    = subscriptionEventManager.deleteBlotterSubscriptions(blotterSubscriptionIds);
+            return new ResponseEntity(result, HttpStatus.OK);
+        }catch (Exception ex){
+            String message = String.format("Error deleting active subscriptions");
+            LOGGER.error(message,ex);
+            return new ResponseEntity(message,HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+
+
+}
+
+Existing test class:
+
+package com.rbs.tntr.business.blotter.web.controllers;
+
+import com.rbs.tntr.business.blotter.services.blotterEvents.BlotterEventRepository;
+import com.rbs.tntr.business.blotter.services.blotterEvents.IndexCreationResult;
+import com.rbs.tntr.business.blotter.web.request.blotterEvents.BlotterEvent;
+import org.junit.Before;
+import org.junit.Test;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+
+import static org.junit.Assert.*;
+import static org.mockito.Mockito.*;
+
+public class BlotterEventsControllerTest {
+
+    @Mock
+    private BlotterEventRepository eventRepository;
+
+    @InjectMocks
+    private BlotterEventsController controller;
+
+    private BlotterEvent blotterEvent;
 
     @Before
-    public void init() {
-        bss = Mockito.mock(BlotterSecurityService.class);
-        issClient = Mockito.mock(ISSApiClient.class);
-        controller = new ISSController(issClient, bss);
+    public void setUp() {
+        MockitoAnnotations.initMocks(this);
+        blotterEvent = new BlotterEvent();
+        blotterEvent.setEventId("testEvent");
     }
 
-    // --- getAllIssUsers Method Tests ---
+    // Added exception handling tests for DataFabricSerializerException, UpsertException, OptimisticLockException
     @Test
-    public void getAllUsers_ValidResponse() {
-        List<String> users = Lists.newArrayList("user1", "user2");
-        Mockito.when(issClient.getAllUsers()).thenReturn(users);
+    public void testSave_DataFabricSerializerException() throws Exception {
+        when(eventRepository.save(blotterEvent)).thenThrow(new com.rbs.datafabric.common.DataFabricSerializerException("Serialization Error"));
 
-        List<String> result = controller.getAllIssUsers();
-        Assert.assertEquals(users, result);
-    }
+        ResponseEntity<?> response = controller.save(blotterEvent);
 
-    @Test
-    public void getAllUsers_EmptyList() {
-        List<String> users = Lists.newArrayList();
-        Mockito.when(issClient.getAllUsers()).thenReturn(users);
-
-        List<String> result = controller.getAllIssUsers();
-        Assert.assertTrue(result.isEmpty());
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+        assertTrue(response.getBody().toString().contains("Error saving blotter event"));
     }
 
     @Test
-    public void getAllUsers_NullResponse() {
-        Mockito.when(issClient.getAllUsers()).thenReturn(null);
+    public void testSave_UpsertException() throws Exception {
+        when(eventRepository.save(blotterEvent)).thenThrow(new com.rbs.datafabric.api.exception.UpsertException("Upsert Error"));
 
-        List<String> result = controller.getAllIssUsers();
-        Assert.assertNull(result);
-    }
+        ResponseEntity<?> response = controller.save(blotterEvent);
 
-    // --- getUserRoles Method Tests ---
-    @Test
-    public void getUserRoles_TradeBlotter() {
-        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments, TntrAction.AddWorkflow, TntrAction.Resubmit);
-        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
-
-        HashSet<String> permittedActions = controller.getUserRoles("trade");
-
-        Assert.assertEquals(1, permittedActions.size());
-        Assert.assertTrue(permittedActions.contains(TntrAction.AddComments.getValue()));
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+        assertTrue(response.getBody().toString().contains("Error saving blotter event"));
     }
 
     @Test
-    public void getUserRoles_FuturesBlotter() {
-        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments, TntrAction.AddWorkflow, TntrAction.Resubmit);
-        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
+    public void testSave_OptimisticLockException() throws Exception {
+        when(eventRepository.save(blotterEvent)).thenThrow(new com.rbs.datafabric.api.exception.OptimisticLockException("Optimistic Lock Error"));
 
-        HashSet<String> permittedActions = controller.getUserRoles("futures");
+        ResponseEntity<?> response = controller.save(blotterEvent);
 
-        Assert.assertEquals(1, permittedActions.size());
-        Assert.assertTrue(permittedActions.contains(TntrAction.AddComments.getValue()));
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+        assertTrue(response.getBody().toString().contains("Error saving blotter event"));
     }
 
     @Test
-    public void getUserRoles_CollateralBlotter() {
-        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments, TntrAction.Replay, TntrAction.Resubmit);
-        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
+    public void testSaveAll_DataFabricSerializerException() throws Exception {
+        List<BlotterEvent> events = Collections.singletonList(blotterEvent);
+        when(eventRepository.saveAll(events)).thenThrow(new com.rbs.datafabric.common.DataFabricSerializerException("Serialization Error"));
 
-        HashSet<String> permittedActions = controller.getUserRoles("collateral");
+        ResponseEntity<?> response = controller.saveAll(events);
 
-        Assert.assertEquals(1, permittedActions.size());
-        Assert.assertTrue(permittedActions.contains(TntrAction.AddComments.getValue()));
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+        assertTrue(response.getBody().toString().contains("Error saving blotter events"));
     }
 
     @Test
-    public void getUserRoles_CollateralReuseBlotter() {
-        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments, TntrAction.Replay, TntrAction.Resubmit);
-        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
+    public void testSaveAll_UpsertException() throws Exception {
+        List<BlotterEvent> events = Collections.singletonList(blotterEvent);
+        when(eventRepository.saveAll(events)).thenThrow(new com.rbs.datafabric.api.exception.UpsertException("Upsert Error"));
 
-        HashSet<String> permittedActions = controller.getUserRoles("collateralreuse");
+        ResponseEntity<?> response = controller.saveAll(events);
 
-        Assert.assertEquals(1, permittedActions.size());
-        Assert.assertTrue(permittedActions.contains(TntrAction.AddComments.getValue()));
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+        assertTrue(response.getBody().toString().contains("Error saving blotter events"));
     }
 
     @Test
-    public void getUserRoles_FuturesCollateralBlotter() {
-        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments, TntrAction.Replay, TntrAction.Resubmit);
-        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
+    public void testCreateIndexesDropExisting_Success() throws Exception {
+        HashMap<String, IndexCreationResult> mockResult = new HashMap<>();
+        when(eventRepository.dropAndCreateIndexes(true)).thenReturn(mockResult);
 
-        HashSet<String> permittedActions = controller.getUserRoles("futuresCollateral");
+        ResponseEntity<?> response = controller.createIndexesDropExisting(true);
 
-        Assert.assertEquals(1, permittedActions.size());
-        Assert.assertTrue(permittedActions.contains(TntrAction.AddComments.getValue()));
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(mockResult, response.getBody());
     }
 
-    @Test
-    public void getUserRoles_FuturesValuationBlotter() {
-        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments, TntrAction.Replay, TntrAction.Resubmit);
-        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
-
-        HashSet<String> permittedActions = controller.getUserRoles("futuresValuation");
-
-        Assert.assertEquals(1, permittedActions.size());
-        Assert.assertTrue(permittedActions.contains(TntrAction.AddComments.getValue()));
-    }
-
-    @Test
-    public void getUserRoles_MarginBlotter() {
-        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments, TntrAction.Replay, TntrAction.Resubmit);
-        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
-
-        HashSet<String> permittedActions = controller.getUserRoles("margin");
-
-        Assert.assertEquals(1, permittedActions.size());
-        Assert.assertTrue(permittedActions.contains(TntrAction.AddComments.getValue()));
-    }
-
-    @Test
-    public void getUserRoles_TradeReconciliationBlotter() {
-        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments, TntrAction.Replay, TntrAction.Resubmit);
-        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
-
-        HashSet<String> permittedActions = controller.getUserRoles("tradereconciliation");
-
-        Assert.assertEquals(1, permittedActions.size());
-        Assert.assertTrue(permittedActions.contains(TntrAction.AddComments.getValue()));
-    }
-
-    @Test
-    public void getUserRoles_AggregationReconciliationBlotter() {
-        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments, TntrAction.Replay, TntrAction.Resubmit);
-        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
-
-        HashSet<String> permittedActions = controller.getUserRoles("aggregationreconciliation");
-
-        Assert.assertEquals(1, permittedActions.size());
-        Assert.assertTrue(permittedActions.contains(TntrAction.AddComments.getValue()));
-    }
-
-    @Test
-    public void getUserRoles_RatesFxReconciliationBlotter() {
-        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments, TntrAction.Replay, TntrAction.Resubmit);
-        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
-
-        HashSet<String> permittedActions = controller.getUserRoles("ratesfxreconciliation");
-
-        Assert.assertEquals(1, permittedActions.size());
-        Assert.assertTrue(permittedActions.contains(TntrAction.AddComments.getValue()));
-    }
-
-    @Test
-    public void getUserRoles_CreditsReconciliationBlotter() {
-        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments, TntrAction.Replay, TntrAction.Resubmit);
-        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
-
-        HashSet<String> permittedActions = controller.getUserRoles("creditsreconciliation");
-
-        Assert.assertEquals(1, permittedActions.size());
-        Assert.assertTrue(permittedActions.contains(TntrAction.AddComments.getValue()));
-    }
-
-    @Test
-    public void getUserRoles_CommodityEquityReconciliationBlotter() {
-        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments, TntrAction.Replay, TntrAction.Resubmit);
-        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
-
-        HashSet<String> permittedActions = controller.getUserRoles("commodityequityreconciliation");
-
-        Assert.assertEquals(1, permittedActions.size());
-        Assert.assertTrue(permittedActions.contains(TntrAction.AddComments.getValue()));
-    }
-
-    @Test
-    public void getUserRoles_ExceptionBlotter() {
-        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments, TntrAction.Assign, TntrAction.AddJira);
-        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
-
-        HashSet<String> permittedActions = controller.getUserRoles("exception");
-
-        Assert.assertEquals(1, permittedActions.size());
-        Assert.assertTrue(permittedActions.contains(TntrAction.AddComments.getValue()));
-    }
-
-    @Test
-    public void getUserRoles_EtdDashboardBlotter() {
-        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments, TntrAction.AddJira);
-        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
-
-        HashSet<String> permittedActions = controller.getUserRoles("etddashboard");
-
-        Assert.assertTrue(permittedActions.isEmpty());
-    }
-
-    @Test
-    public void getUserRoles_ReconciliationBreakManager() {
-        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments, TntrAction.AddJiraId, TntrAction.RemoveJiraId);
-        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
-        Mockito.when(bss.checkUserRole(TntrRole.REFDATAUSER.name())).thenReturn(false);
-
-        HashSet<String> permittedActions = controller.getUserRoles("reconciliationBreakManager");
-
-        Assert.assertEquals(3, permittedActions.size());
-        Assert.assertTrue(permittedActions.contains(TntrAction.AddComments.getValue()));
-        Assert.assertTrue(permittedActions.contains(TntrAction.AddJiraId.getValue()));
-        Assert.assertTrue(permittedActions.contains(TntrAction.RemoveJiraId.getValue()));
-    }
-
-    @Test
-    public void getUserRoles_ReconciliationBreakManager_RefDataUser() {
-        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments, TntrAction.AddJiraId);
-        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
-        Mockito.when(bss.checkUserRole(TntrRole.REFDATAUSER.name())).thenReturn(true);
-
-        HashSet<String> permittedActions = controller.getUserRoles("reconciliationBreakManager");
-
-        Assert.assertTrue(permittedActions.isEmpty());
-    }
-
-    @Test
-    public void getUserRoles_EditBlotter() {
-        List<TntrAction> actions = Lists.newArrayList(TntrAction.EditApprove);
-        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
-
-        HashSet<String> permittedActions = controller.getUserRoles("editBlotter");
-
-        Assert.assertEquals(1, permittedActions.size());
-        Assert.assertTrue(permittedActions.contains(TntrAction.EditApprove.getValue()));
-    }
-
-    @Test
-    public void getUserRoles_EditBlotter_NoEditApprove() {
-        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments);
-        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
-
-        HashSet<String> permittedActions = controller.getUserRoles("editBlotter");
-
-        Assert.assertTrue(permittedActions.isEmpty());
-    }
-
-    @Test
-    public void getUserRoles_AutoAssignBlotter() {
-        List<TntrAction> actions = Lists.newArrayList(TntrAction.UpdateRule, TntrAction.ExecuteRule);
-        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
-
-        HashSet<String> permittedActions = controller.getUserRoles("autoAssign");
-
-        Assert.assertEquals(2, permittedActions.size());
-        Assert.assertTrue(permittedActions.contains(TntrAction.UpdateRule.getValue()));
-        Assert.assertTrue(permittedActions.contains(TntrAction.ExecuteRule.getValue()));
-    }
-
-    @Test
-    public void getUserRoles_AutoTaggingBlotter() {
-        List<TntrAction> actions = Lists.newArrayList(TntrAction.UpdateRule, TntrAction.ExecuteRule);
-        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
-
-        HashSet<String> permittedActions = controller.getUserRoles("autoTagging");
-
-        Assert.assertEquals(2, permittedActions.size());
-        Assert.assertTrue(permittedActions.contains(TntrAction.UpdateRule.getValue()));
-        Assert.assertTrue(permittedActions.contains(TntrAction.ExecuteRule.getValue()));
-    }
-
-    @Test
-    public void getUserRoles_AutoAssignBlotter_NoRules() {
-        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments);
-        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
-
-        HashSet<String> permittedActions = controller.getUserRoles("autoAssign");
-
-        Assert.assertTrue(permittedActions.isEmpty());
-    }
-
-    @Test
-    public void getUserRoles_UnknownBlotter() {
-        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments, TntrAction.AddJira);
-        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
-
-        HashSet<String> permittedActions = controller.getUserRoles("unknown");
-
-        Assert.assertTrue(permittedActions.isEmpty());
-    }
-
-    @Test(expected = IllegalArgumentException.class)
-    public void getUserRoles_InvalidBlotterName() {
-        List<TntrAction> actions = Lists.newArrayList(TntrAction.AddComments);
-        Mockito.when(bss.getPermittedActions()).thenReturn(actions);
-
-        controller.getUserRoles("nonExistingBlotter");
-    }
-
-    // --- Private Method Tests via Reflection ---
-    @Test
-    public void testFilterNotApplicableForBlotter_Trade() throws Exception {
-        Method method = ISSController.class.getDeclaredMethod("filterNotApplicableForBlotter", List.class, String.class);
-        method.setAccessible(true);
-
-        List<String> actionNames = Lists.newArrayList(TntrAction.AddComments.getValue(), TntrAction.AddWorkflow.getValue(), TntrAction.Resubmit.getValue());
-        HashSet<String> result = (HashSet<String>) method.invoke(controller, actionNames, "trade");
-
-        Assert.assertEquals(1, result.size());
-        Assert.assertTrue(result.contains(TntrAction.AddComments.getValue()));
-    }
-
-    @Test
-    public void testFilterNotApplicableForBlotter_Futures() throws Exception {
-        Method method = ISSController.class.getDeclaredMethod("filterNotApplicableForBlotter", List.class, String.class);
-        method.setAccessible(true);
-
-        List<String> actionNames = Lists.newArrayList(TntrAction.AddComments.getValue(), TntrAction.AddWorkflow.getValue());
-        HashSet<String> result = (HashSet<String>) method.invoke(controller, actionNames, "futures");
-
-        Assert.assertEquals(1, result.size());
-        Assert.assertTrue(result.contains(TntrAction.AddComments.getValue()));
-    }
-
-    @Test
-    public void testFilterNotApplicableForBlotter_Collateral() throws Exception {
-        Method method = ISSController.class.getDeclaredMethod("filterNotApplicableForBlotter", List.class, String.class);
-        method.setAccessible(true);
-
-        List<String> actionNames = Lists.newArrayList(TntrAction.AddComments.getValue(), TntrAction.Replay.getValue());
-        HashSet<String> result = (HashSet<String>) method.invoke(controller, actionNames, "collateral");
-
-        Assert.assertEquals(1, result.size());
-        Assert.assertTrue(result.contains(TntrAction.AddComments.getValue()));
-    }
-
-    @Test
-    public void testFilterNotApplicableForBlotter_ReconciliationBreakManager() throws Exception {
-        Method method = ISSController.class.getDeclaredMethod("filterNotApplicableForBlotter", List.class, String.class);
-        method.setAccessible(true);
-
-        List<String> actionNames = Lists.newArrayList(TntrAction.AddComments.getValue(), TntrAction.AddJiraId.getValue(), TntrAction.RemoveJiraId.getValue());
-        Mockito.when(bss.checkUserRole(TntrRole.REFDATAUSER.name())).thenReturn(false);
-        HashSet<String> result = (HashSet<String>) method.invoke(controller, actionNames, "reconciliationBreakManager");
-
-        Assert.assertEquals(3, result.size());
-        Assert.assertTrue(result.contains(TntrAction.AddComments.getValue()));
-        Assert.assertTrue(result.contains(TntrAction.AddJiraId.getValue()));
-        Assert.assertTrue(result.contains(TntrAction.RemoveJiraId.getValue()));
-    }
-
-    @Test
-    public void testFilterNotApplicableForBlotter_Exception() throws Exception {
-        Method method = ISSController.class.getDeclaredMethod("filterNotApplicableForBlotter", List.class, String.class);
-        method.setAccessible(true);
-
-        List<String> actionNames = Lists.newArrayList(TntrAction.AddComments.getValue(), TntrAction.Assign.getValue());
-        HashSet<String> result = (HashSet<String>) method.invoke(controller, actionNames, "exception");
-
-        Assert.assertEquals(1, result.size());
-        Assert.assertTrue(result.contains(TntrAction.AddComments.getValue()));
-    }
-
-    @Test
-    public void testGetReconBreakManagerActions() throws Exception {
-        Method method = ISSController.class.getDeclaredMethod("getReconBreakManagerActions", HashSet.class);
-        method.setAccessible(true);
-
-        HashSet<String> outputActions = new HashSet<>(Lists.newArrayList(TntrAction.AddComments.getValue(), TntrAction.AddJiraId.getValue()));
-        Mockito.when(bss.checkUserRole(TntrRole.REFDATAUSER.name())).thenReturn(false);
-
-        method.invoke(controller, outputActions);
-
-        Assert.assertEquals(2, outputActions.size());
-        Assert.assertTrue(outputActions.contains(TntrAction.AddComments.getValue()));
-        Assert.assertTrue(outputActions.contains(TntrAction.AddJiraId.getValue()));
-    }
-
-    @Test
-    public void testGetReconBreakManagerActions_RefDataUser() throws Exception {
-        Method method = ISSController.class.getDeclaredMethod("getReconBreakManagerActions", HashSet.class);
-        method.setAccessible(true);
-
-        HashSet<String> outputActions = new HashSet<>(Lists.newArrayList(TntrAction.AddComments.getValue()));
-        Mockito.when(bss.checkUserRole(TntrRole.REFDATAUSER.name())).thenReturn(true);
-
-        method.invoke(controller, outputActions);
-
-        Assert.assertTrue(outputActions.isEmpty());
-    }
-
-    @Test
-    public void testGetEditBlotterAction_WithEditApprove() throws Exception {
-        Method method = ISSController.class.getDeclaredMethod("getEditBlotterAction", HashSet.class);
-        method.setAccessible(true);
-
-        HashSet<String> outputActions = new HashSet<>(Lists.newArrayList(TntrAction.EditApprove.getValue(), TntrAction.AddComments.getValue()));
-        method.invoke(controller, outputActions);
-
-        Assert.assertEquals(1, outputActions.size());
-        Assert.assertTrue(outputActions.contains(TntrAction.EditApprove.getValue()));
-    }
-
-    @Test
-    public void testGetEditBlotterAction_WithoutEditApprove() throws Exception {
-        Method method = ISSController.class.getDeclaredMethod("getEditBlotterAction", HashSet.class);
-        method.setAccessible(true);
-
-        HashSet<String> outputActions = new HashSet<>(Lists.newArrayList(TntrAction.AddComments.getValue()));
-        method.invoke(controller, outputActions);
-
-        Assert.assertTrue(outputActions.isEmpty());
-    }
-
-    @Test
-    public void testGetAutoAssignAction_WithRules() throws Exception {
-        Method method = ISSController.class.getDeclaredMethod("getAutoAssignAction", HashSet.class);
-        method.setAccessible(true);
-
-        HashSet<String> outputActions = new HashSet<>(Lists.newArrayList(TntrAction.UpdateRule.getValue(), TntrAction.AddComments.getValue()));
-        method.invoke(controller, outputActions);
-
-        Assert.assertEquals(2, outputActions.size());
-        Assert.assertTrue(outputActions.contains(TntrAction.UpdateRule.getValue()));
-        Assert.assertTrue(outputActions.contains(TntrAction.ExecuteRule.getValue()));
-    }
-
-    @Test
-    public void testGetAutoAssignAction_WithoutRules() throws Exception {
-        Method method = ISSController.class.getDeclaredMethod("getAutoAssignAction", HashSet.class);
-        method.setAccessible(true);
-
-        HashSet<String> outputActions = new HashSet<>(Lists.newArrayList(TntrAction.AddComments.getValue()));
-        method.invoke(controller, outputActions);
-
-        Assert.assertTrue(outputActions.isEmpty());
-    }
-
-    @Test
-    public void testRemoveTradeReportActions() throws Exception {
-        Method method = ISSController.class.getDeclaredMethod("removeTradeReportActions", HashSet.class);
-        method.setAccessible(true);
-
-        HashSet<String> outputActions = new HashSet<>(Lists.newArrayList(TntrAction.AddComments.getValue(), TntrAction.RequestOpenException.getValue()));
-        method.invoke(controller, outputActions);
-
-        Assert.assertEquals(1, outputActions.size());
-        Assert.assertTrue(outputActions.contains(TntrAction.AddComments.getValue()));
-    }
 }
