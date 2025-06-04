@@ -1,291 +1,3 @@
-Could you write all the additional test cases for below java class to cover all the remaining scenarios or methods and make the test coverage or code coverage as 100% using junit 4 and old mockito version and java 8. Also don't use power mockito as i m using older mockito version and for private methods try to use reflection. Plus we can't change any file other than the above test class. 
-
-/**
- * Description : Utility class for Object Management and Updates
- * @author agrakit
- * Created By: Niket Agrawal
- * Created On 02-07-2022
- */
-package com.rbs.tntr.business.blotter.utility;
-
-import static com.rbs.tntr.business.blotter.services.common.StringConstants.*;
-
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.lang.reflect.Type;
-import java.math.BigDecimal;
-import java.time.ZonedDateTime;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Objects;
-
-import com.google.common.collect.Lists;
-import com.nwm.tntr.commons.domain.persistence.entity.collateral.CollateralLeg;
-import org.apache.commons.lang3.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Component;
-
-import com.google.gson.Gson;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.rbs.tntr.domain.blotter.exceptions.BlotterRunTimeException;
-
-@SuppressWarnings("rawtypes")
-@Component
-public class ObjectManagementUtility {
-
-    private static final Logger LOGGER = LoggerFactory.getLogger(ObjectManagementUtility.class);
-
-    /**
-     * Description : Method to compare two Objects and find out fields having
-     * different values
-     * Created By: Niket Agrawal
-     * Created On 02-07-2022
-     * @author agrakit
-     * @param actualObj
-     * @param modifiedObj
-     * @return Edited Fields
-     */
-    public String compareAndGetDiff(Object actualObj, Object modifiedObj) {
-        try {
-            List<String> changedProperties = new ArrayList<>();
-            String output = NO_FIELD_EDITED;
-
-            for (Field field : actualObj.getClass().getDeclaredFields()) {
-                field.setAccessible(true);
-                Object value1 = field.get(actualObj);
-                Object value2 = field.get(modifiedObj);
-                if (value1 == null && value2 == null) {
-                    continue;
-                }
-                if (value1 == null || value2 == null) {
-                    if (field.getName().equals("collateralLegList")){
-                        List<?> list1 = value1 == null ? Lists.newArrayList(CollateralLeg.newBuilder().build()) : (List<?>) value1;
-                        List<?> list2 = value2 == null ? Lists.newArrayList(CollateralLeg.newBuilder().build()) : (List<?>) value2;
-                        changedProperties.addAll(compareNestedObjects(list1.get(0),list2.get(0),field.getName()));
-                    } else
-                        changedProperties.add(field.getName());
-                } else {
-                    if (value1 instanceof BigDecimal && value2 instanceof BigDecimal) {
-                        BigDecimal val1 = BigDecimal.valueOf(Double.valueOf(((BigDecimal) value1).toPlainString()));
-                        BigDecimal val2 = BigDecimal.valueOf(Double.valueOf(((BigDecimal) value2).toPlainString()));
-                        if (!val1.equals(val2))
-                            changedProperties.add(field.getName());
-                    } else if (value1 instanceof List && value2 instanceof List) {
-                        List<?> list1 = (List<?>) value1;
-                        List<?> list2 = (List<?>) value2;
-                        if (list1.size() != list2.size()) {
-                            changedProperties.add(field.getName());
-                        }
-                        else {
-                            changedProperties.addAll(compareNestedObjects(list1.get(0),list2.get(0),field.getName()));
-                        }
-                    } else if (!Objects.equals(value1, value2)) {
-                        changedProperties.add(field.getName());
-                    }
-                }
-            }
-
-            if (!changedProperties.isEmpty()) {
-                output = populateEditedFields(changedProperties);
-            }
-            return output;
-        } catch (IllegalArgumentException | IllegalAccessException e) {
-            throw new BlotterRunTimeException("Error while comparing Object fields", e);
-        }
-    }
-
-    private List<String> compareNestedObjects(Object obj1, Object obj2, String className) throws IllegalAccessException {
-        List<String> changedNestedProperties = new ArrayList<>();
-        if (obj1.getClass() != obj2.getClass()) {
-            changedNestedProperties.add(className);
-            return changedNestedProperties;
-        }
-
-        for (Field field : obj1.getClass().getDeclaredFields()) {
-            field.setAccessible(true);
-            Object value1 = field.get(obj1);
-            Object value2 = field.get(obj2);
-            if (value1 != null && value2 != null && !Objects.equals(value1, value2)) {
-                changedNestedProperties.add(className.concat(".").concat(field.getName()));
-            } else if (value1 != null && value2 == null || value1 == null && value2 != null) {
-                changedNestedProperties.add(className.concat(".").concat(field.getName()));
-            }
-        }
-        return changedNestedProperties;
-    }
-
-    /**
-     * Description : Method to identify edited fields.
-     * @author agrakit
-     * Created By: Niket Agrawal
-     * Created On 02-07-2022
-     * @param changedProperties
-     * @return
-     */
-    private String populateEditedFields(List<String> changedProperties) {
-        String output;
-        StringBuilder builder = new StringBuilder();
-        changedProperties.forEach(property -> builder.append(property).append(","));
-        builder.deleteCharAt(builder.length() - 1);
-        output = builder.toString();
-        return output;
-    }
-
-    /**
-     * Description : Method to compare two Objects on field level
-     * @author agrakit
-     * Created By: Niket Agrawal
-     * Created On 02-07-2022
-     * @param objectToBuild
-     * @param objectToParse
-     * @return Object
-     */
-    public Object buildObjectBuilder(Object objectToBuild, Object objectToParse) {
-        try {
-            // Convert ObjectToParse into Key-Value pair
-            Map<String, String> inputJsonFields = populateJsonFields(objectToParse);
-
-            Class objectToBuildClass = objectToBuild.getClass();
-            Field[] objectToBuildFieldList = objectToBuildClass.getDeclaredFields();
-
-            for (Field objectToBuildField : objectToBuildFieldList) {
-                if (inputJsonFields.containsKey(objectToBuildField.getName())) {
-                    objectToBuildField.setAccessible(true);
-                    String fieldValue = inputJsonFields.get(objectToBuildField.getName());
-                    if (StringUtils.isBlank(fieldValue))
-                        continue;
-                    else if (EMPTY_DATA.equals(fieldValue)) {
-                        objectToBuildField.set(objectToBuild, null);
-                    } else {
-                        if (objectToBuildField.getName().equals("collateralLegList")
-                                && isCollateralLegCountValid(inputJsonFields)){
-                            Object modifiedObj = new Gson().fromJson(fieldValue, Map.class);
-                            List<?> actuallist = objectToBuildField.get(objectToBuild) == null ? Lists.newArrayList(CollateralLeg.newBuilder().build()) : (List<?>) objectToBuildField.get(objectToBuild);
-                            CollateralLeg collateralLeg = (CollateralLeg) buildObjectBuilder(actuallist.get(0), modifiedObj);
-                            if(areAllFieldsNull(collateralLeg))
-                                objectToBuildField.set(objectToBuild, null);
-                            else
-                                objectToBuildField.set(objectToBuild, Lists.newArrayList(collateralLeg));
-                            objectToBuildField.setAccessible(false);
-                        }
-                        else
-                            setFieldValue(objectToBuild, objectToBuildField, fieldValue);
-                    }
-                    objectToBuildField.setAccessible(false);
-                }
-            }
-
-            return objectToBuild;
-        } catch (IllegalArgumentException | ReflectiveOperationException e) {
-            LOGGER.error("Error while building the object", e);
-            throw new BlotterRunTimeException("Error while building the object", e);
-        }
-    }
-
-    private boolean isCollateralLegCountValid(Map<String, String> inputJsonFields) {
-        if (inputJsonFields.get("collateralLegListCount") != null){
-            return inputJsonFields.get("collateralLegListCount").equals("1") || inputJsonFields.get("collateralLegListCount").equals("0");
-        }
-        return false;
-    }
-
-    private boolean areAllFieldsNull(Object objectToBuild) {
-        if (objectToBuild == null)
-            return true;
-
-        try {
-            for (Field field : objectToBuild.getClass().getDeclaredFields()) {
-                field.setAccessible(true);
-                if (field.get(objectToBuild) != null)
-                    return false;
-            }
-            return true;
-        } catch (IllegalArgumentException | IllegalAccessException e) {
-            LOGGER.error("Error while checking the object for null fields", e);
-            throw new BlotterRunTimeException("Error while checking the object for null fields", e);
-        }
-    }
-
-    /**
-     * Description : Method to populate map of key-value pair from Object
-     * @author agrakit
-     * Created By: Niket Agrawal
-     * Created On 02-07-2022
-     * @param objectToParse
-     * @return Map of JSON fields with value
-     */
-    public Map<String, String> populateJsonFields(Object objectToParse) {
-        Map<String, String> inputJsonFields = new HashMap<>();
-        Gson gson = new Gson();
-        final JsonObject jsonObjectToParse = gson.toJsonTree(objectToParse).getAsJsonObject();
-        for (Entry<String, JsonElement> entry : jsonObjectToParse.entrySet()) {
-            if (entry.getValue().isJsonObject()) {
-                JsonObject jsonObject = entry.getValue().getAsJsonObject();
-                Map<String, String> itemMap = new HashMap<>();
-                for (Entry<String, JsonElement> itemEntry : jsonObject.entrySet()) {
-                    itemMap.put(itemEntry.getKey(), itemEntry.getValue().getAsString());
-                }
-                inputJsonFields.put(entry.getKey(), new Gson().toJson(itemMap));
-            } else {
-                inputJsonFields.put(entry.getKey(), entry.getValue().getAsString());
-            }
-        }
-        return inputJsonFields;
-    }
-
-    /**
-     * Description : Method to set the values for relevant Object Fields
-     * @author agrakit
-     * Created By: Niket Agrawal
-     * Created On 02-07-2022
-     * @param objectToBuild
-     * @param objectToBuildField
-     * @param fieldValue
-     * @throws IllegalAccessException
-     */
-    private void setFieldValue(Object objectToBuild, Field objectToBuildField, String fieldValue)
-            throws ReflectiveOperationException {
-        Class<?> fieldDataType = objectToBuildField.getType();
-        if (fieldDataType.equals(String.class)) {
-            objectToBuildField.set(objectToBuild, fieldValue);
-        } else if (fieldDataType.equals(ZonedDateTime.class)) {
-            objectToBuildField.set(objectToBuild, ZonedDateTime.parse(fieldValue));
-        } else if (fieldDataType.equals(Double.class)) {
-            objectToBuildField.set(objectToBuild, Double.valueOf(fieldValue));
-        } else if (fieldDataType.equals(BigDecimal.class)) {
-            objectToBuildField.set(objectToBuild,new BigDecimal(fieldValue));
-        } else if (fieldDataType.equals(Integer.class)) {
-            objectToBuildField.set(objectToBuild, Integer.valueOf(fieldValue));
-        } else if (fieldDataType.equals(Boolean.class)) {
-            objectToBuildField.set(objectToBuild, Boolean.valueOf(fieldValue));
-        } else if (fieldDataType.equals(Float.class)) {
-            objectToBuildField.set(objectToBuild, Float.valueOf(fieldValue));
-        } else if (fieldDataType.equals(Long.class)) {
-            objectToBuildField.set(objectToBuild, Long.valueOf(fieldValue));
-        } else if (fieldDataType.isEnum()) {
-            String methodName = "valueOf";
-            List<Method> enumDeclaredMethods = Arrays.asList(fieldDataType.getDeclaredMethods());
-            for (Method method : enumDeclaredMethods) {
-                if (method.getName().equals("fromValue"))
-                    methodName = "fromValue";
-            }
-            Method valueOf = fieldDataType.getMethod(methodName, String.class);
-            valueOf.setAccessible(true);
-            Object value = valueOf.invoke(null, fieldValue);
-            objectToBuildField.set(objectToBuild, value);
-        }
-    }
-}
-
-
-Existing test class:
-
 /**
  * Description : ObjectManagementUtility Test Class
  * @author agrakit
@@ -295,15 +7,27 @@ Existing test class:
 package com.rbs.tntr.business.blotter.utility;
 
 import static org.junit.Assert.*;
+import static org.mockito.Mockito.*;
 
 import java.io.IOException;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.time.ZonedDateTime;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
+import com.google.common.collect.Lists;
 import com.nwm.tntr.commons.domain.persistence.constant.AllocationType;
+import com.nwm.tntr.commons.domain.persistence.entity.collateral.CollateralLeg;
 import com.rbs.tntr.domain.blotter.exceptions.BlotterRunTimeException;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
 
 import com.fasterxml.jackson.core.JsonParseException;
 import com.fasterxml.jackson.databind.JsonMappingException;
@@ -315,15 +39,19 @@ import com.rbs.tntr.business.blotter.services.common.StringConstants;
 public class ObjectManagementUtilityTest {
 
 	private ObjectManagementUtility utilObj;
+	
+	// Mock objects for testing exception scenarios
+	@Mock
+	private Object mockObject;
 
 	@Before
 	public void setup() {
 		utilObj = new ObjectManagementUtility();
+		MockitoAnnotations.initMocks(this);
 	}
 
 	@Test
 	public void testTradeObjectCompare() {
-
 		com.nwm.tntr.commons.domain.persistence.entity.trade.ReportableData existingReportableData = com.nwm.tntr.commons.domain.persistence.entity.trade.ReportableData
 					.newBuilder().withAction("action").withBuyer("buyer").withIndexSeries(2)
 					.withTradeParty1MandatoryClearing(true)
@@ -335,7 +63,6 @@ public class ObjectManagementUtilityTest {
 
 		String editedFields = utilObj.compareAndGetDiff(existingReportableData, updatedReportableData);
 		assertEquals("action,indexSeries,asOfDateTime", editedFields);
-
 	}
 
 	@Test
@@ -413,7 +140,6 @@ public class ObjectManagementUtilityTest {
 								updatedReportableFields);
 		String editedFields = utilObj.compareAndGetDiff(existingObj, updatedBuilder.build());
 		assertEquals(StringConstants.NO_FIELD_EDITED, editedFields);
-
 	}
 	
 	@Test
@@ -431,7 +157,6 @@ public class ObjectManagementUtilityTest {
 								updatedReportableFields);
 		String editedFields = utilObj.compareAndGetDiff(existingObj, updatedBuilder.build());
 		assertEquals("action,leg1NotionalAmount,tradeParty1MandatoryClearing,asOfDateTime,allocationType", editedFields);
-
 	}
 
 	@Test
@@ -453,7 +178,6 @@ public class ObjectManagementUtilityTest {
 		assertNull(updatedReportable.getAction());
 		assertNull(updatedReportable.getAsOfDateTime());
 		assertNull(updatedReportable.getLeg1NotionalAmount());
-
 	}
 
 	@Test
@@ -501,4 +225,315 @@ public class ObjectManagementUtilityTest {
 						updatedReportableFields);
 		com.nwm.tntr.commons.domain.persistence.entity.trade.ReportableData updatedReportable = updatedBuilder.build();
 	}
-}
+
+	// NEW TEST CASES FOR 100% COVERAGE
+
+	@Test
+	public void testCompareAndGetDiffWithBothNullValues() {
+		// Test case for both null values scenario
+		TestObject obj1 = new TestObject();
+		TestObject obj2 = new TestObject();
+		
+		String result = utilObj.compareAndGetDiff(obj1, obj2);
+		assertEquals(StringConstants.NO_FIELD_EDITED, result);
+	}
+
+	@Test
+	public void testCompareAndGetDiffWithOneNullValue() {
+		// Test case where one object has null value and other has non-null
+		TestObject obj1 = new TestObject();
+		obj1.setStringField("test");
+		TestObject obj2 = new TestObject();
+		obj2.setStringField(null);
+		
+		String result = utilObj.compareAndGetDiff(obj1, obj2);
+		assertEquals("stringField", result);
+	}
+
+	@Test
+	public void testCompareAndGetDiffWithCollateralLegListNull() {
+		// Test collateralLegList with null values
+		TestObjectWithCollateralLegList obj1 = new TestObjectWithCollateralLegList();
+		obj1.setCollateralLegList(null);
+		TestObjectWithCollateralLegList obj2 = new TestObjectWithCollateralLegList();
+		obj2.setCollateralLegList(Lists.newArrayList(CollateralLeg.newBuilder().build()));
+		
+		String result = utilObj.compareAndGetDiff(obj1, obj2);
+		assertTrue(result.contains("collateralLegList"));
+	}
+
+	@Test
+	public void testCompareAndGetDiffWithListDifferentSizes() {
+		// Test case where lists have different sizes
+		TestObjectWithList obj1 = new TestObjectWithList();
+		obj1.setTestList(Arrays.asList("item1", "item2"));
+		TestObjectWithList obj2 = new TestObjectWithList();
+		obj2.setTestList(Arrays.asList("item1"));
+		
+		String result = utilObj.compareAndGetDiff(obj1, obj2);
+		assertEquals("testList", result);
+	}
+
+	@Test
+	public void testCompareNestedObjectsWithDifferentClasses() throws Exception {
+		// Test compareNestedObjects with different classes using reflection
+		Method method = ObjectManagementUtility.class.getDeclaredMethod("compareNestedObjects", Object.class, Object.class, String.class);
+		method.setAccessible(true);
+		
+		String obj1 = "test";
+		Integer obj2 = 123;
+		
+		@SuppressWarnings("unchecked")
+		List<String> result = (List<String>) method.invoke(utilObj, obj1, obj2, "testField");
+		assertEquals(1, result.size());
+		assertEquals("testField", result.get(0));
+	}
+
+	@Test
+	public void testCompareNestedObjectsWithNullValues() throws Exception {
+		// Test compareNestedObjects with null values
+		Method method = ObjectManagementUtility.class.getDeclaredMethod("compareNestedObjects", Object.class, Object.class, String.class);
+		method.setAccessible(true);
+		
+		TestObject obj1 = new TestObject();
+		obj1.setStringField("test");
+		TestObject obj2 = new TestObject();
+		obj2.setStringField(null);
+		
+		@SuppressWarnings("unchecked")
+		List<String> result = (List<String>) method.invoke(utilObj, obj1, obj2, "testField");
+		assertTrue(result.contains("testField.stringField"));
+	}
+
+	@Test
+	public void testBuildObjectBuilderWithBlankFieldValue() throws IOException {
+		// Test buildObjectBuilder with blank field value
+		String inputJsonData = "{\"action\":\"\",\"buyer\":\"testBuyer\"}";
+		Object updatedReportableFields = new ObjectMapper().readValue(inputJsonData, Object.class);
+
+		com.nwm.tntr.commons.domain.persistence.entity.trade.ReportableData.Builder builder = 
+			com.nwm.tntr.commons.domain.persistence.entity.trade.ReportableData.newBuilder();
+		
+		utilObj.buildObjectBuilder(builder, updatedReportableFields);
+		
+		// The blank action field should be skipped
+		com.nwm.tntr.commons.domain.persistence.entity.trade.ReportableData result = builder.build();
+		assertNull(result.getAction());
+		assertEquals("testBuyer", result.getBuyer());
+	}
+
+	@Test
+	public void testBuildObjectBuilderWithCollateralLegListCount0() throws IOException {
+		// Test with collateralLegListCount = 0
+		String inputJsonData = "{\"collateralLegListCount\": \"0\",\"collateralLegList\": {\"productIdentification\": \"test\"}}";
+		Object updatedReportableFields = new ObjectMapper().readValue(inputJsonData, Object.class);
+
+		com.nwm.tntr.commons.domain.persistence.entity.valuation.ReportableData.Builder builder = 
+			com.nwm.tntr.commons.domain.persistence.entity.valuation.ReportableData.newBuilder();
+		
+		utilObj.buildObjectBuilder(builder, updatedReportableFields);
+		
+		// Should handle collateralLegListCount = 0
+		com.nwm.tntr.commons.domain.persistence.entity.valuation.ReportableData result = builder.build();
+		assertNull(result.getCollateralLegList());
+	}
+
+	@Test
+	public void testBuildObjectBuilderWithCollateralLegListInvalidCount() throws IOException {
+		// Test with invalid collateralLegListCount
+		String inputJsonData = "{\"collateralLegListCount\": \"2\",\"collateralLegList\": {\"productIdentification\": \"test\"}}";
+		Object updatedReportableFields = new ObjectMapper().readValue(inputJsonData, Object.class);
+
+		com.nwm.tntr.commons.domain.persistence.entity.valuation.ReportableData.Builder builder = 
+			com.nwm.tntr.commons.domain.persistence.entity.valuation.ReportableData.newBuilder();
+		
+		utilObj.buildObjectBuilder(builder, updatedReportableFields);
+		
+		// Should not process collateralLegList with invalid count
+		com.nwm.tntr.commons.domain.persistence.entity.valuation.ReportableData result = builder.build();
+		assertNull(result.getCollateralLegList());
+	}
+
+	@Test
+	public void testIsCollateralLegCountValidWithNull() throws Exception {
+		// Test isCollateralLegCountValid with null count
+		Method method = ObjectManagementUtility.class.getDeclaredMethod("isCollateralLegCountValid", Map.class);
+		method.setAccessible(true);
+		
+		Map<String, String> inputFields = new HashMap<>();
+		inputFields.put("collateralLegListCount", null);
+		
+		Boolean result = (Boolean) method.invoke(utilObj, inputFields);
+		assertFalse(result);
+	}
+
+	@Test
+	public void testAreAllFieldsNullWithNullObject() throws Exception {
+		// Test areAllFieldsNull with null object
+		Method method = ObjectManagementUtility.class.getDeclaredMethod("areAllFieldsNull", Object.class);
+		method.setAccessible(true);
+		
+		Boolean result = (Boolean) method.invoke(utilObj, (Object) null);
+		assertTrue(result);
+	}
+
+	@Test
+	public void testAreAllFieldsNullWithNonNullFields() throws Exception {
+		// Test areAllFieldsNull with non-null fields
+		Method method = ObjectManagementUtility.class.getDeclaredMethod("areAllFieldsNull", Object.class);
+		method.setAccessible(true);
+		
+		TestObject obj = new TestObject();
+		obj.setStringField("test");
+		
+		Boolean result = (Boolean) method.invoke(utilObj, obj);
+		assertFalse(result);
+	}
+
+	@Test
+	public void testAreAllFieldsNullWithAllNullFields() throws Exception {
+		// Test areAllFieldsNull with all null fields
+		Method method = ObjectManagementUtility.class.getDeclaredMethod("areAllFieldsNull", Object.class);
+		method.setAccessible(true);
+		
+		TestObject obj = new TestObject();
+		
+		Boolean result = (Boolean) method.invoke(utilObj, obj);
+		assertTrue(result);
+	}
+
+	@Test(expected = BlotterRunTimeException.class)
+	public void testAreAllFieldsNullWithException() throws Exception {
+		// Test areAllFieldsNull with reflection exception
+		Method method = ObjectManagementUtility.class.getDeclaredMethod("areAllFieldsNull", Object.class);
+		method.setAccessible(true);
+		
+		// Create a mock object that will throw IllegalAccessException
+		Object mockObj = mock(Object.class);
+		when(mockObj.getClass()).thenReturn(TestObject.class);
+		
+		method.invoke(utilObj, mockObj);
+	}
+
+	@Test
+	public void testSetFieldValueWithAllDataTypes() throws Exception {
+		// Test setFieldValue with all supported data types
+		TestObjectWithAllTypes obj = new TestObjectWithAllTypes();
+		
+		Method method = ObjectManagementUtility.class.getDeclaredMethod("setFieldValue", Object.class, Field.class, String.class);
+		method.setAccessible(true);
+		
+		// Test String
+		Field stringField = TestObjectWithAllTypes.class.getDeclaredField("stringField");
+		stringField.setAccessible(true);
+		method.invoke(utilObj, obj, stringField, "testString");
+		assertEquals("testString", obj.getStringField());
+		
+		// Test ZonedDateTime
+		Field dateField = TestObjectWithAllTypes.class.getDeclaredField("dateField");
+		dateField.setAccessible(true);
+		method.invoke(utilObj, obj, dateField, "2022-09-30T00:00:00.000Z");
+		assertNotNull(obj.getDateField());
+		
+		// Test Double
+		Field doubleField = TestObjectWithAllTypes.class.getDeclaredField("doubleField");
+		doubleField.setAccessible(true);
+		method.invoke(utilObj, obj, doubleField, "123.45");
+		assertEquals(Double.valueOf(123.45), obj.getDoubleField());
+		
+		// Test BigDecimal
+		Field bigDecimalField = TestObjectWithAllTypes.class.getDeclaredField("bigDecimalField");
+		bigDecimalField.setAccessible(true);
+		method.invoke(utilObj, obj, bigDecimalField, "999.99");
+		assertEquals(new BigDecimal("999.99"), obj.getBigDecimalField());
+		
+		// Test Integer
+		Field intField = TestObjectWithAllTypes.class.getDeclaredField("intField");
+		intField.setAccessible(true);
+		method.invoke(utilObj, obj, intField, "42");
+		assertEquals(Integer.valueOf(42), obj.getIntField());
+		
+		// Test Boolean
+		Field boolField = TestObjectWithAllTypes.class.getDeclaredField("boolField");
+		boolField.setAccessible(true);
+		method.invoke(utilObj, obj, boolField, "true");
+		assertTrue(obj.getBoolField());
+		
+		// Test Float
+		Field floatField = TestObjectWithAllTypes.class.getDeclaredField("floatField");
+		floatField.setAccessible(true);
+		method.invoke(utilObj, obj, floatField, "3.14");
+		assertEquals(Float.valueOf(3.14f), obj.getFloatField());
+		
+		// Test Long
+		Field longField = TestObjectWithAllTypes.class.getDeclaredField("longField");
+		longField.setAccessible(true);
+		method.invoke(utilObj, obj, longField, "1234567890");
+		assertEquals(Long.valueOf(1234567890L), obj.getLongField());
+	}
+
+	@Test
+	public void testSetFieldValueWithEnumFromValue() throws Exception {
+		// Test enum with fromValue method
+		TestObjectWithEnum obj = new TestObjectWithEnum();
+		
+		Method method = ObjectManagementUtility.class.getDeclaredMethod("setFieldValue", Object.class, Field.class, String.class);
+		method.setAccessible(true);
+		
+		Field enumField = TestObjectWithEnum.class.getDeclaredField("allocationType");
+		enumField.setAccessible(true);
+		method.invoke(utilObj, obj, enumField, "PREA");
+		assertEquals(AllocationType.PRE_ALLOCATED, obj.getAllocationType());
+	}
+
+	@Test
+	public void testPopulateJsonFieldsWithNestedObjects() {
+		// Test populateJsonFields with nested JSON objects
+		Map<String, Object> nestedData = new HashMap<>();
+		nestedData.put("nestedField", "nestedValue");
+		
+		Map<String, Object> testData = new HashMap<>();
+		testData.put("simpleField", "simpleValue");
+		testData.put("nestedObject", nestedData);
+		
+		Map<String, String> result = utilObj.populateJsonFields(testData);
+		
+		assertEquals("simpleValue", result.get("simpleField"));
+		assertTrue(result.get("nestedObject").contains("nestedField"));
+		assertTrue(result.get("nestedObject").contains("nestedValue"));
+	}
+
+	@Test(expected = BlotterRunTimeException.class)
+	public void testCompareAndGetDiffWithIllegalAccessException() throws Exception {
+		// Test exception handling in compareAndGetDiff
+		TestObject obj1 = new TestObject();
+		TestObject obj2 = new TestObject();
+		
+		// Use reflection to create a scenario that would cause IllegalAccessException
+		Field field = TestObject.class.getDeclaredField("stringField");
+		field.setAccessible(false); // Make field inaccessible
+		
+		// This should trigger the exception handling
+		utilObj.compareAndGetDiff(obj1, obj2);
+	}
+
+	@Test(expected = BlotterRunTimeException.class)
+	public void testBuildObjectBuilderWithReflectiveOperationException() throws IOException {
+		// Test exception handling in buildObjectBuilder with invalid data type
+		String inputJsonData = "{\"invalidField\":\"invalidValue\"}";
+		Object updatedReportableFields = new ObjectMapper().readValue(inputJsonData, Object.class);
+		
+		// Create a test object that will cause reflection issues
+		TestObjectWithInvalidSetter testObj = new TestObjectWithInvalidSetter();
+		
+		utilObj.buildObjectBuilder(testObj, updatedReportableFields);
+	}
+
+	@Test
+	public void testPopulateEditedFieldsWithSingleProperty() throws Exception {
+		// Test populateEditedFields with single property
+		Method method = ObjectManagementUtility.class.getDeclaredMethod("populateEditedFields", List.class);
+		method.setAccessible(true);
+		
+		List<String> properties = Arrays.asList("singleProperty");
+		String result = (String) metho
