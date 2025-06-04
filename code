@@ -1,475 +1,82 @@
-package com.rbs.tntr.business.blotter.services.actions;
-
-import com.google.common.collect.Lists;
-import com.nwm.tntr.commons.domain.persistence.constant.TNTRApplication;
-import com.nwm.tntr.commons.domain.persistence.constant.UserActionType;
-import com.nwm.tntr.commons.domain.persistence.entity.DocumentId;
-import com.nwm.tntr.commons.domain.persistence.entity.ExceptionManagement;
-import com.nwm.tntr.commons.domain.persistence.entity.NonReportableData;
-import com.nwm.tntr.commons.domain.persistence.entity.trade.TradeReport;
-import com.nwm.tntr.commons.domain.persistence.entity.trade.TradeReportDocument;
-import com.nwm.tntr.commons.domain.persistence.entity.trade.TransactionReportingStatus;
-import com.nwm.tntr.commons.repository.regreporting.WriteResult;
-import com.rbs.tntr.business.blotter.df.manager.DfTradePersistManager;
-import com.rbs.tntr.business.blotter.df.updater.TradeDataUpdater;
-import com.rbs.tntr.business.blotter.services.validators.ActionRequestValidator;
-import com.rbs.tntr.business.blotter.web.request.regreportingTrade.*;
-import com.rbs.tntr.domain.blotter.enums.ExceptionStatus;
-import com.rbs.tntr.domain.blotter.tntrBlotterView.ActionDocumentId;
-import org.apache.commons.lang3.tuple.Pair;
-import org.junit.Before;
-import org.junit.Test;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
-
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-
-import static org.junit.Assert.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
-
-public class TradeActionServiceTest {
-
-    @Mock
-    private DfTradePersistManager dfTradePersistManager;
-
-    @Mock
-    private TradeDataUpdater dataUpdater;
-
-    @Mock
-    private ActionRequestValidator requestValidator;
-
-    @InjectMocks
-    private TradeActionService tradeActionService;
-
-    @Before
-    public void setUp() {
-        MockitoAnnotations.initMocks(this);
-    }
-
-    // Existing tests
-    @Test
-    public void testAddComment_EmptyRequests() {
-        List<AddTradeCommentRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = tradeActionService.addComment(requests, "username");
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testRemoveComment_EmptyRequests() {
-        List<AddTradeCommentRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = tradeActionService.removeComment(requests, "username");
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testAddCommentType_EmptyRequests() {
-        List<AddTradeCommentTypeRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = tradeActionService.addCommentType(requests, "username");
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testRemoveJiraType_EmptyRequests() {
-        List<AddTradeJiraTypeRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = tradeActionService.removeJiraType(requests, "username");
-        assertTrue(results.isEmpty());
-    }
-
-    // Additional tests for addComment
-    @Test
-    public void testAddComment_Success() {
-        List<AddTradeCommentRequest> requests = Arrays.asList(createAddTradeCommentRequest("key1", 1L, "comment"));
-        String userName = "testUser";
-        DocumentId documentId = DocumentId.from("key1", 1L);
-        TradeReportDocument tradeDoc = createTradeReportDocument(documentId);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Arrays.asList(tradeDoc));
-        doNothing().when(requestValidator).validateMAS755Trades(anyList(), anyList());
-        when(requestValidator.validateUser(eq(userName), any())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        ExceptionManagement updatedEm = new ExceptionManagement();
-        when(dataUpdater.addCommentsToException(any(), any(), eq(userName))).thenReturn(updatedEm);
-        WriteResult<TradeReport> successWrite = new WriteResult<>(true, null, documentId);
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Arrays.asList(successWrite));
-
-        List<ActionUpdateResult> results = tradeActionService.addComment(requests, userName);
-
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).isSuccess());
-        assertEquals(new ActionDocumentId("key1", 1L), results.get(0).getDocumentId());
-    }
-
-    @Test
-    public void testAddComment_UserValidationFails() {
-        List<AddTradeCommentRequest> requests = Arrays.asList(createAddTradeCommentRequest("key1", 1L, "comment"));
-        String userName = "testUser";
-        DocumentId documentId = DocumentId.from("key1", 1L);
-        TradeReportDocument tradeDoc = createTradeReportDocument(documentId);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Arrays.asList(tradeDoc));
-        doNothing().when(requestValidator).validateMAS755Trades(anyList(), anyList());
-        when(requestValidator.validateUser(eq(userName), any())).thenReturn(false);
-
-        List<ActionUpdateResult> results = tradeActionService.addComment(requests, userName);
-
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-        assertEquals(ActionRequestValidator.USER_VALIDATION_ERROR, results.get(0).getErrorMessage());
-    }
-
-    @Test
-    public void testAddComment_SaveFails() {
-        List<AddTradeCommentRequest> requests = Arrays.asList(createAddTradeCommentRequest("key1", 1L, "comment"));
-        String userName = "testUser";
-        DocumentId documentId = DocumentId.from("key1", 1L);
-        TradeReportDocument tradeDoc = createTradeReportDocument(documentId);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Arrays.asList(tradeDoc));
-        doNothing().when(requestValidator).validateMAS755Trades(anyList(), anyList());
-        when(requestValidator.validateUser(eq(userName), any())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        when(dataUpdater.addCommentsToException(any(), any(), eq(userName))).thenReturn(new ExceptionManagement());
-        WriteResult<TradeReport> failedWrite = new WriteResult<>(false, "Save error", documentId);
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Arrays.asList(failedWrite));
-
-        List<ActionUpdateResult> results = tradeActionService.addComment(requests, userName);
-
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-        assertTrue(results.get(0).getErrorMessage().contains("Save error"));
-    }
-
-    @Test
-    public void testAddComment_ExceptionThrown() {
-        List<AddTradeCommentRequest> requests = Arrays.asList(createAddTradeCommentRequest("key1", 1L, "comment"));
-        String userName = "testUser";
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenThrow(new RuntimeException("DB error"));
-
-        List<ActionUpdateResult> results = tradeActionService.addComment(requests, userName);
-
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-        assertTrue(results.get(0).getErrorMessage().contains("Error updating trade record : DB error"));
-    }
-
-    @Test
-    public void testAddComment_NoTradesFound() {
-        List<AddTradeCommentRequest> requests = Arrays.asList(createAddTradeCommentRequest("key1", 1L, "comment"));
-        String userName = "testUser";
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(new ArrayList<>());
-        doNothing().when(requestValidator).validateMAS755Trades(anyList(), anyList());
-
-        List<ActionUpdateResult> results = tradeActionService.addComment(requests, userName);
-
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testAddComment_MixedResults() {
-        List<AddTradeCommentRequest> requests = Arrays.asList(
-            createAddTradeCommentRequest("key1", 1L, "comment1"),
-            createAddTradeCommentRequest("key2", 1L, "comment2")
-        );
-        String userName = "testUser";
-        DocumentId doc1 = DocumentId.from("key1", 1L);
-        DocumentId doc2 = DocumentId.from("key2", 1L);
-        TradeReportDocument tradeDoc1 = createTradeReportDocument(doc1);
-        TradeReportDocument tradeDoc2 = createTradeReportDocument(doc2);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Arrays.asList(tradeDoc1, tradeDoc2));
-        doNothing().when(requestValidator).validateMAS755Trades(anyList(), anyList());
-        when(requestValidator.validateUser(eq(userName), eq(tradeDoc1.getTradeReport().getExceptionManagement()))).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(eq(tradeDoc1.getTradeReport().getExceptionManagement().getApprovalStatus()))).thenReturn(false);
-        when(requestValidator.validateUser(eq(userName), eq(tradeDoc2.getTradeReport().getExceptionManagement()))).thenReturn(false);
-        when(dataUpdater.addCommentsToException(any(), any(), eq(userName))).thenReturn(new ExceptionManagement());
-        WriteResult<TradeReport> successWrite = new WriteResult<>(true, null, doc1);
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Arrays.asList(successWrite));
-
-        List<ActionUpdateResult> results = tradeActionService.addComment(requests, userName);
-
-        assertEquals(2, results.size());
-        assertTrue(results.stream().anyMatch(r -> r.isSuccess() && r.getDocumentId().equals(new ActionDocumentId("key1", 1L))));
-        assertTrue(results.stream().anyMatch(r -> !r.isSuccess() && r.getDocumentId().equals(new ActionDocumentId("key2", 1L)) && r.getErrorMessage().equals(ActionRequestValidator.USER_VALIDATION_ERROR)));
-    }
-
-    // Tests for removeComment
-    @Test
-    public void testRemoveComment_Success() {
-        List<AddTradeCommentRequest> requests = Arrays.asList(createAddTradeCommentRequest("key1", 1L, "comment"));
-        String userName = "testUser";
-        DocumentId documentId = DocumentId.from("key1", 1L);
-        TradeReportDocument tradeDoc = createTradeReportDocument(documentId);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Arrays.asList(tradeDoc));
-        doNothing().when(requestValidator).validateMAS755Trades(anyList(), anyList());
-        when(requestValidator.validateUser(eq(userName), any())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        when(dataUpdater.removeCommentsToException(any(), any(), eq(userName))).thenReturn(new ExceptionManagement());
-        WriteResult<TradeReport> successWrite = new WriteResult<>(true, null, documentId);
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Arrays.asList(successWrite));
-
-        List<ActionUpdateResult> results = tradeActionService.removeComment(requests, userName);
-
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).isSuccess());
-    }
-
-    // Tests for addCommentType
-    @Test
-    public void testAddCommentType_Success() {
-        List<AddTradeCommentTypeRequest> requests = Arrays.asList(createAddTradeCommentTypeRequest("key1", 1L));
-        String userName = "testUser";
-        DocumentId documentId = DocumentId.from("key1", 1L);
-        TradeReportDocument tradeDoc = createTradeReportDocument(documentId);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Arrays.asList(tradeDoc));
-        doNothing().when(requestValidator).validateMAS755Trades(anyList(), anyList());
-        when(requestValidator.validateUser(eq(userName), any())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        when(dataUpdater.addCommentTypeToException(any(), any(), eq(userName))).thenReturn(new ExceptionManagement());
-        WriteResult<TradeReport> successWrite = new WriteResult<>(true, null, documentId);
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Arrays.asList(successWrite));
-
-        List<ActionUpdateResult> results = tradeActionService.addCommentType(requests, userName);
-
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).isSuccess());
-    }
-
-    // Tests for removeCommentType
-    @Test
-    public void testRemoveCommentType_Success() {
-        List<AddTradeCommentTypeRequest> requests = Arrays.asList(createAddTradeCommentTypeRequest("key1", 1L));
-        String userName = "testUser";
-        DocumentId documentId = DocumentId.from("key1", 1L);
-        TradeReportDocument tradeDoc = createTradeReportDocument(documentId);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Arrays.asList(tradeDoc));
-        doNothing().when(requestValidator).validateMAS755Trades(anyList(), anyList());
-        when(requestValidator.validateUser(eq(userName), any())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        when(dataUpdater.removeCommentTypeToException(any(), any(), eq(userName))).thenReturn(new ExceptionManagement());
-        WriteResult<TradeReport> successWrite = new WriteResult<>(true, null, documentId);
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Arrays.asList(successWrite));
-
-        List<ActionUpdateResult> results = tradeActionService.removeCommentType(requests, userName);
-
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).isSuccess());
-    }
-
-    // Tests for updateEditedFields
-    @Test
-    public void testUpdateEditedFields_EmptyRequests() {
-        List<EditRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = tradeActionService.updateEditedFields(requests, "username", ExceptionStatus.Pending);
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testUpdateEditedFields_Success() {
-        List<EditRequest> requests = Arrays.asList(createEditRequest("key1", 1L));
-        String userName = "testUser";
-        DocumentId documentId = DocumentId.from("key1", 1L);
-        TradeReportDocument tradeDoc = createTradeReportDocument(documentId);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Arrays.asList(tradeDoc));
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        TradeReport updatedTrade = TradeReport.newBuilder().build();
-        when(dataUpdater.updateTradeReportData(any(), any(), eq(userName), any())).thenReturn(updatedTrade);
-        WriteResult<TradeReport> successWrite = new WriteResult<>(true, null, documentId);
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Arrays.asList(successWrite));
-
-        List<ActionUpdateResult> results = tradeActionService.updateEditedFields(requests, userName, ExceptionStatus.Pending);
-
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).isSuccess());
-    }
-
-    // Tests for updateExceptionStatus
-    @Test
-    public void testUpdateExceptionStatus_EmptyRequests() {
-        List<UpdateExceptionStatusRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = tradeActionService.updateExceptionStatus(requests, ExceptionStatus.Pending, "username");
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testUpdateExceptionStatus_EditRejected() {
-        List<UpdateExceptionStatusRequest> requests = Arrays.asList(createUpdateExceptionStatusRequest("key1", 3L));
-        String userName = "testUser";
-        DocumentId documentId = DocumentId.from("key1", 3L);
-        TradeReportDocument tradeDoc = createTradeReportDocument(documentId);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Arrays.asList(tradeDoc));
-        doNothing().when(requestValidator).validatePermittedExceptionStatus(anyList(), anyList(), any());
-        when(requestValidator.validateUser(eq(userName), any())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        when(requestValidator.validateAckedCancleTrade(any(), any())).thenReturn(false);
-        when(requestValidator.validateExceptionStatus(any(), any())).thenReturn(true);
-        when(requestValidator.validateApprover(any(), any(), any(), any())).thenReturn(false);
-        when(dataUpdater.addExceptionStatus(any(), any(), any(), eq(userName))).thenReturn(new ExceptionManagement());
-        WriteResult<TradeReport> successWrite = new WriteResult<>(true, null, documentId);
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Arrays.asList(successWrite));
-        DocumentId prevDocId = DocumentId.from("key1", 1L);
-        TradeReportDocument prevTradeDoc = createTradeReportDocument(prevDocId);
-        when(dfTradePersistManager.getAllRecordsById(Arrays.asList(prevDocId))).thenReturn(Arrays.asList(prevTradeDoc));
-        when(dfTradePersistManager.upsertAllRecords(anyList())).thenReturn(Arrays.asList(successWrite));
-
-        List<ActionUpdateResult> results = tradeActionService.updateExceptionStatus(requests, ExceptionStatus.Edit_Rejected, userName);
-
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).isSuccess());
-        verify(dfTradePersistManager).upsertAllRecords(anyList());
-    }
-
-    // Tests for performResetAction
-    @Test
-    public void testPerformResetAction_EmptyRequests() {
-        List<UpdateExceptionStatusRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = tradeActionService.performResetAction(requests, "username");
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testPerformResetAction_Success() {
-        List<UpdateExceptionStatusRequest> requests = Arrays.asList(createUpdateExceptionStatusRequest("key1", 1L));
-        String userName = "testUser";
-        DocumentId documentId = DocumentId.from("key1", 1L);
-        TradeReportDocument tradeDoc = createTradeReportDocument(documentId);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Arrays.asList(tradeDoc));
-        when(requestValidator.validateResetActionApprovalStatus(any(), any())).thenReturn(true);
-        when(dataUpdater.resetAction(any(), any(), eq(userName))).thenReturn(new ExceptionManagement());
-        WriteResult<TradeReport> successWrite = new WriteResult<>(true, null, documentId);
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Arrays.asList(successWrite));
-
-        List<ActionUpdateResult> results = tradeActionService.performResetAction(requests, userName);
-
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).isSuccess());
-    }
-
-    @Test
-    public void testPerformResetAction_NotAllowed() {
-        List<UpdateExceptionStatusRequest> requests = Arrays.asList(createUpdateExceptionStatusRequest("key1", 1L));
-        String userName = "testUser";
-        DocumentId documentId = DocumentId.from("key1", 1L);
-        TradeReportDocument tradeDoc = createTradeReportDocument(documentId);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Arrays.asList(tradeDoc));
-        when(requestValidator.validateResetActionApprovalStatus(any(), any())).thenReturn(false);
-
-        List<ActionUpdateResult> results = tradeActionService.performResetAction(requests, userName);
-
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-        assertEquals(ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR, results.get(0).getErrorMessage());
-    }
-
-    // Tests for assignExceptionToUser
-    @Test
-    public void testAssignExceptionToUser_EmptyRequests() {
-        List<AssignTradeRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = tradeActionService.assignExceptionToUser(requests, "username");
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testAssignExceptionToUser_Success() {
-        List<AssignTradeRequest> requests = Arrays.asList(createAssignTradeRequest("key1", 1L));
-        String userName = "testUser";
-        DocumentId documentId = DocumentId.from("key1", 1L);
-        TradeReportDocument tradeDoc = createTradeReportDocument(documentId);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Arrays.asList(tradeDoc));
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        when(dataUpdater.assignException(any(), any(), eq(userName))).thenReturn(new ExceptionManagement());
-        WriteResult<TradeReport> successWrite = new WriteResult<>(true, null, documentId);
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Arrays.asList(successWrite));
-
-        List<ActionUpdateResult> results = tradeActionService.assignExceptionToUser(requests, userName);
-
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).isSuccess());
-    }
-
-    // Tests for addJiraId
-    @Test
-    public void testAddJiraId_EmptyRequests() {
-        List<AddTradeJiraReferenceRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = tradeActionService.addJiraId(requests, "username");
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testAddJiraId_Success() {
-        List<AddTradeJiraReferenceRequest> requests = Arrays.asList(createAddTradeJiraReferenceRequest("key1", 1L, "JIRA-123"));
-        String userName = "testUser";
-        DocumentId documentId = DocumentId.from("key1", 1L);
-        TradeReportDocument tradeDoc = createTradeReportDocument(documentId);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Arrays.asList(tradeDoc));
-        doNothing().when(requestValidator).validateMAS755Trades(anyList(), anyList());
-        when(requestValidator.validateUser(eq(userName), any())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        when(requestValidator.isJiraIdPresent(any(), any())).thenReturn(false);
-        when(dataUpdater.addJiraIdToException(any(), any(), eq(userName))).thenReturn(new ExceptionManagement());
-        WriteResult<TradeReport> successWrite = new WriteResult<>(true, null, documentId);
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Arrays.asList(successWrite));
-
-        List<ActionUpdateResult> results = tradeActionService.addJiraId(requests, userName);
-
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).isSuccess());
-    }
-
-    @Test
-    public void testAddJiraId_JiraIdPresent() {
-        List<AddTradeJiraReferenceRequest> requests = Arrays.asList(createAddTradeJiraReferenceRequest("key1", 1L, "JIRA-123"));
-        String userName = "testUser";
-        DocumentId documentId = DocumentId.from("key1", 1L);
-        TradeReportDocument tradeDoc = createTradeReportDocument(documentId);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Arrays.asList(tradeDoc));
-        doNothing().when(requestValidator).validateMAS755Trades(anyList(), anyList());
-        when(requestValidator.validateUser(eq(userName), any())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        when(requestValidator.isJiraIdPresent(any(), any())).thenReturn(true);
-
-        List<ActionUpdateResult> results = tradeActionService.addJiraId(requests, userName);
-
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-        assertEquals(ActionRequestValidator.JIRA_ID_PRESENT, results.get(0).getErrorMessage());
-    }
-
-    // Tests for removeJiraId
-    @Test
-    public void testRemoveJiraId_EmptyRequests() {
-        List<AddTradeJiraReferenceRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = tradeActionService.removeJiraId(requests, "username");
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testRemoveJiraId_Success() {
-        List<AddTradeJiraReferenceRequest> requests = Arrays.asList(createAddTradeJiraReferenceRequest("key1", 1L, "JIRA-123"));
-        String userName = "testUser";
-        DocumentId documentId = DocumentId.from("key1", 1L);
-        TradeReportDocument tradeDoc = createTradeReportDocument(documentId);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Arrays.asList(tradeDoc));
-        doNothing().when(requestValidator).validateMAS755Trades(anyList(), anyList());
-        when(requestValidator.validateUser(eq(userName), any())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        when(requestValidator.isJiraIdPresent(any(), any())).thenReturn(true);
-        when(dataUpdater.removeJiraIdFromException(any(), any(), eq(userName))).thenReturn(new ExceptionManagement());
-        WriteResult<TradeReport> successWrite = new WriteResult<>(true, null, documentId);
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Arrays.asList(successWrite));
-
-        List<ActionUpdateResult> results = tradeActionService.removeJiraId(requests, userName);
-
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).isSuccess());
-    }
-
-    @Test
-    public void testRemoveJiraId_JiraIdNotPresent() {
-        List<AddTradeJiraReferenceRequest> requests = Arrays.asList(createAddTradeJiraReferenceRequest("key1", 1L, "JIRA-123"));
-        String userName = "testUser";
-        DocumentId documentId = DocumentId.from("key1", 1L);
-        TradeReportDocument tradeDoc = createTradeReportDocument(documentId);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Arrays.asList(tradeDoc));
-        doNothing().when(requestValidator).validateMAS755Trades(anyList(), anyList());
-        when(requestValidator.validateUser(eq(userName), any())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(any())).thenReturn
+Could you write all the test cases for below java class to cover all the remaining scenarios or methods and make the test coverage or code coverage as 100% using junit 4 and old mockito version and java 8. Also don't use power mockito as i m using older mockito version and for private methods try to use reflection. Plus we can't change any file other than the above test class. 
+
+/**
+ * 
+ */
+package com.rbs.tntr.business.blotter.utility;
+
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.client.RestTemplate;
+
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.Maps;
+import com.rbs.tntr.business.blotter.search.querybuilder.LoggedInUserDetails;
+import com.rbs.tntr.domain.blotter.exceptions.BlotterRunTimeException;
+
+/**
+ * Description : 
+ * @author agrakit
+ * Created By: Niket Agrawal
+ * Created On 05-01-2023
+ */
+@Configuration
+public class BlotterUtil {
+
+	private static final String RESPONSE = "response";
+
+	private static final Logger LOGGER = LoggerFactory.getLogger(BlotterUtil.class);
+
+	private static String userDetailsHost;
+
+	@Value("${loggedin.user.details.endpoint}")
+	public void setUserDetailsHost(String hostEndpoint) {
+		BlotterUtil.userDetailsHost = hostEndpoint;
+	}
+
+	public static LoggedInUserDetails getLoggedInUserDetails(String userRacfId) {
+		try {
+			HttpHeaders headers = new HttpHeaders();
+			headers.setContentType(MediaType.APPLICATION_JSON);
+			HttpEntity<Object> entity = new HttpEntity<>(headers);
+			HashMap<String, Object> uriVariables = Maps.newHashMap();
+			uriVariables.put("userRacfId", userRacfId);
+			ResponseEntity<String> response = new RestTemplate().exchange(userDetailsHost, HttpMethod.GET, entity,
+					String.class, uriVariables);
+			if (response.getStatusCode() == HttpStatus.OK) {
+				ObjectMapper mapper = new ObjectMapper();
+				JsonNode node = mapper.readTree(response.getBody());
+				if (node.hasNonNull(RESPONSE) && node.get(RESPONSE).hasNonNull("docs")
+						&& node.get(RESPONSE).get("docs").has(0)) {
+					Map<String, Object> userMap = mapper.convertValue(node.get(RESPONSE).get("docs").get(0),
+							new TypeReference<Map<String, Object>>() {
+							});
+					return mapper.convertValue(userMap, LoggedInUserDetails.class);
+				} else {
+					LOGGER.error("API Response doesnt have User Details");
+					throw new BlotterRunTimeException("API Response doesnt have User Details");
+				}
+			} else {
+				LOGGER.error("Error in Response while fetching user details");
+				throw new BlotterRunTimeException("Error in Response while fetching user details");
+			}
+		} catch (IOException ex) {
+			LOGGER.error("There was an exception while fetching user details", ex);
+			throw new BlotterRunTimeException("There was an exception while fetching user details", ex);
+		}
+	}
+}
