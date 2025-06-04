@@ -1,449 +1,224 @@
-package com.rbs.tntr.business.blotter.services.actions;
+Could you write all the additional test cases for below java class to cover all the remaining scenarios or methods and make the test coverage or code coverage as 100% using junit 4 and old mockito version and java 8. Also don't use power mockito as i m using older mockito version and for private methods try to use reflection. Plus we can't change any file other than the above test class. 
 
-import com.google.common.collect.Lists;
-import com.nwm.tntr.commons.domain.persistence.entity.DocumentId;
-import com.nwm.tntr.commons.domain.persistence.entity.ExceptionManagement;
-import com.nwm.tntr.commons.domain.persistence.entity.NonReportableData;
-import com.nwm.tntr.commons.domain.persistence.entity.trade.TradeReport;
-import com.nwm.tntr.commons.domain.persistence.entity.trade.TradeReportDocument;
-import com.nwm.tntr.commons.repository.regreporting.WriteResult;
-import com.rbs.tntr.business.blotter.df.manager.DfTradePersistManager;
-import com.rbs.tntr.business.blotter.df.updater.TradeDataUpdater;
-import com.rbs.tntr.business.blotter.services.validators.ActionRequestValidator;
-import com.rbs.tntr.business.blotter.web.request.regreportingTrade.*;
-import com.rbs.tntr.domain.blotter.enums.ExceptionStatus;
+/**
+ * 
+ */
+package com.rbs.tntr.business.blotter.utility;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.util.List;
+
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.CellStyle;
+import org.apache.poi.ss.usermodel.CellType;
+import org.apache.poi.ss.usermodel.HorizontalAlignment;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.xssf.streaming.SXSSFWorkbook;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
+
 import com.rbs.tntr.domain.blotter.exceptions.BlotterRunTimeException;
-import com.rbs.tntr.domain.blotter.tntrBlotterView.ActionDocumentId;
-import org.apache.commons.lang3.tuple.Pair;
+
+/**
+ * Description : Class to export data into Excel File
+ *
+ * @author agrakit
+ * 
+ * Created By: Niket Agrawal
+ * 
+ * Created On 25-10-2021
+ * 
+ */
+@Component
+public class ExcelWriterImpl {
+	private SXSSFWorkbook workBook;
+	private Sheet excelSheet;
+	private final Logger LOGGER = LoggerFactory.getLogger(ExcelWriterImpl.class);
+
+	/**
+	 * Description : Method to get styling for cells
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 25-10-2021
+	 * @return
+	 */
+	private CellStyle getCellStyle() {
+		CellStyle style = workBook.createCellStyle();
+		style.setAlignment(HorizontalAlignment.CENTER);
+		return style;
+	}
+
+	/**
+	 * Description : set headers into excel file
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 25-10-2021
+	 * @param columns
+	 * @param sheetName
+	 */
+	private void fillHeader(String[] columns, String sheetName) {
+		// keep 100 rows in memory, exceeding rows will be flushed to disk
+		workBook = new SXSSFWorkbook(100);
+		excelSheet = workBook.createSheet(sheetName);
+		CellStyle headerStle = getCellStyle();
+
+		Row row = excelSheet.createRow(0);
+
+		for (int cellnum = 0; cellnum < columns.length; cellnum++) {
+			Cell cell = row.createCell(cellnum);
+			cell.setCellValue(columns[cellnum]);
+			cell.setCellStyle(headerStle);
+		}
+	}
+
+	/**
+	 * Description : Method to export data into excel file
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 25-10-2021
+	 * @param rows
+	 * @param fileName
+	 * @param sheetName
+	 * @return
+	 */
+	public boolean exportExcel(List<String[]> rows, String fileName, String sheetName) {
+		try {
+			fillHeader(rows.get(0), sheetName);
+			fillData(rows);
+			writeExcelFile(fileName);
+			LOGGER.info("Data exported in excel successful at {}", fileName);
+		} catch (Exception e) {
+			LOGGER.error("Exception while writing excel file {}", e);
+			throw new BlotterRunTimeException("Exception while writing excel file", e);
+		}
+		return true;
+	}
+
+	/**
+	 * Description : Populate records into Excel
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 25-10-2021
+	 * @param rows
+	 */
+	private void fillData(List<String[]> rows) {
+		CellStyle normalStyle = getCellStyle();
+
+		for (int rowNum = 1; rowNum < rows.size(); rowNum++) {
+			Row row = excelSheet.createRow(rowNum);
+			String[] data = rows.get(rowNum);
+			for (int colNum = 0; colNum < data.length; colNum++) {
+				Cell cell = row.createCell(colNum, CellType.STRING);
+				cell.setCellStyle(normalStyle);
+				cell.setCellValue(data[colNum]);
+			}
+
+		}
+	}
+
+	/**
+	 * Description : Exporting file on shared location
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 25-10-2021
+	 * @param fileName
+	 */
+	private void writeExcelFile(String fileName) {
+		try {
+			File myFile = new File(fileName);
+			FileOutputStream fileOut = new FileOutputStream(myFile);
+			workBook.write(fileOut);
+			fileOut.close();
+			workBook.dispose();
+			workBook.close();
+		} catch (IOException e) {
+			LOGGER.error("Exception while writing excel file");
+			throw new BlotterRunTimeException("Exception while writing excel file", e);
+		}
+	}
+}
+
+Existing test class:
+
+package com.rbs.tntr.business.blotter.utility;
+
+import static org.mockito.Mockito.*;
+import static org.junit.Assert.*;
+
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.streaming.SXSSFWorkbook;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.runner.RunWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
-
-import java.util.ArrayList;
+import org.mockito.runners.MockitoJUnitRunner;
+import java.lang.reflect.Method;
+import java.util.Arrays;
 import java.util.List;
 
-import static org.junit.Assert.*;
-import static org.mockito.Mockito.*;
-
-public class TradeActionServiceTest {
-
-    @Mock
-    private DfTradePersistManager dfTradePersistManager;
-
-    @Mock
-    private TradeDataUpdater dataUpdater;
-
-    @Mock
-    private ActionRequestValidator requestValidator;
+@RunWith(MockitoJUnitRunner.class)
+public class ExcelWriterImplTest {
 
     @InjectMocks
-    private TradeActionService tradeActionService;
+    private ExcelWriterImpl excelWriter;
+
+    @Mock
+    private SXSSFWorkbook workBook;
+
+    @Mock
+    private Sheet excelSheet;
 
     @Before
     public void setUp() {
         MockitoAnnotations.initMocks(this);
     }
 
-    // Existing test methods (unchanged)
     @Test
-    public void testAddComment_EmptyRequests() {
-        List<AddTradeCommentRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = tradeActionService.addComment(requests, "username");
-        assertTrue(results.isEmpty());
+    public void testGetCellStyle() throws Exception {
+        Method method = ExcelWriterImpl.class.getDeclaredMethod("getCellStyle");
+        method.setAccessible(true);
+
+        CellStyle style = mock(CellStyle.class);
+        when(workBook.createCellStyle()).thenReturn(style);
+
+        CellStyle result = (CellStyle) method.invoke(excelWriter);
+
+        assertNotNull(result);
+        verify(style).setAlignment(HorizontalAlignment.CENTER);
     }
 
     @Test
-    public void testRemoveComment_EmptyRequests() {
-        List<AddTradeCommentRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = tradeActionService.removeComment(requests, "username");
-        assertTrue(results.isEmpty());
+    public void testFillData() throws Exception {
+        Method method = ExcelWriterImpl.class.getDeclaredMethod("fillData", List.class);
+        method.setAccessible(true);
+
+        String[] header = {"Column1", "Column2"};
+        String[] row1 = {"Data1", "Data2"};
+        List<String[]> rows = Arrays.asList(header, row1);
+
+        CellStyle normalStyle = mock(CellStyle.class);
+        when(workBook.createCellStyle()).thenReturn(normalStyle);
+
+        Row row = mock(Row.class);
+        when(excelSheet.createRow(1)).thenReturn(row);
+
+        Cell cell1 = mock(Cell.class);
+        Cell cell2 = mock(Cell.class);
+        when(row.createCell(0, CellType.STRING)).thenReturn(cell1);
+        when(row.createCell(1, CellType.STRING)).thenReturn(cell2);
+
+        method.invoke(excelWriter, rows);
+
+        verify(cell1).setCellValue("Data1");
+        verify(cell1).setCellStyle(normalStyle);
+        verify(cell2).setCellValue("Data2");
+        verify(cell2).setCellStyle(normalStyle);
     }
 
-    @Test
-    public void testAddCommentType_EmptyRequests() {
-        List<AddTradeCommentTypeRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = tradeActionService.addCommentType(requests, "username");
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testRemoveJiraType_EmptyRequests() {
-        List<AddTradeJiraTypeRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = tradeActionService.removeJiraType(requests, "username");
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testPerformResetAction_EmptyRequests() {
-        List<UpdateExceptionStatusRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = tradeActionService.performResetAction(requests, "username");
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testAddComment_WithException() {
-        AddTradeCommentRequest request = mock(AddTradeCommentRequest.class);
-        ActionDocumentId actionDocumentId = new ActionDocumentId("key1", 1L);
-        when(request.getDocumentId()).thenReturn(actionDocumentId);
-        List<AddTradeCommentRequest> requests = Lists.newArrayList(request);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenThrow(new RuntimeException("Test exception"));
-        List<ActionUpdateResult> results = tradeActionService.addComment(requests, "username");
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).getError().contains("Error updating trade record"));
-    }
-
-    @Test
-    public void testRemoveCommentType_EmptyRequests() {
-        List<AddTradeCommentTypeRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = tradeActionService.removeCommentType(requests, "username");
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testRemoveCommentType_WithException() {
-        AddTradeCommentTypeRequest request = mock(AddTradeCommentTypeRequest.class);
-        ActionDocumentId actionDocumentId = new ActionDocumentId("key1", 1L);
-        when(request.getDocumentId()).thenReturn(actionDocumentId);
-        List<AddTradeCommentTypeRequest> requests = Lists.newArrayList(request);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenThrow(new RuntimeException("Test exception"));
-        List<ActionUpdateResult> results = tradeActionService.removeCommentType(requests, "username");
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).getError().contains("Error updating trade record"));
-    }
-
-    @Test
-    public void testAssignExceptionToUser_EmptyRequests() {
-        List<AssignTradeRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = tradeActionService.assignExceptionToUser(requests, "username");
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testAddJiraId_EmptyRequests() {
-        List<AddTradeJiraReferenceRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = tradeActionService.addJiraId(requests, "username");
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testRemoveJiraId_EmptyRequests() {
-        List<AddTradeJiraReferenceRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = tradeActionService.removeJiraId(requests, "username");
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testAddJiraType_EmptyRequests() {
-        List<AddTradeJiraTypeRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = tradeActionService.addJiraType(requests, "username");
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testUpdateUserActionType_EmptyRequests() {
-        List<UpdateUserActionTypeRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = tradeActionService.updateUserActionType(requests, "username");
-        assertTrue(results.isEmpty());
-    }
-
-    // New test methods for full coverage
-
-    // Tests for addComment
-    @Test
-    public void testAddComment_Success() {
-        // Setup requests
-        AddTradeCommentRequest request1 = mock(AddTradeCommentRequest.class);
-        AddTradeCommentRequest request2 = mock(AddTradeCommentRequest.class);
-        ActionDocumentId docId1 = new ActionDocumentId("key1", 1L);
-        ActionDocumentId docId2 = new ActionDocumentId("key2", 2L);
-        when(request1.getDocumentId()).thenReturn(docId1);
-        when(request2.getDocumentId()).thenReturn(docId2);
-        List<AddTradeCommentRequest> requests = Lists.newArrayList(request1, request2);
-
-        // Setup mocks
-        DocumentId docIdObj1 = DocumentId.from("key1", 1L);
-        DocumentId docIdObj2 = DocumentId.from("key2", 2L);
-        TradeReportDocument tradeDoc1 = new TradeReportDocument();
-        tradeDoc1.setDocumentId(docIdObj1);
-        TradeReport tradeReport1 = new TradeReport();
-        ExceptionManagement em1 = new ExceptionManagement();
-        tradeReport1.setExceptionManagement(em1);
-        tradeDoc1.setTradeReport(tradeReport1);
-        TradeReportDocument tradeDoc2 = new TradeReportDocument();
-        tradeDoc2.setDocumentId(docIdObj2);
-        TradeReport tradeReport2 = new TradeReport();
-        ExceptionManagement em2 = new ExceptionManagement();
-        tradeReport2.setExceptionManagement(em2);
-        tradeDoc2.setTradeReport(tradeReport2);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Lists.newArrayList(tradeDoc1, tradeDoc2));
-        when(requestValidator.validateUser(eq("username"), any())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        when(dataUpdater.addCommentsToException(eq(request1), eq(em1), eq("username"))).thenReturn(em1);
-        when(dataUpdater.addCommentsToException(eq(request2), eq(em2), eq("username"))).thenReturn(em2);
-        WriteResult<TradeReport> wr1 = new WriteResult<>(true, new DocumentId("key1", 3L), null);
-        WriteResult<TradeReport> wr2 = new WriteResult<>(true, new DocumentId("key2", 4L), null);
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Lists.newArrayList(wr1, wr2));
-
-        // Call method
-        List<ActionUpdateResult> results = tradeActionService.addComment(requests, "username");
-
-        // Verify
-        assertEquals(2, results.size());
-        assertTrue(results.get(0).isSuccess());
-        assertTrue(results.get(1).isSuccess());
-        verify(dfTradePersistManager).saveAllRecords(argThat(list -> list.size() == 2));
-    }
-
-    @Test
-    public void testAddComment_UserValidationFails() {
-        // Setup requests
-        AddTradeCommentRequest request1 = mock(AddTradeCommentRequest.class);
-        AddTradeCommentRequest request2 = mock(AddTradeCommentRequest.class);
-        ActionDocumentId docId1 = new ActionDocumentId("key1", 1L);
-        ActionDocumentId docId2 = new ActionDocumentId("key2", 2L);
-        when(request1.getDocumentId()).thenReturn(docId1);
-        when(request2.getDocumentId()).thenReturn(docId2);
-        List<AddTradeCommentRequest> requests = Lists.newArrayList(request1, request2);
-
-        // Setup mocks
-        DocumentId docIdObj1 = DocumentId.from("key1", 1L);
-        DocumentId docIdObj2 = DocumentId.from("key2", 2L);
-        TradeReportDocument tradeDoc1 = new TradeReportDocument();
-        tradeDoc1.setDocumentId(docIdObj1);
-        TradeReport tradeReport1 = new TradeReport();
-        ExceptionManagement em1 = new ExceptionManagement();
-        tradeReport1.setExceptionManagement(em1);
-        tradeDoc1.setTradeReport(tradeReport1);
-        TradeReportDocument tradeDoc2 = new TradeReportDocument();
-        tradeDoc2.setDocumentId(docIdObj2);
-        TradeReport tradeReport2 = new TradeReport();
-        ExceptionManagement em2 = new ExceptionManagement();
-        tradeReport2.setExceptionManagement(em2);
-        tradeDoc2.setTradeReport(tradeReport2);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Lists.newArrayList(tradeDoc1, tradeDoc2));
-        when(requestValidator.validateUser(eq("username"), eq(em1))).thenReturn(false);
-        when(requestValidator.validateUser(eq("username"), eq(em2))).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        when(dataUpdater.addCommentsToException(eq(request2), eq(em2), eq("username"))).thenReturn(em2);
-        WriteResult<TradeReport> wr2 = new WriteResult<>(true, new DocumentId("key2", 4L), null);
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Lists.newArrayList(wr2));
-
-        // Call method
-        List<ActionUpdateResult> results = tradeActionService.addComment(requests, "username");
-
-        // Verify
-        assertEquals(2, results.size());
-        assertFalse(results.get(0).isSuccess());
-        assertTrue(results.get(0).getError().contains(ActionRequestValidator.USER_VALIDATION_ERROR));
-        assertTrue(results.get(1).isSuccess());
-        verify(dfTradePersistManager).saveAllRecords(argThat(list -> list.size() == 1));
-    }
-
-    // Tests for updateEditedFields
-    @Test
-    public void testUpdateEditedFields_Success() {
-        // Setup
-        EditRequest request = mock(EditRequest.class);
-        ActionDocumentId docId = new ActionDocumentId("key1", 1L);
-        when(request.getDocumentId()).thenReturn(docId);
-        List<EditRequest> requests = Lists.newArrayList(request);
-
-        // Mock dependencies
-        DocumentId docIdObj = DocumentId.from("key1", 1L);
-        TradeReportDocument tradeDoc = new TradeReportDocument();
-        tradeDoc.setDocumentId(docIdObj);
-        TradeReport tradeReport = new TradeReport();
-        ExceptionManagement em = new ExceptionManagement();
-        tradeReport.setExceptionManagement(em);
-        tradeDoc.setTradeReport(tradeReport);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Lists.newArrayList(tradeDoc));
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        when(dataUpdater.updateTradeReportData(eq(request), eq(tradeReport), eq("username"), any(ExceptionStatus.class)))
-                .thenReturn(tradeReport);
-        WriteResult<TradeReport> writeResult = new WriteResult<>(true, docIdObj, null);
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Lists.newArrayList(writeResult));
-
-        // Call method
-        List<ActionUpdateResult> results = tradeActionService.updateEditedFields(requests, "username", ExceptionStatus.someStatus);
-
-        // Verify
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).isSuccess());
-    }
-
-    @Test
-    public void testUpdateEditedFields_ApprovalStatusValidationFails() {
-        // Setup
-        EditRequest request = mock(EditRequest.class);
-        ActionDocumentId docId = new ActionDocumentId("key1", 1L);
-        when(request.getDocumentId()).thenReturn(docId);
-        List<EditRequest> requests = Lists.newArrayList(request);
-
-        // Mock dependencies
-        DocumentId docIdObj = DocumentId.from("key1", 1L);
-        TradeReportDocument tradeDoc = new TradeReportDocument();
-        tradeDoc.setDocumentId(docIdObj);
-        TradeReport tradeReport = new TradeReport();
-        ExceptionManagement em = new ExceptionManagement();
-        tradeReport.setExceptionManagement(em);
-        tradeDoc.setTradeReport(tradeReport);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Lists.newArrayList(tradeDoc));
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(true);
-
-        // Call method
-        List<ActionUpdateResult> results = tradeActionService.updateEditedFields(requests, "username", ExceptionStatus.someStatus);
-
-        // Verify
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-        assertTrue(results.get(0).getError().contains(ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
-    }
-
-    // Tests for updateExceptionStatus
-    @Test
-    public void testUpdateExceptionStatus_Success() {
-        // Setup
-        UpdateExceptionStatusRequest request = mock(UpdateExceptionStatusRequest.class);
-        ActionDocumentId docId = new ActionDocumentId("key1", 1L);
-        when(request.getDocumentId()).thenReturn(docId);
-        List<UpdateExceptionStatusRequest> requests = Lists.newArrayList(request);
-
-        // Mock dependencies
-        DocumentId docIdObj = DocumentId.from("key1", 1L);
-        TradeReportDocument tradeDoc = new TradeReportDocument();
-        tradeDoc.setDocumentId(docIdObj);
-        TradeReport tradeReport = new TradeReport();
-        ExceptionManagement em = new ExceptionManagement();
-        tradeReport.setExceptionManagement(em);
-        tradeDoc.setTradeReport(tradeReport);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Lists.newArrayList(tradeDoc));
-        doNothing().when(requestValidator).validatePermittedExceptionStatus(anyList(), anyList(), any());
-        when(requestValidator.validateUser(eq("username"), any())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        when(requestValidator.validateAckedCancleTrade(any(), any())).thenReturn(false);
-        when(requestValidator.validateExceptionStatus(any(), any())).thenReturn(true);
-        when(requestValidator.validateApprover(any(), any(), any(), any())).thenReturn(false);
-        when(dataUpdater.addExceptionStatus(any(), any(), any(), eq("username"))).thenReturn(em);
-        WriteResult<TradeReport> writeResult = new WriteResult<>(true, docIdObj, null);
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Lists.newArrayList(writeResult));
-
-        // Call method
-        List<ActionUpdateResult> results = tradeActionService.updateExceptionStatus(requests, ExceptionStatus.someStatus, "username");
-
-        // Verify
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).isSuccess());
-    }
-
-    @Test
-    public void testUpdateExceptionStatus_WithRollBack() {
-        // Setup
-        UpdateExceptionStatusRequest request = mock(UpdateExceptionStatusRequest.class);
-        ActionDocumentId docId = new ActionDocumentId("key1", 3L);
-        when(request.getDocumentId()).thenReturn(docId);
-        List<UpdateExceptionStatusRequest> requests = Lists.newArrayList(request);
-
-        // Mock dependencies for initial save
-        DocumentId docIdObj = DocumentId.from("key1", 3L);
-        TradeReportDocument tradeDoc = new TradeReportDocument();
-        tradeDoc.setDocumentId(docIdObj);
-        TradeReport tradeReport = new TradeReport();
-        ExceptionManagement em = new ExceptionManagement();
-        tradeReport.setExceptionManagement(em);
-        tradeDoc.setTradeReport(tradeReport);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Lists.newArrayList(tradeDoc));
-        doNothing().when(requestValidator).validatePermittedExceptionStatus(anyList(), anyList(), any());
-        when(requestValidator.validateUser(eq("username"), any())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        when(requestValidator.validateAckedCancleTrade(any(), any())).thenReturn(false);
-        when(requestValidator.validateExceptionStatus(any(), any())).thenReturn(true);
-        when(requestValidator.validateApprover(any(), any(), any(), any())).thenReturn(false);
-        when(dataUpdater.addExceptionStatus(any(), any(), any(), eq("username"))).thenReturn(em);
-        WriteResult<TradeReport> writeResult = new WriteResult<>(true, docIdObj, null);
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Lists.newArrayList(writeResult));
-
-        // Mock dependencies for rollback
-        DocumentId prevDocId = DocumentId.from("key1", 1L);
-        TradeReportDocument prevTradeDoc = new TradeReportDocument();
-        prevTradeDoc.setDocumentId(prevDocId);
-        TradeReport prevTradeReport = new TradeReport();
-        prevTradeDoc.setTradeReport(prevTradeReport);
-        when(dfTradePersistManager.getAllRecordsById(argThat(list -> list.contains(prevDocId)))).thenReturn(Lists.newArrayList(prevTradeDoc));
-        when(dfTradePersistManager.upsertAllRecords(anyList())).thenReturn(Lists.newArrayList(writeResult));
-
-        // Call method
-        List<ActionUpdateResult> results = tradeActionService.updateExceptionStatus(requests, ExceptionStatus.Edit_Rejected, "username");
-
-        // Verify
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).isSuccess());
-        verify(dfTradePersistManager).upsertAllRecords(anyList());
-    }
-
-    // Tests for addJiraId
-    @Test
-    public void testAddJiraId_Success() {
-        // Setup
-        AddTradeJiraReferenceRequest request = mock(AddTradeJiraReferenceRequest.class);
-        ActionDocumentId docId = new ActionDocumentId("key1", 1L);
-        when(request.getDocumentId()).thenReturn(docId);
-        List<AddTradeJiraReferenceRequest> requests = Lists.newArrayList(request);
-
-        // Mock dependencies
-        DocumentId docIdObj = DocumentId.from("key1", 1L);
-        TradeReportDocument tradeDoc = new TradeReportDocument();
-        tradeDoc.setDocumentId(docIdObj);
-        TradeReport tradeReport = new TradeReport();
-        ExceptionManagement em = new ExceptionManagement();
-        tradeReport.setExceptionManagement(em);
-        tradeDoc.setTradeReport(tradeReport);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Lists.newArrayList(tradeDoc));
-        when(requestValidator.validateUser(eq("username"), any())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        when(requestValidator.isJiraIdPresent(any(), any())).thenReturn(false);
-        when(dataUpdater.addJiraIdToException(any(), any(), eq("username"))).thenReturn(em);
-        WriteResult<TradeReport> writeResult = new WriteResult<>(true, docIdObj, null);
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Lists.newArrayList(writeResult));
-
-        // Call method
-        List<ActionUpdateResult> results = tradeActionService.addJiraId(requests, "username");
-
-        // Verify
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).isSuccess());
-    }
-
-    @Test
-    public void testAddJiraId_JiraIdPresent() {
-        // Setup
-        AddTradeJiraReferenceRequest request = mock(AddTradeJiraReferenceRequest.class);
-        ActionDocumentId docId = new ActionDocumentId("key1", 1L);
-        when(request.getDocumentId()).thenReturn(docId);
-        List<AddTradeJiraReferenceRequest> requests = Lists.newArrayList(request);
-
-        // Mock dependencies
-        DocumentId docIdObj = DocumentId.from("key1", 1L);
-        TradeReportDocument tradeDoc = new TradeReportDocument();
-        tradeDoc.setDocumentId(docIdObj);
-        TradeReport tradeReport = new TradeReport();
-        ExceptionManagement em = new ExceptionManagement();
-        tradeReport.setExceptionManagement(em);
-        tradeDoc.setTradeReport(tradeReport);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Lists.newArrayList(tradeDoc));
-        when(requestValidator.validateUser(eq("username"), any())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        when(requestValidator.isJiraIdPresent(any(), any())).thenReturn(true);
-
-        // Call method
-        List<ActionUpdateResult> results = tradeActionService.addJiraId(requests, "username");
-
-        // Verify
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-        assertTrue(results.get(0).getError().contains(ActionRequestValidator.JIRA_ID_PRESENT));
-    }
-
-    // Add similar tests for other methods (removeComment, addCommentType, etc.)
 }
