@@ -1,341 +1,788 @@
-package com.rbs.tntr.business.blotter.web.controllers;
+Could you write all the additional test cases for below java class to cover all the remaining scenarios or methods and make the test coverage or code coverage as 100% using junit 4 and old mockito version and java 8. Also don't use power mockito as i m using older mockito version and for private methods try to use reflection. Plus we can't change any file other than the above test class. 
 
-import com.rbs.datafabric.domain.RecordId;
-import com.rbs.tntr.business.blotter.services.blotterEvents.BlotterEventRepository;
-import com.rbs.tntr.business.blotter.services.blotterEvents.BlotterSubscriptionDeletionResult;
-import com.rbs.tntr.business.blotter.services.blotterEvents.IndexCreationResult;
-import com.rbs.tntr.business.blotter.services.blotterEvents.SubscriptionEventManager;
-import com.rbs.tntr.business.blotter.services.datetime.DateTimeService;
-import com.rbs.tntr.business.blotter.web.request.blotterEvents.BlotterEvent;
+package com.rbs.tntr.business.blotter.services.validators;
+
+import java.io.IOException;
+import java.util.*;
+import java.util.stream.Collectors;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
+import com.nwm.tntr.commons.domain.persistence.constant.ReportingRegime;
+import com.nwm.tntr.commons.domain.persistence.constant.SourceSystemId;
+import com.nwm.tntr.commons.domain.persistence.entity.collateral.CollateralReportDocument;
+import com.nwm.tntr.commons.domain.persistence.entity.trade.TradeReportDocument;
+import com.nwm.tntr.commons.domain.persistence.entity.valuation.ValuationReportDocument;
+import com.rbs.datafabric.agile.commons.lang.StartableException;
+import com.rbs.datafabric.api.PagedScanResult;
+import com.rbs.datafabric.api.exception.ScanException;
+import com.rbs.datafabric.client.DataFabricClient;
+import com.rbs.datafabric.domain.Document;
+import com.rbs.datafabric.domain.JsonDocument;
+import com.rbs.datafabric.domain.Record;
+import com.rbs.datafabric.domain.client.builder.ScanRequestBuilder;
+import com.rbs.tntr.business.blotter.search.querybuilder.DfScanParameters;
+import com.rbs.tntr.business.blotter.services.actions.ActionUpdateResult;
+import com.rbs.tntr.business.blotter.utility.DataFabricExportUtility;
+import com.rbs.tntr.business.blotter.web.request.regreportingTrade.*;
+import com.rbs.tntr.domain.blotter.enums.CRAction;
+import com.rbs.tntr.domain.blotter.tntrBlotterView.*;
+import org.apache.commons.lang.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
+import com.nwm.tntr.commons.domain.persistence.constant.ApprovalStatus;
+import com.nwm.tntr.commons.domain.persistence.constant.TransactionStateValue;
+import com.nwm.tntr.commons.domain.persistence.entity.ExceptionManagement;
+import com.rbs.tntr.domain.blotter.enums.ExceptionStatus;
+import com.rbs.tntr.domain.blotter.enums.FlowType;
+import com.rbs.tntr.domain.blotter.enums.WorkflowAction;
+import com.rbs.tntr.domain.blotter.exceptions.ValidationException;
+import com.rbs.tntr.domain.blotter.tntrBlotterView.UserComment;
+import static com.rbs.tntr.business.blotter.services.common.StringConstants.*;
+
+@Component
+public class ActionRequestValidator {
+
+    private final Logger LOGGER = LoggerFactory.getLogger(ActionRequestValidator.class);
+    private static final String FALSE = "false";
+    private static final String TRUE = "true";
+    public static final String REQUESTED = "Requested";
+    public static final String APPROVAL_STATUS_VALIDATION_ERROR = "Action not applicable.";
+    public static final String USER_VALIDATION_ERROR = "User not permitteed to take action.";
+    public static final String JIRA_ID_PRESENT = "Jira Id already present.";
+    public static final String JIRA_ID_NOT_PRESENT = "Jira Id not present.";
+    public static final String JIRA_TYPE_NOT_PRESENT = "Jira Type not present.";
+    public static final String USER_ACTION_TYPE = "userActionType";
+    public static final String REPORTING_REGIME_VALIDATION_ERROR = "Action not applicable for Regulatory : MAS 755, MAS 610, SFTR, JRR.";
+    private static final String ENTITY_IS_NULL_ERROR = "Entity must be specified";
+    private static final String REPORT_TYPE_IS_NULL_ERROR = "Report Submission Type has to be specified";
+    public static final List<ReportingRegime> restrictedMasRegulations = ImmutableList.of(ReportingRegime.THE_MONETARY_AUTHORITY_OF_SINGAPORE_755, ReportingRegime.THE_MONETARY_AUTHORITY_OF_SINGAPORE_610);
+    public static final List<ReportingRegime> restrictedRegulations = ImmutableList.of(ReportingRegime.THE_MONETARY_AUTHORITY_OF_SINGAPORE_755, ReportingRegime.THE_MONETARY_AUTHORITY_OF_SINGAPORE_610, ReportingRegime.SECURITIES_FINANCING_TRANSACTION_REGULATION_SELF_REPORTING, ReportingRegime.JAPAN_REGULATORY_REGIME);
+
+    final  CommonValidator commonValidator;
+    DataFabricExportUtility dataFabricExportUtil;
+
+    @Autowired
+    public ActionRequestValidator(CommonValidator commonValidator, DataFabricExportUtility dataFabricExportUtil) {
+        this.commonValidator = commonValidator;
+        this.dataFabricExportUtil = dataFabricExportUtil;
+    }
+
+	public void validateWorkflowRequests(List<UpdateExceptionStatusRequest> requests, ExceptionStatus exceptionStatus) {
+        try {
+			requests.forEach(request -> validateWorkflowRequest(request, exceptionStatus));
+        }
+        catch (Exception ex){
+            throw new ValidationException(ex.getMessage(),ex);
+        }
+    }
+	
+	public void validateResetActionRequests(List<UpdateExceptionStatusRequest> requests) {
+        try {
+			requests.forEach(this::validateResetActionRequest);
+        }
+        catch (Exception ex){
+            throw new ValidationException(ex.getMessage(),ex);
+        }
+    }
+	
+    public void validateAddTradeCommentRequests(List<AddTradeCommentRequest> requests) {
+        try {
+            requests.forEach(request -> validateAddTradeCommentRequest(request));
+        }
+        catch (Exception ex){
+            throw new ValidationException(ex.getMessage(),ex);
+        }
+    }
+    
+    public void validateRemoveTradeCommentRequests(List<AddTradeCommentRequest> requests) {
+        try {
+            requests.forEach(request -> validateRemoveTradeCommentRequest(request));
+        }
+        catch (Exception ex){
+            throw new ValidationException(ex.getMessage(),ex);
+        }
+    }
+
+    public void validateAssignReqeusts(List<AssignTradeRequest> requests){
+        try {
+            requests.forEach(request -> validateAssignReqeust(request));
+        }
+        catch (Exception ex){
+            throw new ValidationException(ex.getMessage(),ex);
+        }
+    }
+
+    public void validateAddJiraReferenceReqeusts(List<AddTradeJiraReferenceRequest> requests) {
+        try {
+            requests.forEach(request -> validateAddJiraReferenceReqeust(request));
+        } catch (Exception ex) {
+            throw new ValidationException(ex.getMessage(), ex);
+        }
+    }
+
+	private void validateWorkflowRequest(UpdateExceptionStatusRequest request, ExceptionStatus exceptionStatus) {
+        validateRequest(request);
+        commonValidator.validateWorkflowAction(request.getAction());
+        validateUserComment(request.getAction(), request.getComment());
+		if ((exceptionStatus.equals(ExceptionStatus.Edit_Approved))
+				|| (exceptionStatus.equals(ExceptionStatus.Edit_Rejected)))
+			validateUserCommentForEdit(request.getAction(), request.getComment());
+        validateApprovedBy(request);
+        validateAccountSubmission(request.getApprovalRequired(), request.getAction(), request.getAccountSubmissionType());
+    }
+	
+	private void validateResetActionRequest(UpdateExceptionStatusRequest request) {
+        validateRequest(request);
+        commonValidator.validateComment(request.getComment());
+    }
+
+    private void validateApprovedBy(EditRequest request) {
+        if (request.getApprovalRequired().equalsIgnoreCase(FALSE)) {
+            switch (WorkflowAction.getByValue(request.getAction())) {
+                case RequestEdit:
+				commonValidator.validateApprover(request.getExceptionManagementData().getApprovedBy());
+				break;
+			default:
+				break;
+            }
+        }
+    }
+    
+    private void validateApprovedBy(UpdateExceptionStatusRequest request) {
+        if (request.getApprovalRequired().equalsIgnoreCase(FALSE)) {
+            switch (WorkflowAction.getByValue(request.getAction())) {
+                case RequestCloseException:
+                case RequestOpenException:
+                case RequestReplay:
+                case RequestCancel:
+                case RequestRefresh:
+                case RequestDummyAmend:
+				commonValidator.validateApprover(request.getApprovedBy());
+				break;
+			default:
+				break;
+            }
+        }
+    }
+
+    private void validateUserComment(String action, UserComment userComment) {
+        switch (WorkflowAction.getByValue(action)) {
+            case RequestCloseException:
+            case ApproveCloseException:
+            case RejectCloseException:
+
+            case RequestOpenException:
+            case ApproveOpenException:
+            case RejectOpenException:
+
+            case RequestReplay:
+            case RejectReplay:
+            case ApproveReplay:
+
+            case RequestCancel:
+            case ApproveCancel:
+            case RejectCancel:
+
+            case RejectClosure:
+
+            case RequestRefresh:
+            case ApproveRefresh:
+            case RejectRefresh:
+
+            case RequestDummyAmend:
+            case ApproveDummyAmend:
+            case RejectDummyAmend:
+
+			commonValidator.validateComment(userComment);
+		default:
+			break;
+        }
+	}
+
+	private void validateUserCommentForEdit(String action, UserComment userComment) {
+		switch (WorkflowAction.getByValue(action)) {
+		case ApproveEdit:
+		case RejectEdit:
+			commonValidator.validateComment(userComment);
+		default:
+			break;
+		}
+	}
+    public void validateRequest(UpdateRequest request) {
+        if(request==null)
+            throw new ValidationException(ValidatorConstants.ERROR_REQUEST_NOT_NULL);
+
+        if(request.getDocumentId()==null)
+            throw new  ValidationException(ValidatorConstants.ERROR_DOCUMENT_ID_NOT_NULL);
+
+        if(request.getDocumentId().getKey()==null)
+            throw new  ValidationException(ValidatorConstants.ERROR_DOCUMENT_KEY_NOT_NULL);
+
+        if(request.getDocumentId().getVersion()==null)
+            throw new  ValidationException(ValidatorConstants.ERROR_DOCUMENT_VERSION_NOT_NULL);
+
+        if(request.getFlow()==null || !validateFlow(request.getFlow()))
+            throw new  ValidationException(ValidatorConstants.FLOW_IS_NOT_VALID + request.getFlow());
+
+        WorkFlowActionValidator.validateWorkFlowAction(request.getAction());
+    }
+
+    private boolean validateFlow(String flowType) {
+        if (!Arrays.stream(FlowType.values()).anyMatch(t->t.getValue().equals(flowType))) {
+            return false;
+        }
+        return true;
+    }
+
+    private void validateAddTradeCommentRequest(AddTradeCommentRequest request) {
+        validateRequest(request);
+        commonValidator.validateComment(request.getComment());
+    }
+    
+    private void validateRemoveTradeCommentRequest(AddTradeCommentRequest request) {
+        validateRequest(request);
+    }
+
+    private void validateAddJiraReferenceReqeust(AddTradeJiraReferenceRequest request) {
+        validateRequest(request);
+        commonValidator.validateJiraReference(request.getJiraReference());
+    }
+
+    private void validateAssignReqeust(AssignTradeRequest request) {
+        validateRequest(request);
+        commonValidator.validateAssignTo(request.getAssignTo());
+
+    }
+
+    public void validateAddJiraTypeReqeusts(List<AddTradeJiraTypeRequest> requests) {
+        try {
+            requests.forEach(request -> validateAddJiraTypeReqeust(request));
+        } catch (Exception ex) {
+            throw new ValidationException(ex.getMessage(), ex);
+        }
+    }
+
+    private void validateAddJiraTypeReqeust(AddTradeJiraTypeRequest request) {
+        validateRequest(request);
+        commonValidator.validateJiraType(request.getJiraType().getIssueType());
+    }
+
+    public void validateEditReqeusts(List<EditRequest> requests) {
+        try {
+            requests.forEach(this::validateEditTradeReqeust);
+        } catch (Exception ex) {
+            throw new ValidationException(ex.getMessage(), ex);
+        }
+    }
+
+    private void validateEditTradeReqeust(EditRequest request) {
+        validateRequest(request);
+        commonValidator.validateEditComment(request.getExceptionManagementData().getComment());
+        validateApprovedBy(request);
+        validateAccountSubmission(request.getApprovalRequired(), request.getAction(), request.getAccountSubmissionType());
+    }
+
+    private void validateAccountSubmission(String approvalRequired, String action, String accountSubmissionType) {
+        switch (WorkflowAction.getByValue(action)) {
+            case RequestReplay:
+            case RequestCancel:
+            case RequestRefresh:
+            case RequestEdit:
+                commonValidator.validateAccoubtSubmissionType(accountSubmissionType);
+                break;
+            default:
+                break;
+        }
+    }
+
+	public boolean validateAckedCancleTrade(ExceptionStatus requestedExceptionStatus, TransactionStateValue transactionStateValue) {
+        return ((ExceptionStatus.Cancel_Requested.equals(requestedExceptionStatus)
+                || ExceptionStatus.Cancel_Approved.equals(requestedExceptionStatus))
+				&& !(TransactionStateValue.ACKNOWLEDGED.equals(transactionStateValue)
+                    || TransactionStateValue.Hold.equals(transactionStateValue)
+                        || TransactionStateValue.Validation_Hold.equals(transactionStateValue)
+						    || TransactionStateValue.SUBMITTED.equals(transactionStateValue)));
+    }
+
+    public boolean validateExceptionStatus(ExceptionStatus requestedExceptionStatus, ApprovalStatus approvalStatus) {
+        if(approvalStatus == null || !approvalStatus.value().contains(REQUESTED)){
+            return true;
+        }else if(ApprovalStatus.CANCEL_REQUESTED.equals(approvalStatus)
+                && (ExceptionStatus.Cancel_Rejected.equals(requestedExceptionStatus) || ExceptionStatus.Cancel_Approved.equals(requestedExceptionStatus))){
+            return true;
+        }else if(ApprovalStatus.REPLAY_REQUESTED.equals(approvalStatus)
+                && (ExceptionStatus.Replay_Rejected.equals(requestedExceptionStatus) || ExceptionStatus.Replay_Approved.equals(requestedExceptionStatus))){
+            return true;
+        }else if(ApprovalStatus.REFRESH_REQUESTED.equals(approvalStatus)
+                && (ExceptionStatus.Replay_Refresh_Rejected.equals(requestedExceptionStatus) || ExceptionStatus.Replay_Refresh_Approved.equals(requestedExceptionStatus))){
+            return true;
+        }else if(ApprovalStatus.DUMMY_AMEND_REQUESTED.equals(approvalStatus)
+                && (ExceptionStatus.Dummy_Amend_Rejected.equals(requestedExceptionStatus) || ExceptionStatus.Dummy_Amend_Approved.equals(requestedExceptionStatus))){
+            return true;
+        }else if(ApprovalStatus.OPEN_REQUESTED.equals(approvalStatus)
+                && (ExceptionStatus.Open_Rejected.equals(requestedExceptionStatus) || ExceptionStatus.Open.equals(requestedExceptionStatus)|| ExceptionStatus.Open_Approved.equals(requestedExceptionStatus))){
+            return true;
+        }else if(ApprovalStatus.CLOSE_REQUESTED.equals(approvalStatus)
+                && (ExceptionStatus.Close_Rejected.equals(requestedExceptionStatus) || ExceptionStatus.Close.equals(requestedExceptionStatus)|| ExceptionStatus.Close_Approved.equals(requestedExceptionStatus))){
+            return true;
+		} else if (ApprovalStatus.REPLAY_EDIT_REQUESTED.equals(approvalStatus)
+				&& ((ExceptionStatus.Edit_Rejected.equals(requestedExceptionStatus))
+						|| (ExceptionStatus.Edit_Approved.equals(requestedExceptionStatus)))) {
+			return true;
+		}
+		return false;
+    }
+
+	public boolean validateResetActionApprovalStatus(ApprovalStatus approvalStatus, String flow) {
+		boolean result = false;
+		if (FlowType.TRANSACTION.getValue().equals(flow)) {
+			if (ApprovalStatus.DUMMY_AMEND_APPROVED.equals(approvalStatus)
+					|| ApprovalStatus.CANCEL_APPROVED.equals(approvalStatus)
+					|| ApprovalStatus.REFRESH_APPROVED.equals(approvalStatus)
+					|| ApprovalStatus.REPLAY_APPROVED.equals(approvalStatus)
+					|| ApprovalStatus.REPLAY_EDIT_APPROVED.equals(approvalStatus))
+				return true;
+		} else if (FlowType.VALUATION.getValue().equals(flow) || FlowType.COLLATERAL_LINK.getValue().equals(flow)) {
+			if (ApprovalStatus.REFRESH_APPROVED.equals(approvalStatus)
+					|| ApprovalStatus.REPLAY_APPROVED.equals(approvalStatus)
+					|| ApprovalStatus.REPLAY_EDIT_APPROVED.equals(approvalStatus))
+				return true;
+		} else if (FlowType.COLLATERAL.getValue().equals(flow)) {
+			if (ApprovalStatus.REPLAY_APPROVED.equals(approvalStatus)
+					|| ApprovalStatus.REPLAY_EDIT_APPROVED.equals(approvalStatus))
+				return true;
+		}
+		return result;
+	}
+    
+    public boolean validateUser(String userName, ExceptionManagement exceptionManagement){
+        if(exceptionManagement != null && exceptionManagement.getAssignedTo() != null) {
+            return userName.equalsIgnoreCase(exceptionManagement.getAssignedTo());
+        }
+        return false;
+    }
+
+    public boolean validateApprovalStatus(ApprovalStatus approvalStatus) {
+        if(approvalStatus == null){
+            return false;
+        }
+        switch (approvalStatus) {
+            case CANCEL_APPROVED:
+            case REPLAY_APPROVED:
+            case REFRESH_APPROVED:
+            case DUMMY_AMEND_APPROVED:
+            case REPLAY_EDIT_APPROVED:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    public boolean validateExceptionStatus(ExceptionStatus requestedExceptionStatus) {
+        switch (requestedExceptionStatus) {
+            case Cancel_Approved:
+            case Cancel_Requested:
+            case Cancel_Rejected:
+            case Dummy_Amend_Approved:
+            case Dummy_Amend_Rejected:
+            case Dummy_Amend_Requested:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    public boolean isJiraIdPresent(List<String> issueIds, String jiraId) {
+        if(issueIds!= null && StringUtils.isNotBlank(jiraId)) {
+            return issueIds.contains(jiraId);
+        }
+        return false;
+    }
+
+    public void validateUserActionType(List<UpdateUserActionTypeRequest> requests) {
+        try {
+            requests.forEach(this::validateEditUserActionTypeRequest);
+        }
+        catch (Exception ex){
+            throw new ValidationException(ex.getMessage(),ex);
+        }
+    }
+
+    private void validateEditUserActionTypeRequest(UpdateUserActionTypeRequest request) {
+        validateRequest(request);
+        commonValidator.validateComment(request.getComment());
+        commonValidator.validateEditUserActionType(request.getUserActionType());
+    }
+
+     public void validateMAS755Trades(List<TradeReportDocument> tradeReportDocuments, List<ActionUpdateResult> writeResults) {
+        List<TradeReportDocument> masTrades = tradeReportDocuments.stream().filter(trade ->
+                restrictedMasRegulations.contains(trade.getTradeReport().getTradeReportId().getReportingRegime())).collect(Collectors.toList());
+        tradeReportDocuments.removeAll(masTrades);
+        List<ActionUpdateResult> failedRecords = Lists.newArrayList();
+        for (TradeReportDocument tradeReportDocument: masTrades) {
+            failedRecords.add(ActionUpdateResult.createWithError(new ActionDocumentId(tradeReportDocument.getDocumentId().getKey(), tradeReportDocument.getDocumentId().getVersion()), REPORTING_REGIME_VALIDATION_ERROR));
+        }
+        writeResults.addAll(failedRecords);
+    }
+
+    public void validatePermittedExceptionStatus(List<TradeReportDocument> tradeReportDocuments, List<ActionUpdateResult> writeResults,
+                                                 ExceptionStatus exceptionStatus) {
+
+        Map<ReportingRegime, List<TradeReportDocument>> tradesByRegime = tradeReportDocuments.stream()
+                .filter(trade -> restrictedRegulations.contains(trade.getTradeReport().getTradeReportId().getReportingRegime()))
+                .collect(Collectors.groupingBy(trade -> trade.getTradeReport().getTradeReportId().getReportingRegime()));
+
+        List<TradeReportDocument> restrictedTrades = tradesByRegime.entrySet().stream()
+                .filter(entry -> {
+                    ReportingRegime regime = entry.getKey();
+                    Set<ExceptionStatus> restrictedStatuses = restrictedRegulationsWithAction.getOrDefault(regime.value(), Collections.emptySet());
+                    return (restrictedMasRegulations.contains(regime) && !restrictedStatuses.contains(exceptionStatus)) ||
+                            (!restrictedMasRegulations.contains(regime) && restrictedStatuses.contains(exceptionStatus));
+                })
+                .flatMap(entry -> entry.getValue().stream())
+                .collect(Collectors.toList());
+        tradeReportDocuments.removeAll(restrictedTrades);
+
+        List<ActionUpdateResult> failedRecords = restrictedTrades.stream()
+                .map(tradeReportDocument -> ActionUpdateResult.createWithError(
+                        new ActionDocumentId(tradeReportDocument.getDocumentId().getKey(), tradeReportDocument.getDocumentId().getVersion()),
+                        REPORTING_REGIME_VALIDATION_ERROR))
+                .collect(Collectors.toList());
+
+        writeResults.addAll(failedRecords);
+    }
+
+    public void validatePermittedExceptionStatusForVal(List<ValuationReportDocument> valuationReportDocuments, List<ActionUpdateResult> writeResults,
+                                                       ExceptionStatus exceptionStatus) {
+
+        Map<ReportingRegime, List<ValuationReportDocument>> tradesByRegime = valuationReportDocuments.stream()
+                .filter(trade -> restrictedRegulations.contains(trade.getValuationReport().getValuationReportId().getReportingRegime()))
+                .collect(Collectors.groupingBy(trade -> trade.getValuationReport().getValuationReportId().getReportingRegime()));
+
+        List<ValuationReportDocument> restrictedTrades = tradesByRegime.entrySet().stream()
+                .filter(entry -> {
+                    ReportingRegime regime = entry.getKey();
+                    Set<ExceptionStatus> restrictedStatuses = restrictedRegulationsWithAction.getOrDefault(SFTR_VALUATION, Collections.emptySet());
+                    return ((regime == ReportingRegime.SECURITIES_FINANCING_TRANSACTION_REGULATION_SELF_REPORTING && restrictedStatuses.contains(exceptionStatus)));
+                })
+                .flatMap(entry -> entry.getValue().stream())
+                .collect(Collectors.toList());
+        valuationReportDocuments.removeAll(restrictedTrades);
+
+        List<ActionUpdateResult> failedRecords = restrictedTrades.stream()
+                .map(tradeReportDocument -> ActionUpdateResult.createWithError(
+                        new ActionDocumentId(tradeReportDocument.getDocumentId().getKey(), tradeReportDocument.getDocumentId().getVersion()),
+                        REPORTING_REGIME_VALIDATION_ERROR))
+                .collect(Collectors.toList());
+
+        writeResults.addAll(failedRecords);
+    }
+
+    public void validatePermittedExceptionStatusForCol(List<CollateralReportDocument> collateralReportDocuments, List<ActionUpdateResult> writeResults,
+                                                       ExceptionStatus exceptionStatus) {
+
+        Map<ReportingRegime, List<CollateralReportDocument>> tradesByRegime = collateralReportDocuments.stream()
+                .filter(trade -> restrictedRegulations.contains(trade.getCollateralReport().getCollateralReportId().getReportingRegime()))
+                .collect(Collectors.groupingBy(trade -> trade.getCollateralReport().getCollateralReportId().getReportingRegime()));
+
+        List<CollateralReportDocument> restrictedTrades = tradesByRegime.entrySet().stream()
+                .filter(entry -> {
+                    ReportingRegime regime = entry.getKey();
+                    Set<ExceptionStatus> restrictedStatuses = restrictedRegulationsWithAction.getOrDefault(SFTR_COLLATERAL, Collections.emptySet());
+                    return ((regime == ReportingRegime.SECURITIES_FINANCING_TRANSACTION_REGULATION_SELF_REPORTING && restrictedStatuses.contains(exceptionStatus)));
+                })
+                .flatMap(entry -> entry.getValue().stream())
+                .collect(Collectors.toList());
+        collateralReportDocuments.removeAll(restrictedTrades);
+
+        List<ActionUpdateResult> failedRecords = restrictedTrades.stream()
+                .map(tradeReportDocument -> ActionUpdateResult.createWithError(
+                        new ActionDocumentId(tradeReportDocument.getDocumentId().getKey(), tradeReportDocument.getDocumentId().getVersion()),
+                        REPORTING_REGIME_VALIDATION_ERROR))
+                .collect(Collectors.toList());
+
+        writeResults.addAll(failedRecords);
+    }
+
+    public void validateBackdatedTrades(List<ReplayValuationForBusinessDate> requests) {
+        try {
+            validateBackdatedTradeRequest(requests);
+        } catch (Exception ex) {
+            throw new ValidationException(ex.getMessage(), ex);
+        }
+    }
+
+    public void validateBackdatedTradesByDateRange(List<ReplayValuationForDateRange> requests) {
+        try {
+            validateBackdatedTradeByDateRangeRequest(requests);
+        } catch (Exception ex) {
+            throw new ValidationException(ex.getMessage(), ex);
+        }
+    }
+
+    private void validateBackdatedTradeByDateRangeRequest(List<ReplayValuationForDateRange> requests) {
+        if (!requests.stream().map(ReplayValuationForDateRange::getFlow).allMatch(flow-> FlowType.TRANSACTION.getValue().equals(flow))){
+            throw new  ValidationException(ValidatorConstants.FLOW_IS_NOT_VALID_FOR_BACKDATED_TRADES);
+        }
+        String valuationDate = requests.get(0).getValuationDateFrom();
+        commonValidator.validateValDate(valuationDate);
+        if (!requests.stream().map(ReplayValuationForDateRange::getValuationDateFrom).allMatch(valuationDate::equals)){
+            throw new  ValidationException(ValidatorConstants.VALUATION_DATE_MULTIPLE_VALUES);
+        }
+        String valuationDateTo = requests.get(0).getValuationDateTo();
+        commonValidator.validateValDate(valuationDateTo);
+        if (!requests.stream().map(ReplayValuationForDateRange::getValuationDateTo).allMatch(valuationDateTo::equals)){
+            throw new  ValidationException(ValidatorConstants.VALUATION_DATE_MULTIPLE_VALUES);
+        }
+    }
+
+    private void validateBackdatedTradeRequest(List<ReplayValuationForBusinessDate> requests) {
+        if (!requests.stream().map(ReplayValuationForBusinessDate::getFlow).allMatch(flow-> FlowType.TRANSACTION.getValue().equals(flow))){
+            throw new  ValidationException(ValidatorConstants.FLOW_IS_NOT_VALID_FOR_BACKDATED_TRADES);
+        }
+        String valuationDate = requests.get(0).getValuationDate();
+        commonValidator.validateValDate(valuationDate);
+        if (!requests.stream().map(ReplayValuationForBusinessDate::getValuationDate).allMatch(valuationDate::equals)){
+            throw new  ValidationException(ValidatorConstants.VALUATION_DATE_MULTIPLE_VALUES);
+        }
+    }
+
+    private void validateValuationDate(ReplayValuationForBusinessDate reqest) {
+        commonValidator.validateValDate(reqest.getValuationDate());
+    }
+
+    public void validateBackdatedColyDateRange(List<ReplayCollateralForDateRange> requests) {
+        try {
+            if (requests.stream().allMatch(request -> request.getEntity()==null || StringUtils.isBlank(request.getEntity())))
+                throw new ValidationException(ENTITY_IS_NULL_ERROR);
+            if (requests.stream().allMatch(request -> request.getReportSubmissionType()==null || StringUtils.isBlank(request.getReportSubmissionType())))
+                throw new ValidationException(REPORT_TYPE_IS_NULL_ERROR);
+            String startDate = requests.get(0).getStartDate();
+            commonValidator.validateValDate(startDate);
+            if (!requests.stream().map(ReplayCollateralForDateRange::getStartDate).allMatch(startDate::equals)){
+                throw new  ValidationException(ValidatorConstants.VALUATION_DATE_MULTIPLE_VALUES);
+            }
+            String endDate = requests.get(0).getEndDate();
+            commonValidator.validateValDate(endDate);
+            if (!requests.stream().map(ReplayCollateralForDateRange::getEndDate).allMatch(endDate::equals)){
+                throw new  ValidationException(ValidatorConstants.VALUATION_DATE_MULTIPLE_VALUES);
+            }
+        } catch (Exception ex) {
+            throw new ValidationException(ex.getMessage(), ex);
+        }
+    }
+
+    public boolean validateApprover(ExceptionStatus exceptionStatus, String tradeId, String collectionName, String approverUserName) throws ScanException, IOException, StartableException {
+        switch (exceptionStatus) {
+            case Open:
+            case Open_Approved:
+            case Open_Rejected:
+            case Close:
+            case Close_Rejected:
+                DfScanParameters dfScanParameters = new DfScanParameters();
+                dfScanParameters.setSelect(REQUEST_ACTION_USERNAME_SELECT);
+                dfScanParameters.setWhere(TRADE_ID_WHERE.concat(tradeId).concat(REQUEST_LAST_ACTION_WHERE));
+                dfScanParameters.setOrderBy(DF_LIFETIME_FROM);
+                dfScanParameters.setScanPriorVersions(true);
+                dfScanParameters.setCollectionName(collectionName);
+                String requestedUserName = getActionRequestUsername(dfScanParameters);
+                return approverUserName.equalsIgnoreCase(requestedUserName);
+            default:
+                return false;
+        }
+    }
+
+    private String getActionRequestUsername(DfScanParameters dfScanParameters) throws StartableException, ScanException, IOException, IOException, StartableException {
+        String userName = "";
+        ObjectMapper objectMapper = new ObjectMapper();
+        DataFabricClient dfClient = dataFabricExportUtil.getDataFabricClient();
+        ScanRequestBuilder scanRequestBuilder = dataFabricExportUtil.getScanRequestBuilder(dfScanParameters);
+        PagedScanResult pagedScan;
+        try {
+            pagedScan = dfClient.pagedScan(scanRequestBuilder);
+        } catch (ScanException e) {
+            LOGGER.error("Error while fetching User name", e);
+            LOGGER.info("Making another attempt for User name after failure from Paged Scan");
+            pagedScan = dfClient.pagedScan(scanRequestBuilder);
+        }
+        if (!pagedScan.getRecords().isEmpty()) {
+            List<Record> recordList = pagedScan.getRecords();
+            Record record = recordList.get(0);
+            if (record != null && record.getDocument() != null) {
+                Document document = record.getDocument();
+                JsonDocument jsonDocument = ((JsonDocument) document);
+                if (jsonDocument != null) {
+                    String resVal = jsonDocument.getContents();
+                    JsonNode resNode = objectMapper.readTree(resVal);
+                    LOGGER.info("Request Action was performed by User : {} for record in  Collection : {}", resNode.get("username").asText(),
+                            dfScanParameters.getCollectionName());
+                    userName = resNode.get("username").asText();
+                }
+            }
+        }
+        return userName;
+    }
+
+    public void validateAddTradeCommentTypeRequests(List<AddTradeCommentTypeRequest> requests) {
+        try {
+            requests.forEach(request -> validateAddTradeCommentTypeRequest(request));
+        }
+        catch (Exception ex){
+            throw new ValidationException(ex.getMessage(),ex);
+        }
+    }
+
+    private void validateAddTradeCommentTypeRequest(AddTradeCommentTypeRequest request) {
+        validateRequest(request);
+        //validate user comment type enum
+        commonValidator.validateCommentType(request.getCommentType().getUserCommentType());
+    }
+
+    public void validateRemoveTradeCommentTypeRequests(List<AddTradeCommentTypeRequest> requests) {
+        try {
+            requests.forEach(request -> validateRemoveTradeCommentTypeRequest(request));
+        }
+        catch (Exception ex){
+            throw new ValidationException(ex.getMessage(),ex);
+        }
+    }
+
+    private void validateRemoveTradeCommentTypeRequest(AddTradeCommentTypeRequest request) {
+        validateRequest(request);
+    }
+
+    public void validateCRTradeRequests(List<CorrectiveReportingForTrade> requests) {
+        try {
+            requests.forEach(request -> validateCRTradeRequest(request));
+        } catch (Exception ex) {
+            throw new ValidationException(ex.getMessage(), ex);
+        }
+    }
+
+    private void validateCRTradeRequest(CorrectiveReportingForTrade request) {
+        if (request.getIssueType() == null || (!request.getIssueType().equals("Mis Reporting") && !request.getIssueType().equals("Under Reporting"))) {
+            throw new ValidationException("Issue type must be specified, valid values are : 'Mis Reporting, Under Reporting'");
+        }
+    }
+
+    public void validateCRValRequests(List<CorrectiveReportingForValuation> requests) {
+        try {
+            requests.forEach(request -> validateCRValRequest(request));
+        } catch (Exception ex) {
+            throw new ValidationException(ex.getMessage(), ex);
+        }
+    }
+
+    private void validateCRValRequest(CorrectiveReportingForValuation request) {
+        if (SourceSystemId.fromValue(request.getPrimaryKey().getSourceSystem())==null){
+            throw new ValidationException("Source System is not valid");
+        }
+        if (request.getDataFetchFrom() == null || (!request.getDataFetchFrom().equals("CMG") && !request.getDataFetchFrom().equals("Foundry"))) {
+            throw new ValidationException("Data fetch from must be specified, valid values are : 'CMG, FOUNDRY'");
+        }
+        if (CRAction.CR_VALUATION_DATE_RANGE.equals(request.getPrimaryKey().getAction())){
+            commonValidator.validateValDate(request.getValuationDateFrom());
+            commonValidator.validateValDate(request.getValuationDateTo());
+        }
+    }
+
+    public void validateCRColRequests(List<CorrectiveReportingForCollateral> requests) {
+        try {
+            requests.forEach(request -> validateCRColRequest(request));
+        } catch (Exception ex) {
+            throw new ValidationException(ex.getMessage(), ex);
+        }
+    }
+
+    private void validateCRColRequest(CorrectiveReportingForCollateral request) {
+        if (StringUtils.isBlank(request.getOverrideFields()) && CRAction.CR_COLLATERAL.equals(request.getPrimaryKey().getAction())){
+            throw new ValidationException("Please specify fields to Override");
+        }
+        if (CRAction.CR_COLLATERAL_DATE_RANGE.equals(request.getPrimaryKey().getAction())){
+            validateCRTradeRequest(request.getPrimaryKey());
+            commonValidator.validateValDate(request.getCollateralDateTo());
+            commonValidator.validateValDate(request.getCollateralDateFrom());
+            commonValidator.validateDateDifference(request.getCollateralDateFrom(),request.getCollateralDateTo(), 90);
+        }
+    }
+}
+
+Existing test class:
+
+package com.rbs.tntr.business.blotter.services.validators;
+
+import com.rbs.tntr.business.blotter.web.request.regreportingTrade.*;
+import com.rbs.tntr.domain.blotter.enums.ExceptionStatus;
+import com.rbs.tntr.domain.blotter.exceptions.ValidationException;
+import com.rbs.tntr.domain.blotter.tntrBlotterView.CorrectiveReportingForTrade;
+import com.rbs.tntr.domain.blotter.tntrBlotterView.ReplayValuationForBusinessDate;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-
 import java.util.Collections;
-import java.util.Date;
-import java.util.HashMap;
 import java.util.List;
-
-import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
-public class BlotterEventsControllerTest {
-
-    @Mock
-    private BlotterEventRepository eventRepository;
-
-    @Mock
-    private DateTimeService dateTimeService;
-
-    @Mock
-    private SubscriptionEventManager subscriptionEventManager;
+public class ActionRequestValidatorTest {
 
     @InjectMocks
-    private BlotterEventsController controller;
+    private ActionRequestValidator actionRequestValidator;
 
-    private BlotterEvent blotterEvent;
+    @Mock
+    private CommonValidator commonValidator;
 
     @Before
     public void setUp() {
         MockitoAnnotations.initMocks(this);
-        blotterEvent = new BlotterEvent();
-        blotterEvent.setEventId("testEvent");
     }
 
-    // Existing tests from the provided test class
-    @Test
-    public void testSave_DataFabricSerializerException() throws Exception {
-        when(eventRepository.save(blotterEvent)).thenThrow(new com.rbs.datafabric.common.DataFabricSerializerException("Serialization Error"));
-        ResponseEntity<?> response = controller.save(blotterEvent);
-        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
-        assertTrue(response.getBody().toString().contains("Error saving blotter event"));
+    @Test(expected = ValidationException.class)
+    public void testValidateWorkflowRequests_NullRequest_ShouldThrowValidationException() {
+        ExceptionStatus exceptionStatus = ExceptionStatus.Edit_Approved;
+        actionRequestValidator.validateWorkflowRequests(null, exceptionStatus);
     }
 
-    @Test
-    public void testSave_UpsertException() throws Exception {
-        when(eventRepository.save(blotterEvent)).thenThrow(new com.rbs.datafabric.api.exception.UpsertException("Upsert Error"));
-        ResponseEntity<?> response = controller.save(blotterEvent);
-        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
-        assertTrue(response.getBody().toString().contains("Error saving blotter event"));
+    @Test(expected = ValidationException.class)
+    public void testValidateAddTradeCommentRequests_InvalidRequest() {
+        AddTradeCommentRequest request = mock(AddTradeCommentRequest.class);
+        when(request.getComment()).thenReturn(null);
+
+        actionRequestValidator.validateAddTradeCommentRequests(Collections.singletonList(request));
+
+        verify(commonValidator).validateComment(null);
     }
 
-    @Test
-    public void testSave_OptimisticLockException() throws Exception {
-        when(eventRepository.save(blotterEvent)).thenThrow(new com.rbs.datafabric.api.exception.OptimisticLockException("Optimistic Lock Error"));
-        ResponseEntity<?> response = controller.save(blotterEvent);
-        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
-        assertTrue(response.getBody().toString().contains("Error saving blotter event"));
+    @Test(expected = ValidationException.class)
+    public void testValidateAssignRequests_InvalidRequest() {
+        AssignTradeRequest request = mock(AssignTradeRequest.class);
+        when(request.getAssignTo()).thenReturn(null);
+
+        actionRequestValidator.validateAssignReqeusts(Collections.singletonList(request));
+        verify(commonValidator).validateAssignTo(null);
     }
 
-    @Test
-    public void testSaveAll_DataFabricSerializerException() throws Exception {
-        List<BlotterEvent> events = Collections.singletonList(blotterEvent);
-        when(eventRepository.saveAll(events)).thenThrow(new com.rbs.datafabric.common.DataFabricSerializerException("Serialization Error"));
-        ResponseEntity<?> response = controller.saveAll(events);
-        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
-        assertTrue(response.getBody().toString().contains("Error saving blotter events"));
+    @Test(expected = ValidationException.class)
+    public void testValidateBackdatedTrades_WithInvalidFlow() {
+        List<ReplayValuationForBusinessDate> requests = Collections.singletonList(mock(ReplayValuationForBusinessDate.class));
+        when(requests.get(0).getFlow()).thenReturn("InvalidFlow");
+
+        actionRequestValidator.validateBackdatedTrades(requests);
     }
 
-    @Test
-    public void testSaveAll_UpsertException() throws Exception {
-        List<BlotterEvent> events = Collections.singletonList(blotterEvent);
-        when(eventRepository.saveAll(events)).thenThrow(new com.rbs.datafabric.api.exception.UpsertException("Upsert Error"));
-        ResponseEntity<?> response = controller.saveAll(events);
-        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
-        assertTrue(response.getBody().toString().contains("Error saving blotter events"));
+    @Test(expected = ValidationException.class)
+    public void testValidateCRTradeRequest_InvalidIssueType() {
+        CorrectiveReportingForTrade request = mock(CorrectiveReportingForTrade.class);
+        when(request.getIssueType()).thenReturn("InvalidType");
+
+        actionRequestValidator.validateCRTradeRequests(Collections.singletonList(request));
     }
 
-    @Test
-    public void testCreateIndexesDropExisting_Success() throws Exception {
-        HashMap<String, IndexCreationResult> mockResult = new HashMap<>();
-        when(eventRepository.dropAndCreateIndexes(true)).thenReturn(mockResult);
-        ResponseEntity<?> response = controller.createIndexesDropExisting(true);
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(mockResult, response.getBody());
-    }
-
-    // New test cases to achieve 100% coverage
-
-    // Tests for save method
-    @Test
-    public void testSave_Success() throws Exception {
-        RecordId mockRecordId = new RecordId("testId");
-        when(eventRepository.save(blotterEvent)).thenReturn(mockRecordId);
-        ResponseEntity<?> response = controller.save(blotterEvent);
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(mockRecordId, response.getBody());
-    }
-
-    // Tests for saveAll method
-    @Test
-    public void testSaveAll_Success() throws Exception {
-        List<BlotterEvent> events = Collections.singletonList(blotterEvent);
-        List<RecordId> mockRecordIds = Collections.singletonList(new RecordId("testId"));
-        when(eventRepository.saveAll(events)).thenReturn(mockRecordIds);
-        ResponseEntity<?> response = controller.saveAll(events);
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(mockRecordIds, response.getBody());
-    }
-
-    @Test
-    public void testSaveAll_EmptyList() throws Exception {
-        List<BlotterEvent> events = Collections.emptyList();
-        List<RecordId> mockRecordIds = Collections.emptyList();
-        when(eventRepository.saveAll(events)).thenReturn(mockRecordIds);
-        ResponseEntity<?> response = controller.saveAll(events);
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(mockRecordIds, response.getBody());
-    }
-
-    // Tests for createIndexesDropExisting method
-    @Test
-    public void testCreateIndexesDropExisting_Failure() throws Exception {
-        when(eventRepository.dropAndCreateIndexes(true)).thenThrow(new RuntimeException("Index creation error"));
-        ResponseEntity<?> response = controller.createIndexesDropExisting(true);
-        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
-        assertTrue(response.getBody().toString().contains("Error in creating/recreating indexes"));
-    }
-
-    // Tests for getActiveSubscriptions method
-    @Test
-    public void testGetActiveSubscriptions_Success() throws Exception {
-        Date asOf = new Date();
-        List<BlotterEvent> mockEvents = Collections.singletonList(blotterEvent);
-        when(eventRepository.getActiveSubscriptions(asOf)).thenReturn(mockEvents);
-        ResponseEntity<?> response = controller.getActiveSubscriptions(asOf);
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(mockEvents, response.getBody());
-    }
-
-    @Test
-    public void testGetActiveSubscriptions_Failure() throws Exception {
-        Date asOf = new Date();
-        when(eventRepository.getActiveSubscriptions(asOf)).thenThrow(new RuntimeException("Fetch error"));
-        ResponseEntity<?> response = controller.getActiveSubscriptions(asOf);
-        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
-        assertTrue(response.getBody().toString().contains("Error fetching active subscriptions"));
-    }
-
-    // Tests for getEventsByDateTime(Date from, Date to) method
-    @Test
-    public void testGetEventsByDateTime_Range_Success() throws Exception {
-        Date from = new Date();
-        Date to = new Date();
-        List<BlotterEvent> mockEvents = Collections.singletonList(blotterEvent);
-        when(eventRepository.eventsByDateRange(from, to)).thenReturn(mockEvents);
-        ResponseEntity<?> response = controller.getEventsByDateTime(from, to);
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(mockEvents, response.getBody());
-    }
-
-    @Test
-    public void testGetEventsByDateTime_Range_Failure() throws Exception {
-        Date from = new Date();
-        Date to = new Date();
-        when(eventRepository.eventsByDateRange(from, to)).thenThrow(new RuntimeException("Fetch error"));
-        ResponseEntity<?> response = controller.getEventsByDateTime(from, to);
-        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
-        assertTrue(response.getBody().toString().contains("Error fetching subscriptions for date range"));
-    }
-
-    // Tests for getEventsByDateTime(Date date) method
-    @Test
-    public void testGetEventsByDateTime_Date_Success() throws Exception {
-        Date date = new Date();
-        Date toDate = new Date(date.getTime() + 86400000); // +1 day in milliseconds
-        List<BlotterEvent> mockEvents = Collections.singletonList(blotterEvent);
-        when(dateTimeService.addDays(date, 1)).thenReturn(toDate);
-        when(eventRepository.eventsByDateRange(date, toDate)).thenReturn(mockEvents);
-        ResponseEntity<?> response = controller.getEventsByDateTime(date);
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(mockEvents, response.getBody());
-    }
-
-    @Test
-    public void testGetEventsByDateTime_Date_Failure_AddDays() throws Exception {
-        Date date = new Date();
-        when(dateTimeService.addDays(date, 1)).thenThrow(new RuntimeException("Date error"));
-        ResponseEntity<?> response = controller.getEventsByDateTime(date);
-        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
-        assertTrue(response.getBody().toString().contains("Error fetching subscriptions for date"));
-    }
-
-    @Test
-    public void testGetEventsByDateTime_Date_Failure_EventsByDateRange() throws Exception {
-        Date date = new Date();
-        Date toDate = new Date(date.getTime() + 86400000);
-        when(dateTimeService.addDays(date, 1)).thenReturn(toDate);
-        when(eventRepository.eventsByDateRange(date, toDate)).thenThrow(new RuntimeException("Fetch error"));
-        ResponseEntity<?> response = controller.getEventsByDateTime(date);
-        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
-        assertTrue(response.getBody().toString().contains("Error fetching subscriptions for date"));
-    }
-
-    // Tests for getSubscriptions(List<String> eventIds) method
-    @Test
-    public void testGetSubscriptions_ByEventIds_Success() throws Exception {
-        List<String> eventIds = Collections.singletonList("testEvent");
-        List<BlotterEvent> mockEvents = Collections.singletonList(blotterEvent);
-        when(eventRepository.getEvents(eventIds)).thenReturn(mockEvents);
-        ResponseEntity<?> response = controller.getSubscriptions(eventIds);
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(mockEvents, response.getBody());
-    }
-
-    @Test
-    public void testGetSubscriptions_ByEventIds_Failure() throws Exception {
-        List<String> eventIds = Collections.singletonList("testEvent");
-        when(eventRepository.getEvents(eventIds)).thenThrow(new RuntimeException("Fetch error"));
-        ResponseEntity<?> response = controller.getSubscriptions(eventIds);
-        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
-        assertTrue(response.getBody().toString().contains("Error fetching blotter event details"));
-    }
-
-    @Test
-    public void testGetSubscriptions_ByEventIds_EmptyList() throws Exception {
-        List<String> eventIds = Collections.emptyList();
-        List<BlotterEvent> mockEvents = Collections.emptyList();
-        when(eventRepository.getEvents(eventIds)).thenReturn(mockEvents);
-        ResponseEntity<?> response = controller.getSubscriptions(eventIds);
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(mockEvents, response.getBody());
-    }
-
-    // Tests for getSubscriptions(String sessionId) method
-    @Test
-    public void testGetSubscriptions_BySessionId_Success() throws Exception {
-        String sessionId = "testSession";
-        List<BlotterEvent> mockEvents = Collections.singletonList(blotterEvent);
-        when(eventRepository.getEvents(sessionId)).thenReturn(mockEvents);
-        ResponseEntity<?> response = controller.getSubscriptions(sessionId);
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(mockEvents, response.getBody());
-    }
-
-    @Test
-    public void testGetSubscriptions_BySessionId_Failure() throws Exception {
-        String sessionId = "testSession";
-        when(eventRepository.getEvents(sessionId)).thenThrow(new RuntimeException("Fetch error"));
-        ResponseEntity<?> response = controller.getSubscriptions(sessionId);
-        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
-        assertTrue(response.getBody().toString().contains("Error fetching blotter event details"));
-    }
-
-    // Tests for getEventsByUser method
-    @Test
-    public void testGetEventsByUser_Success() throws Exception {
-        Date from = new Date();
-        Date to = new Date();
-        String userName = "testUser";
-        List<BlotterEvent> mockEvents = Collections.singletonList(blotterEvent);
-        when(eventRepository.getEventsByUser(from, to, userName)).thenReturn(mockEvents);
-        ResponseEntity<?> response = controller.getEventsByUser(from, to, userName);
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(mockEvents, response.getBody());
-    }
-
-    @Test
-    public void testGetEventsByUser_Failure() throws Exception {
-        Date from = new Date();
-        Date to = new Date();
-        String userName = "testUser";
-        when(eventRepository.getEventsByUser(from, to, userName)).thenThrow(new RuntimeException("Fetch error"));
-        ResponseEntity<?> response = controller.getEventsByUser(from, to, userName);
-        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
-        assertTrue(response.getBody().toString().contains("Error fetching subscriptions for user"));
-    }
-
-    // Tests for deleteActiveSubscriptions method
-    @Test
-    public void testDeleteActiveSubscriptions_Success() throws Exception {
-        Date asOf = new Date();
-        HashMap<String, BlotterSubscriptionDeletionResult> mockResult = new HashMap<>();
-        when(subscriptionEventManager.deleteAllActiveSubscriptions(asOf)).thenReturn(mockResult);
-        ResponseEntity<?> response = controller.deleteActiveSubscriptions(asOf);
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(mockResult, response.getBody());
-    }
-
-    @Test
-    public void testDeleteActiveSubscriptions_Failure() throws Exception {
-        Date asOf = new Date();
-        when(subscriptionEventManager.deleteAllActiveSubscriptions(asOf)).thenThrow(new RuntimeException("Delete error"));
-        ResponseEntity<?> response = controller.deleteActiveSubscriptions(asOf);
-        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
-        assertTrue(response.getBody().toString().contains("Error deleting active subscriptions"));
-    }
-
-    // Tests for deleteBlotterSubscriptions method
-    @Test
-    public void testDeleteBlotterSubscriptions_Success() throws Exception {
-        List<String> subscriptionIds = Collections.singletonList("testId");
-        HashMap<String, BlotterSubscriptionDeletionResult> mockResult = new HashMap<>();
-        when(subscriptionEventManager.deleteBlotterSubscriptions(subscriptionIds)).thenReturn(mockResult);
-        ResponseEntity<?> response = controller.deleteBlotterSubscriptions(subscriptionIds);
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(mockResult, response.getBody());
-    }
-
-    @Test
-    public void testDeleteBlotterSubscriptions_Failure() throws Exception {
-        List<String> subscriptionIds = Collections.singletonList("testId");
-        when(subscriptionEventManager.deleteBlotterSubscriptions(subscriptionIds)).thenThrow(new RuntimeException("Delete error"));
-        ResponseEntity<?> response = controller.deleteBlotterSubscriptions(subscriptionIds);
-        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
-        assertTrue(response.getBody().toString().contains("Error deleting active subscriptions"));
-    }
-
-    @Test
-    public void testDeleteBlotterSubscriptions_EmptyList() throws Exception {
-        List<String> subscriptionIds = Collections.emptyList();
-        HashMap<String, BlotterSubscriptionDeletionResult> mockResult = new HashMap<>();
-        when(subscriptionEventManager.deleteBlotterSubscriptions(subscriptionIds)).thenReturn(mockResult);
-        ResponseEntity<?> response = controller.deleteBlotterSubscriptions(subscriptionIds);
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(mockResult, response.getBody());
-    }
 }
