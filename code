@@ -1,443 +1,504 @@
+Could you write all the additional test cases for below java class to cover all the remaining scenarios or methods and make the test coverage or code coverage as 100% using junit 4 and old mockito version and java 8. Also don't use power mockito as i m using older mockito version and for private methods try to use reflection. Plus we can't change any file other than the above test class. 
+
+/**
+ * Description : Utility class for Object Management and Updates
+ * @author agrakit
+ * Created By: Niket Agrawal
+ * Created On 02-07-2022
+ */
+package com.rbs.tntr.business.blotter.utility;
+
+import static com.rbs.tntr.business.blotter.services.common.StringConstants.*;
+
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.lang.reflect.Type;
+import java.math.BigDecimal;
+import java.time.ZonedDateTime;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Objects;
+
+import com.google.common.collect.Lists;
+import com.nwm.tntr.commons.domain.persistence.entity.collateral.CollateralLeg;
+import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
+
+import com.google.gson.Gson;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.rbs.tntr.domain.blotter.exceptions.BlotterRunTimeException;
+
+@SuppressWarnings("rawtypes")
+@Component
+public class ObjectManagementUtility {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(ObjectManagementUtility.class);
+
+    /**
+     * Description : Method to compare two Objects and find out fields having
+     * different values
+     * Created By: Niket Agrawal
+     * Created On 02-07-2022
+     * @author agrakit
+     * @param actualObj
+     * @param modifiedObj
+     * @return Edited Fields
+     */
+    public String compareAndGetDiff(Object actualObj, Object modifiedObj) {
+        try {
+            List<String> changedProperties = new ArrayList<>();
+            String output = NO_FIELD_EDITED;
+
+            for (Field field : actualObj.getClass().getDeclaredFields()) {
+                field.setAccessible(true);
+                Object value1 = field.get(actualObj);
+                Object value2 = field.get(modifiedObj);
+                if (value1 == null && value2 == null) {
+                    continue;
+                }
+                if (value1 == null || value2 == null) {
+                    if (field.getName().equals("collateralLegList")){
+                        List<?> list1 = value1 == null ? Lists.newArrayList(CollateralLeg.newBuilder().build()) : (List<?>) value1;
+                        List<?> list2 = value2 == null ? Lists.newArrayList(CollateralLeg.newBuilder().build()) : (List<?>) value2;
+                        changedProperties.addAll(compareNestedObjects(list1.get(0),list2.get(0),field.getName()));
+                    } else
+                        changedProperties.add(field.getName());
+                } else {
+                    if (value1 instanceof BigDecimal && value2 instanceof BigDecimal) {
+                        BigDecimal val1 = BigDecimal.valueOf(Double.valueOf(((BigDecimal) value1).toPlainString()));
+                        BigDecimal val2 = BigDecimal.valueOf(Double.valueOf(((BigDecimal) value2).toPlainString()));
+                        if (!val1.equals(val2))
+                            changedProperties.add(field.getName());
+                    } else if (value1 instanceof List && value2 instanceof List) {
+                        List<?> list1 = (List<?>) value1;
+                        List<?> list2 = (List<?>) value2;
+                        if (list1.size() != list2.size()) {
+                            changedProperties.add(field.getName());
+                        }
+                        else {
+                            changedProperties.addAll(compareNestedObjects(list1.get(0),list2.get(0),field.getName()));
+                        }
+                    } else if (!Objects.equals(value1, value2)) {
+                        changedProperties.add(field.getName());
+                    }
+                }
+            }
+
+            if (!changedProperties.isEmpty()) {
+                output = populateEditedFields(changedProperties);
+            }
+            return output;
+        } catch (IllegalArgumentException | IllegalAccessException e) {
+            throw new BlotterRunTimeException("Error while comparing Object fields", e);
+        }
+    }
+
+    private List<String> compareNestedObjects(Object obj1, Object obj2, String className) throws IllegalAccessException {
+        List<String> changedNestedProperties = new ArrayList<>();
+        if (obj1.getClass() != obj2.getClass()) {
+            changedNestedProperties.add(className);
+            return changedNestedProperties;
+        }
+
+        for (Field field : obj1.getClass().getDeclaredFields()) {
+            field.setAccessible(true);
+            Object value1 = field.get(obj1);
+            Object value2 = field.get(obj2);
+            if (value1 != null && value2 != null && !Objects.equals(value1, value2)) {
+                changedNestedProperties.add(className.concat(".").concat(field.getName()));
+            } else if (value1 != null && value2 == null || value1 == null && value2 != null) {
+                changedNestedProperties.add(className.concat(".").concat(field.getName()));
+            }
+        }
+        return changedNestedProperties;
+    }
+
+    /**
+     * Description : Method to identify edited fields.
+     * @author agrakit
+     * Created By: Niket Agrawal
+     * Created On 02-07-2022
+     * @param changedProperties
+     * @return
+     */
+    private String populateEditedFields(List<String> changedProperties) {
+        String output;
+        StringBuilder builder = new StringBuilder();
+        changedProperties.forEach(property -> builder.append(property).append(","));
+        builder.deleteCharAt(builder.length() - 1);
+        output = builder.toString();
+        return output;
+    }
+
+    /**
+     * Description : Method to compare two Objects on field level
+     * @author agrakit
+     * Created By: Niket Agrawal
+     * Created On 02-07-2022
+     * @param objectToBuild
+     * @param objectToParse
+     * @return Object
+     */
+    public Object buildObjectBuilder(Object objectToBuild, Object objectToParse) {
+        try {
+            // Convert ObjectToParse into Key-Value pair
+            Map<String, String> inputJsonFields = populateJsonFields(objectToParse);
+
+            Class objectToBuildClass = objectToBuild.getClass();
+            Field[] objectToBuildFieldList = objectToBuildClass.getDeclaredFields();
+
+            for (Field objectToBuildField : objectToBuildFieldList) {
+                if (inputJsonFields.containsKey(objectToBuildField.getName())) {
+                    objectToBuildField.setAccessible(true);
+                    String fieldValue = inputJsonFields.get(objectToBuildField.getName());
+                    if (StringUtils.isBlank(fieldValue))
+                        continue;
+                    else if (EMPTY_DATA.equals(fieldValue)) {
+                        objectToBuildField.set(objectToBuild, null);
+                    } else {
+                        if (objectToBuildField.getName().equals("collateralLegList")
+                                && isCollateralLegCountValid(inputJsonFields)){
+                            Object modifiedObj = new Gson().fromJson(fieldValue, Map.class);
+                            List<?> actuallist = objectToBuildField.get(objectToBuild) == null ? Lists.newArrayList(CollateralLeg.newBuilder().build()) : (List<?>) objectToBuildField.get(objectToBuild);
+                            CollateralLeg collateralLeg = (CollateralLeg) buildObjectBuilder(actuallist.get(0), modifiedObj);
+                            if(areAllFieldsNull(collateralLeg))
+                                objectToBuildField.set(objectToBuild, null);
+                            else
+                                objectToBuildField.set(objectToBuild, Lists.newArrayList(collateralLeg));
+                            objectToBuildField.setAccessible(false);
+                        }
+                        else
+                            setFieldValue(objectToBuild, objectToBuildField, fieldValue);
+                    }
+                    objectToBuildField.setAccessible(false);
+                }
+            }
+
+            return objectToBuild;
+        } catch (IllegalArgumentException | ReflectiveOperationException e) {
+            LOGGER.error("Error while building the object", e);
+            throw new BlotterRunTimeException("Error while building the object", e);
+        }
+    }
+
+    private boolean isCollateralLegCountValid(Map<String, String> inputJsonFields) {
+        if (inputJsonFields.get("collateralLegListCount") != null){
+            return inputJsonFields.get("collateralLegListCount").equals("1") || inputJsonFields.get("collateralLegListCount").equals("0");
+        }
+        return false;
+    }
+
+    private boolean areAllFieldsNull(Object objectToBuild) {
+        if (objectToBuild == null)
+            return true;
+
+        try {
+            for (Field field : objectToBuild.getClass().getDeclaredFields()) {
+                field.setAccessible(true);
+                if (field.get(objectToBuild) != null)
+                    return false;
+            }
+            return true;
+        } catch (IllegalArgumentException | IllegalAccessException e) {
+            LOGGER.error("Error while checking the object for null fields", e);
+            throw new BlotterRunTimeException("Error while checking the object for null fields", e);
+        }
+    }
+
+    /**
+     * Description : Method to populate map of key-value pair from Object
+     * @author agrakit
+     * Created By: Niket Agrawal
+     * Created On 02-07-2022
+     * @param objectToParse
+     * @return Map of JSON fields with value
+     */
+    public Map<String, String> populateJsonFields(Object objectToParse) {
+        Map<String, String> inputJsonFields = new HashMap<>();
+        Gson gson = new Gson();
+        final JsonObject jsonObjectToParse = gson.toJsonTree(objectToParse).getAsJsonObject();
+        for (Entry<String, JsonElement> entry : jsonObjectToParse.entrySet()) {
+            if (entry.getValue().isJsonObject()) {
+                JsonObject jsonObject = entry.getValue().getAsJsonObject();
+                Map<String, String> itemMap = new HashMap<>();
+                for (Entry<String, JsonElement> itemEntry : jsonObject.entrySet()) {
+                    itemMap.put(itemEntry.getKey(), itemEntry.getValue().getAsString());
+                }
+                inputJsonFields.put(entry.getKey(), new Gson().toJson(itemMap));
+            } else {
+                inputJsonFields.put(entry.getKey(), entry.getValue().getAsString());
+            }
+        }
+        return inputJsonFields;
+    }
+
+    /**
+     * Description : Method to set the values for relevant Object Fields
+     * @author agrakit
+     * Created By: Niket Agrawal
+     * Created On 02-07-2022
+     * @param objectToBuild
+     * @param objectToBuildField
+     * @param fieldValue
+     * @throws IllegalAccessException
+     */
+    private void setFieldValue(Object objectToBuild, Field objectToBuildField, String fieldValue)
+            throws ReflectiveOperationException {
+        Class<?> fieldDataType = objectToBuildField.getType();
+        if (fieldDataType.equals(String.class)) {
+            objectToBuildField.set(objectToBuild, fieldValue);
+        } else if (fieldDataType.equals(ZonedDateTime.class)) {
+            objectToBuildField.set(objectToBuild, ZonedDateTime.parse(fieldValue));
+        } else if (fieldDataType.equals(Double.class)) {
+            objectToBuildField.set(objectToBuild, Double.valueOf(fieldValue));
+        } else if (fieldDataType.equals(BigDecimal.class)) {
+            objectToBuildField.set(objectToBuild,new BigDecimal(fieldValue));
+        } else if (fieldDataType.equals(Integer.class)) {
+            objectToBuildField.set(objectToBuild, Integer.valueOf(fieldValue));
+        } else if (fieldDataType.equals(Boolean.class)) {
+            objectToBuildField.set(objectToBuild, Boolean.valueOf(fieldValue));
+        } else if (fieldDataType.equals(Float.class)) {
+            objectToBuildField.set(objectToBuild, Float.valueOf(fieldValue));
+        } else if (fieldDataType.equals(Long.class)) {
+            objectToBuildField.set(objectToBuild, Long.valueOf(fieldValue));
+        } else if (fieldDataType.isEnum()) {
+            String methodName = "valueOf";
+            List<Method> enumDeclaredMethods = Arrays.asList(fieldDataType.getDeclaredMethods());
+            for (Method method : enumDeclaredMethods) {
+                if (method.getName().equals("fromValue"))
+                    methodName = "fromValue";
+            }
+            Method valueOf = fieldDataType.getMethod(methodName, String.class);
+            valueOf.setAccessible(true);
+            Object value = valueOf.invoke(null, fieldValue);
+            objectToBuildField.set(objectToBuild, value);
+        }
+    }
+}
+
+
+Existing test class:
+
+/**
+ * Description : ObjectManagementUtility Test Class
+ * @author agrakit
+ * Created By : Niket Agrawal
+ * Created On : 02-Jul-2022	
+ */
 package com.rbs.tntr.business.blotter.utility;
 
 import static org.junit.Assert.*;
-import static org.mockito.Matchers.*;
-import static org.mockito.Mockito.*;
 
 import java.io.IOException;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.util.HashMap;
-import java.util.Map;
+import java.math.BigDecimal;
+import java.time.ZonedDateTime;
 
+import com.nwm.tntr.commons.domain.persistence.constant.AllocationType;
+import com.rbs.tntr.domain.blotter.exceptions.BlotterRunTimeException;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.mockito.Mock;
-import org.mockito.MockedStatic;
-import org.mockito.Mockito;
-import org.mockito.runners.MockitoJUnitRunner;
-import org.slf4j.Logger;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.client.RestTemplate;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.core.JsonParseException;
+import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.rbs.tntr.business.blotter.search.querybuilder.LoggedInUserDetails;
-import com.rbs.tntr.domain.blotter.exceptions.BlotterRunTimeException;
+import com.nwm.tntr.commons.domain.persistence.entity.trade.ReportableData.Builder;
+import com.nwm.tntr.commons.domain.persistence.entity.valuation.ReportableData;
+import com.rbs.tntr.business.blotter.services.common.StringConstants;
 
-@RunWith(MockitoJUnitRunner.class)
-public class BlotterUtilTest {
+public class ObjectManagementUtilityTest {
 
-    @Mock
-    private RestTemplate restTemplate;
-    
-    @Mock
-    private ObjectMapper objectMapper;
-    
-    @Mock
-    private JsonNode rootNode;
-    
-    @Mock
-    private JsonNode responseNode;
-    
-    @Mock
-    private JsonNode docsNode;
-    
-    @Mock
-    private JsonNode userNode;
-    
-    @Mock
-    private ResponseEntity<String> responseEntity;
-    
-    @Mock
-    private Logger logger;
-    
-    private BlotterUtil blotterUtil;
-    private String testUserRacfId = "testUser123";
-    private String testEndpoint = "http://test-endpoint/{userRacfId}";
-    
-    @Before
-    public void setUp() throws Exception {
-        blotterUtil = new BlotterUtil();
-        
-        // Set the userDetailsHost using reflection
-        setUserDetailsHostViaReflection(testEndpoint);
-        
-        // Mock the static logger
-        mockStaticLogger();
-    }
-    
-    private void setUserDetailsHostViaReflection(String endpoint) throws Exception {
-        Field userDetailsHostField = BlotterUtil.class.getDeclaredField("userDetailsHost");
-        userDetailsHostField.setAccessible(true);
-        userDetailsHostField.set(null, endpoint);
-    }
-    
-    private void mockStaticLogger() throws Exception {
-        Field loggerField = BlotterUtil.class.getDeclaredField("LOGGER");
-        loggerField.setAccessible(true);
-        loggerField.set(null, logger);
-    }
+	private ObjectManagementUtility utilObj;
 
-    @Test
-    public void testSetUserDetailsHost() throws Exception {
-        // Test the setter method
-        String newEndpoint = "http://new-endpoint/{userRacfId}";
-        blotterUtil.setUserDetailsHost(newEndpoint);
-        
-        // Verify using reflection
-        Field userDetailsHostField = BlotterUtil.class.getDeclaredField("userDetailsHost");
-        userDetailsHostField.setAccessible(true);
-        String actualEndpoint = (String) userDetailsHostField.get(null);
-        
-        assertEquals(newEndpoint, actualEndpoint);
-    }
+	@Before
+	public void setup() {
+		utilObj = new ObjectManagementUtility();
+	}
 
-    @Test
-    public void testGetLoggedInUserDetails_Success() throws Exception {
-        // Mock successful response
-        String responseBody = "{\"response\":{\"docs\":[{\"userId\":\"testUser\",\"name\":\"Test User\"}]}}";
-        
-        when(responseEntity.getStatusCode()).thenReturn(HttpStatus.OK);
-        when(responseEntity.getBody()).thenReturn(responseBody);
-        
-        // Mock ObjectMapper and JsonNode behavior
-        when(objectMapper.readTree(responseBody)).thenReturn(rootNode);
-        when(rootNode.hasNonNull("response")).thenReturn(true);
-        when(rootNode.get("response")).thenReturn(responseNode);
-        when(responseNode.hasNonNull("docs")).thenReturn(true);
-        when(responseNode.get("docs")).thenReturn(docsNode);
-        when(docsNode.has(0)).thenReturn(true);
-        when(docsNode.get(0)).thenReturn(userNode);
-        
-        // Mock the convertValue calls
-        Map<String, Object> userMap = new HashMap<>();
-        userMap.put("userId", "testUser");
-        userMap.put("name", "Test User");
-        
-        LoggedInUserDetails expectedUserDetails = new LoggedInUserDetails();
-        // Set properties if LoggedInUserDetails has setters
-        
-        when(objectMapper.convertValue(eq(userNode), any())).thenReturn(userMap);
-        when(objectMapper.convertValue(eq(userMap), eq(LoggedInUserDetails.class))).thenReturn(expectedUserDetails);
-        
-        // Mock RestTemplate with MockedStatic
-        try (MockedStatic<RestTemplate> mockedRestTemplate = Mockito.mockStatic(RestTemplate.class)) {
-            RestTemplate mockRestTemplate = mock(RestTemplate.class);
-            mockedRestTemplate.when(() -> new RestTemplate()).thenReturn(mockRestTemplate);
-            
-            when(mockRestTemplate.exchange(
-                eq(testEndpoint),
-                eq(HttpMethod.GET),
-                any(HttpEntity.class),
-                eq(String.class),
-                any(HashMap.class)
-            )).thenReturn(responseEntity);
-            
-            // Mock ObjectMapper constructor
-            try (MockedStatic<ObjectMapper> mockedObjectMapper = Mockito.mockStatic(ObjectMapper.class)) {
-                mockedObjectMapper.when(() -> new ObjectMapper()).thenReturn(objectMapper);
-                
-                LoggedInUserDetails result = BlotterUtil.getLoggedInUserDetails(testUserRacfId);
-                
-                assertNotNull(result);
-                assertEquals(expectedUserDetails, result);
-            }
-        }
-    }
+	@Test
+	public void testTradeObjectCompare() {
 
-    @Test(expected = BlotterRunTimeException.class)
-    public void testGetLoggedInUserDetails_NonOkStatus() throws Exception {
-        when(responseEntity.getStatusCode()).thenReturn(HttpStatus.INTERNAL_SERVER_ERROR);
-        
-        try (MockedStatic<RestTemplate> mockedRestTemplate = Mockito.mockStatic(RestTemplate.class)) {
-            RestTemplate mockRestTemplate = mock(RestTemplate.class);
-            mockedRestTemplate.when(() -> new RestTemplate()).thenReturn(mockRestTemplate);
-            
-            when(mockRestTemplate.exchange(
-                eq(testEndpoint),
-                eq(HttpMethod.GET),
-                any(HttpEntity.class),
-                eq(String.class),
-                any(HashMap.class)
-            )).thenReturn(responseEntity);
-            
-            BlotterUtil.getLoggedInUserDetails(testUserRacfId);
-        }
-        
-        // Verify error logging
-        verify(logger).error("Error in Response while fetching user details");
-    }
+		com.nwm.tntr.commons.domain.persistence.entity.trade.ReportableData existingReportableData = com.nwm.tntr.commons.domain.persistence.entity.trade.ReportableData
+					.newBuilder().withAction("action").withBuyer("buyer").withIndexSeries(2)
+					.withTradeParty1MandatoryClearing(true)
+					.withAsOfDateTime(ZonedDateTime.parse("2022-09-30T00:00:00.000Z")).build();
+		com.nwm.tntr.commons.domain.persistence.entity.trade.ReportableData updatedReportableData = com.nwm.tntr.commons.domain.persistence.entity.trade.ReportableData
+					.newBuilder().withAction("editedAction").withBuyer("buyer").withIndexSeries(1)
+					.withTradeParty1MandatoryClearing(true)
+					.withAsOfDateTime(ZonedDateTime.parse("2022-09-03T00:00:00.000Z")).build();
 
-    @Test(expected = BlotterRunTimeException.class)
-    public void testGetLoggedInUserDetails_NoResponseNode() throws Exception {
-        String responseBody = "{\"data\":{\"users\":[]}}";
-        
-        when(responseEntity.getStatusCode()).thenReturn(HttpStatus.OK);
-        when(responseEntity.getBody()).thenReturn(responseBody);
-        
-        when(objectMapper.readTree(responseBody)).thenReturn(rootNode);
-        when(rootNode.hasNonNull("response")).thenReturn(false);
-        
-        try (MockedStatic<RestTemplate> mockedRestTemplate = Mockito.mockStatic(RestTemplate.class)) {
-            RestTemplate mockRestTemplate = mock(RestTemplate.class);
-            mockedRestTemplate.when(() -> new RestTemplate()).thenReturn(mockRestTemplate);
-            
-            when(mockRestTemplate.exchange(
-                eq(testEndpoint),
-                eq(HttpMethod.GET),
-                any(HttpEntity.class),
-                eq(String.class),
-                any(HashMap.class)
-            )).thenReturn(responseEntity);
-            
-            try (MockedStatic<ObjectMapper> mockedObjectMapper = Mockito.mockStatic(ObjectMapper.class)) {
-                mockedObjectMapper.when(() -> new ObjectMapper()).thenReturn(objectMapper);
-                
-                BlotterUtil.getLoggedInUserDetails(testUserRacfId);
-            }
-        }
-        
-        // Verify error logging
-        verify(logger).error("API Response doesnt have User Details");
-    }
+		String editedFields = utilObj.compareAndGetDiff(existingReportableData, updatedReportableData);
+		assertEquals("action,indexSeries,asOfDateTime", editedFields);
 
-    @Test(expected = BlotterRunTimeException.class)
-    public void testGetLoggedInUserDetails_NoDocsNode() throws Exception {
-        String responseBody = "{\"response\":{\"users\":[]}}";
-        
-        when(responseEntity.getStatusCode()).thenReturn(HttpStatus.OK);
-        when(responseEntity.getBody()).thenReturn(responseBody);
-        
-        when(objectMapper.readTree(responseBody)).thenReturn(rootNode);
-        when(rootNode.hasNonNull("response")).thenReturn(true);
-        when(rootNode.get("response")).thenReturn(responseNode);
-        when(responseNode.hasNonNull("docs")).thenReturn(false);
-        
-        try (MockedStatic<RestTemplate> mockedRestTemplate = Mockito.mockStatic(RestTemplate.class)) {
-            RestTemplate mockRestTemplate = mock(RestTemplate.class);
-            mockedRestTemplate.when(() -> new RestTemplate()).thenReturn(mockRestTemplate);
-            
-            when(mockRestTemplate.exchange(
-                eq(testEndpoint),
-                eq(HttpMethod.GET),
-                any(HttpEntity.class),
-                eq(String.class),
-                any(HashMap.class)
-            )).thenReturn(responseEntity);
-            
-            try (MockedStatic<ObjectMapper> mockedObjectMapper = Mockito.mockStatic(ObjectMapper.class)) {
-                mockedObjectMapper.when(() -> new ObjectMapper()).thenReturn(objectMapper);
-                
-                BlotterUtil.getLoggedInUserDetails(testUserRacfId);
-            }
-        }
-        
-        verify(logger).error("API Response doesnt have User Details");
-    }
+	}
 
-    @Test(expected = BlotterRunTimeException.class)
-    public void testGetLoggedInUserDetails_EmptyDocsArray() throws Exception {
-        String responseBody = "{\"response\":{\"docs\":[]}}";
-        
-        when(responseEntity.getStatusCode()).thenReturn(HttpStatus.OK);
-        when(responseEntity.getBody()).thenReturn(responseBody);
-        
-        when(objectMapper.readTree(responseBody)).thenReturn(rootNode);
-        when(rootNode.hasNonNull("response")).thenReturn(true);
-        when(rootNode.get("response")).thenReturn(responseNode);
-        when(responseNode.hasNonNull("docs")).thenReturn(true);
-        when(responseNode.get("docs")).thenReturn(docsNode);
-        when(docsNode.has(0)).thenReturn(false);
-        
-        try (MockedStatic<RestTemplate> mockedRestTemplate = Mockito.mockStatic(RestTemplate.class)) {
-            RestTemplate mockRestTemplate = mock(RestTemplate.class);
-            mockedRestTemplate.when(() -> new RestTemplate()).thenReturn(mockRestTemplate);
-            
-            when(mockRestTemplate.exchange(
-                eq(testEndpoint),
-                eq(HttpMethod.GET),
-                any(HttpEntity.class),
-                eq(String.class),
-                any(HashMap.class)
-            )).thenReturn(responseEntity);
-            
-            try (MockedStatic<ObjectMapper> mockedObjectMapper = Mockito.mockStatic(ObjectMapper.class)) {
-                mockedObjectMapper.when(() -> new ObjectMapper()).thenReturn(objectMapper);
-                
-                BlotterUtil.getLoggedInUserDetails(testUserRacfId);
-            }
-        }
-        
-        verify(logger).error("API Response doesnt have User Details");
-    }
+	@Test
+	public void testValObjectCompare() {
+		com.nwm.tntr.commons.domain.persistence.entity.valuation.ReportableData existingReportableData = com.nwm.tntr.commons.domain.persistence.entity.valuation.ReportableData
+					.newBuilder().withClearingStatus("clearingStatus")
+					.withTradeParty1ValuationAmount(BigDecimal.valueOf(Double.valueOf("10000"))).withAction("action")
+					.build();
 
-    @Test(expected = BlotterRunTimeException.class)
-    public void testGetLoggedInUserDetails_IOException() throws Exception {
-        try (MockedStatic<RestTemplate> mockedRestTemplate = Mockito.mockStatic(RestTemplate.class)) {
-            RestTemplate mockRestTemplate = mock(RestTemplate.class);
-            mockedRestTemplate.when(() -> new RestTemplate()).thenReturn(mockRestTemplate);
-            
-            when(mockRestTemplate.exchange(
-                eq(testEndpoint),
-                eq(HttpMethod.GET),
-                any(HttpEntity.class),
-                eq(String.class),
-                any(HashMap.class)
-            )).thenThrow(new IOException("Network error"));
-            
-            BlotterUtil.getLoggedInUserDetails(testUserRacfId);
-        }
-        
-        verify(logger).error(eq("There was an exception while fetching user details"), any(IOException.class));
-    }
+		com.nwm.tntr.commons.domain.persistence.entity.valuation.ReportableData updatedReportableData = com.nwm.tntr.commons.domain.persistence.entity.valuation.ReportableData
+					.newBuilder().withClearingStatus("clearingStatusChanged")
+					.withTradeParty1ValuationAmount(BigDecimal.valueOf(Double.valueOf("10"))).withAction("action")
+					.build();
 
-    @Test(expected = BlotterRunTimeException.class)
-    public void testGetLoggedInUserDetails_JsonProcessingException() throws Exception {
-        String responseBody = "invalid json";
-        
-        when(responseEntity.getStatusCode()).thenReturn(HttpStatus.OK);
-        when(responseEntity.getBody()).thenReturn(responseBody);
-        
-        when(objectMapper.readTree(responseBody)).thenThrow(new JsonProcessingException("Invalid JSON") {});
-        
-        try (MockedStatic<RestTemplate> mockedRestTemplate = Mockito.mockStatic(RestTemplate.class)) {
-            RestTemplate mockRestTemplate = mock(RestTemplate.class);
-            mockedRestTemplate.when(() -> new RestTemplate()).thenReturn(mockRestTemplate);
-            
-            when(mockRestTemplate.exchange(
-                eq(testEndpoint),
-                eq(HttpMethod.GET),
-                any(HttpEntity.class),
-                eq(String.class),
-                any(HashMap.class)
-            )).thenReturn(responseEntity);
-            
-            try (MockedStatic<ObjectMapper> mockedObjectMapper = Mockito.mockStatic(ObjectMapper.class)) {
-                mockedObjectMapper.when(() -> new ObjectMapper()).thenReturn(objectMapper);
-                
-                BlotterUtil.getLoggedInUserDetails(testUserRacfId);
-            }
-        }
-        
-        verify(logger).error(eq("There was an exception while fetching user details"), any(JsonProcessingException.class));
-    }
+		String editedFields = utilObj.compareAndGetDiff(existingReportableData, updatedReportableData);
+		assertEquals("clearingStatus,tradeParty1ValuationAmount", editedFields);
+	}
 
-    @Test
-    public void testGetLoggedInUserDetails_NullUserRacfId() throws Exception {
-        // Test with null userRacfId
-        String responseBody = "{\"response\":{\"docs\":[{\"userId\":\"testUser\",\"name\":\"Test User\"}]}}";
-        
-        when(responseEntity.getStatusCode()).thenReturn(HttpStatus.OK);
-        when(responseEntity.getBody()).thenReturn(responseBody);
-        
-        when(objectMapper.readTree(responseBody)).thenReturn(rootNode);
-        when(rootNode.hasNonNull("response")).thenReturn(true);
-        when(rootNode.get("response")).thenReturn(responseNode);
-        when(responseNode.hasNonNull("docs")).thenReturn(true);
-        when(responseNode.get("docs")).thenReturn(docsNode);
-        when(docsNode.has(0)).thenReturn(true);
-        when(docsNode.get(0)).thenReturn(userNode);
-        
-        Map<String, Object> userMap = new HashMap<>();
-        LoggedInUserDetails expectedUserDetails = new LoggedInUserDetails();
-        
-        when(objectMapper.convertValue(eq(userNode), any())).thenReturn(userMap);
-        when(objectMapper.convertValue(eq(userMap), eq(LoggedInUserDetails.class))).thenReturn(expectedUserDetails);
-        
-        try (MockedStatic<RestTemplate> mockedRestTemplate = Mockito.mockStatic(RestTemplate.class)) {
-            RestTemplate mockRestTemplate = mock(RestTemplate.class);
-            mockedRestTemplate.when(() -> new RestTemplate()).thenReturn(mockRestTemplate);
-            
-            when(mockRestTemplate.exchange(
-                eq(testEndpoint),
-                eq(HttpMethod.GET),
-                any(HttpEntity.class),
-                eq(String.class),
-                any(HashMap.class)
-            )).thenReturn(responseEntity);
-            
-            try (MockedStatic<ObjectMapper> mockedObjectMapper = Mockito.mockStatic(ObjectMapper.class)) {
-                mockedObjectMapper.when(() -> new ObjectMapper()).thenReturn(objectMapper);
-                
-                LoggedInUserDetails result = BlotterUtil.getLoggedInUserDetails(null);
-                
-                assertNotNull(result);
-            }
-        }
-    }
+	@Test
+	public void testCVMObjectCompare() {
+		com.nwm.tntr.commons.domain.persistence.entity.collateral.ReportableData existingReportableData = com.nwm.tntr.commons.domain.persistence.entity.collateral.ReportableData
+					.newBuilder().withAction("action")
+					.withExcessCollateralPosted(BigDecimal.valueOf(Double.valueOf("100"))).build();
 
-    @Test
-    public void testGetLoggedInUserDetails_EmptyUserRacfId() throws Exception {
-        // Test with empty userRacfId
-        String responseBody = "{\"response\":{\"docs\":[{\"userId\":\"testUser\",\"name\":\"Test User\"}]}}";
-        
-        when(responseEntity.getStatusCode()).thenReturn(HttpStatus.OK);
-        when(responseEntity.getBody()).thenReturn(responseBody);
-        
-        when(objectMapper.readTree(responseBody)).thenReturn(rootNode);
-        when(rootNode.hasNonNull("response")).thenReturn(true);
-        when(rootNode.get("response")).thenReturn(responseNode);
-        when(responseNode.hasNonNull("docs")).thenReturn(true);
-        when(responseNode.get("docs")).thenReturn(docsNode);
-        when(docsNode.has(0)).thenReturn(true);
-        when(docsNode.get(0)).thenReturn(userNode);
-        
-        Map<String, Object> userMap = new HashMap<>();
-        LoggedInUserDetails expectedUserDetails = new LoggedInUserDetails();
-        
-        when(objectMapper.convertValue(eq(userNode), any())).thenReturn(userMap);
-        when(objectMapper.convertValue(eq(userMap), eq(LoggedInUserDetails.class))).thenReturn(expectedUserDetails);
-        
-        try (MockedStatic<RestTemplate> mockedRestTemplate = Mockito.mockStatic(RestTemplate.class)) {
-            RestTemplate mockRestTemplate = mock(RestTemplate.class);
-            mockedRestTemplate.when(() -> new RestTemplate()).thenReturn(mockRestTemplate);
-            
-            when(mockRestTemplate.exchange(
-                eq(testEndpoint),
-                eq(HttpMethod.GET),
-                any(HttpEntity.class),
-                eq(String.class),
-                any(HashMap.class)
-            )).thenReturn(responseEntity);
-            
-            try (MockedStatic<ObjectMapper> mockedObjectMapper = Mockito.mockStatic(ObjectMapper.class)) {
-                mockedObjectMapper.when(() -> new ObjectMapper()).thenReturn(objectMapper);
-                
-                LoggedInUserDetails result = BlotterUtil.getLoggedInUserDetails("");
-                
-                assertNotNull(result);
-            }
-        }
-    }
+		com.nwm.tntr.commons.domain.persistence.entity.collateral.ReportableData updatedReportableData = com.nwm.tntr.commons.domain.persistence.entity.collateral.ReportableData
+					.newBuilder().withAction("action")
+					.withExcessCollateralPosted(BigDecimal.valueOf(Double.valueOf("100"))).build();
 
-    @Test
-    public void testConstants() throws Exception {
-        // Test private static final constants using reflection
-        Field responseField = BlotterUtil.class.getDeclaredField("RESPONSE");
-        responseField.setAccessible(true);
-        String responseValue = (String) responseField.get(null);
-        assertEquals("response", responseValue);
-    }
+		String editedFields = utilObj.compareAndGetDiff(existingReportableData, updatedReportableData);
+		assertEquals(StringConstants.NO_FIELD_EDITED, editedFields);
+	}
 
-    @Test
-    public void testConstructor() {
-        // Test constructor coverage
-        BlotterUtil util = new BlotterUtil();
-        assertNotNull(util);
-    }
+	@Test
+	public void testCollObjectCompare() {
+		com.nwm.tntr.commons.domain.persistence.entity.collateral.ReportableData existingReportableData = com.nwm.tntr.commons.domain.persistence.entity.collateral.ReportableData
+					.newBuilder().withAction("action")
+					.withExcessCollateralPosted(BigDecimal.valueOf(Double.valueOf("100"))).build();
 
-    @Test
-    public void testStaticLoggerField() throws Exception {
-        // Test static logger field coverage
-        Field loggerField = BlotterUtil.class.getDeclaredField("LOGGER");
-        loggerField.setAccessible(true);
-        Logger staticLogger = (Logger) loggerField.get(null);
-        assertNotNull(staticLogger);
-    }
+		com.nwm.tntr.commons.domain.persistence.entity.collateral.ReportableData updatedReportableData = com.nwm.tntr.commons.domain.persistence.entity.collateral.ReportableData
+					.newBuilder().withAction("action")
+					.withExcessCollateralPosted(BigDecimal.valueOf(Double.valueOf("1"))).build();
+
+		String editedFields = utilObj.compareAndGetDiff(existingReportableData, updatedReportableData);
+		assertEquals("excessCollateralPosted", editedFields);
+	}
+
+	@Test
+	public void testCLMObjectCompare() {
+		com.nwm.tntr.commons.domain.persistence.entity.collaterallink.ReportableData existingReportableData = com.nwm.tntr.commons.domain.persistence.entity.collaterallink.ReportableData
+					.newBuilder().withAction("action")
+					.withExcessCollateralPosted(BigDecimal.valueOf(Double.valueOf("100")))
+					.withReportingTimestamp(ZonedDateTime.parse("2022-09-30T00:00:00.000Z")).build();
+
+		com.nwm.tntr.commons.domain.persistence.entity.collaterallink.ReportableData updatedReportableData = com.nwm.tntr.commons.domain.persistence.entity.collaterallink.ReportableData
+					.newBuilder().withAction("action")
+					.withExcessCollateralPosted(BigDecimal.valueOf(Double.valueOf("1")))
+					.withReportingTimestamp(ZonedDateTime.parse("2022-09-30T00:00:00.000Z")).build();
+
+		String editedFields = utilObj.compareAndGetDiff(existingReportableData, updatedReportableData);
+		assertEquals("excessCollateralPosted", editedFields);
+	}
+
+	@Test
+	public void testObjectBuilder() throws JsonParseException, JsonMappingException, IOException {
+		String inputJsonData = "{\"action\":\"action\",\"asOfDateTime\":\"2022-09-30T00:00:00.000Z\",\"leg1NotionalAmount\":\"1000\"}";
+		Object updatedReportableFields = new ObjectMapper().readValue(inputJsonData, Object.class);
+
+		com.nwm.tntr.commons.domain.persistence.entity.trade.ReportableData existingObj = com.nwm.tntr.commons.domain.persistence.entity.trade.ReportableData
+					.newBuilder().withAction("action").withAsOfDateTime(ZonedDateTime.parse("2022-09-30T00:00:00.000Z"))
+					.withLeg1NotionalAmount(BigDecimal.valueOf(Double.valueOf("1000"))).build();
+
+		com.nwm.tntr.commons.domain.persistence.entity.trade.ReportableData.Builder updatedBuilder = (Builder) utilObj
+					.buildObjectBuilder(
+								com.nwm.tntr.commons.domain.persistence.entity.trade.ReportableData.newBuilder(),
+								updatedReportableFields);
+		String editedFields = utilObj.compareAndGetDiff(existingObj, updatedBuilder.build());
+		assertEquals(StringConstants.NO_FIELD_EDITED, editedFields);
+
+	}
+	
+	@Test
+	public void testObjectBuilderWithEdit() throws JsonParseException, JsonMappingException, IOException {
+		String inputJsonData = "{\"action\":\"updatedAction\",\"allocationType\":\"PREA\",\"asOfDateTime\":\"2022-08-30T00:00:00.000Z\",\"leg1NotionalAmount\":\"10\",\"tradeParty1MandatoryClearing\":\"true\"}";
+		Object updatedReportableFields = new ObjectMapper().readValue(inputJsonData, Object.class);
+
+		com.nwm.tntr.commons.domain.persistence.entity.trade.ReportableData existingObj = com.nwm.tntr.commons.domain.persistence.entity.trade.ReportableData
+					.newBuilder().withAction("action").withAllocationType(AllocationType.POST_ALLOCATED).withAsOfDateTime(ZonedDateTime.parse("2022-09-30T00:00:00.000Z"))
+					.withLeg1NotionalAmount(BigDecimal.valueOf(Double.valueOf("1000"))).build();
+
+		com.nwm.tntr.commons.domain.persistence.entity.trade.ReportableData.Builder updatedBuilder = (Builder) utilObj
+					.buildObjectBuilder(
+								com.nwm.tntr.commons.domain.persistence.entity.trade.ReportableData.newBuilder(),
+								updatedReportableFields);
+		String editedFields = utilObj.compareAndGetDiff(existingObj, updatedBuilder.build());
+		assertEquals("action,leg1NotionalAmount,tradeParty1MandatoryClearing,asOfDateTime,allocationType", editedFields);
+
+	}
+
+	@Test
+	public void testObjectBuilderWithEmpty() throws JsonParseException, JsonMappingException, IOException {
+		String inputJsonData = "{\"action\":\"EMPTY\",\"asOfDateTime\":\"EMPTY\",\"leg1NotionalAmount\":\"EMPTY\"}";
+		Object updatedReportableFields = new ObjectMapper().readValue(inputJsonData, Object.class);
+
+		com.nwm.tntr.commons.domain.persistence.entity.trade.ReportableData existingObj = com.nwm.tntr.commons.domain.persistence.entity.trade.ReportableData
+					.newBuilder().withAction("action").withAsOfDateTime(ZonedDateTime.parse("2022-09-30T00:00:00.000Z"))
+					.withLeg1NotionalAmount(BigDecimal.valueOf(Double.valueOf("1000"))).build();
+
+		com.nwm.tntr.commons.domain.persistence.entity.trade.ReportableData.Builder updatedBuilder = (Builder) utilObj
+					.buildObjectBuilder(
+								com.nwm.tntr.commons.domain.persistence.entity.trade.ReportableData.newBuilder(),
+								updatedReportableFields);
+		com.nwm.tntr.commons.domain.persistence.entity.trade.ReportableData updatedReportable = updatedBuilder.build();
+		String editedFields = utilObj.compareAndGetDiff(existingObj, updatedReportable);
+		assertEquals("action,leg1NotionalAmount,asOfDateTime", editedFields);
+		assertNull(updatedReportable.getAction());
+		assertNull(updatedReportable.getAsOfDateTime());
+		assertNull(updatedReportable.getLeg1NotionalAmount());
+
+	}
+
+	@Test
+	public void testIsSuppressedEventSwitching() throws JsonParseException, JsonMappingException, IOException {
+		String inputJsonData = "{\"isSuppressedEventSwitching\":true}";
+		Object inputReportableFields = new ObjectMapper().readValue(inputJsonData, Object.class);
+
+		Builder builderWithUpdatedFields = (com.nwm.tntr.commons.domain.persistence.entity.trade.ReportableData.Builder) utilObj
+				.buildObjectBuilder(com.nwm.tntr.commons.domain.persistence.entity.trade.ReportableData.newBuilder(),
+						inputReportableFields);
+		com.nwm.tntr.commons.domain.persistence.entity.trade.ReportableData updatedReportableData = builderWithUpdatedFields.build();
+		
+		assertTrue(updatedReportableData.getIsSuppressedEventSwitching());
+	}
+
+	@Test
+	public void testObjectWithNesttedObjects() throws IOException {
+		String inputJsonData = "{\"tradeParty1NatureOfReportingCpty\": \"test\",\"collateralLegListCount\": 1,\"collateralLegList\": {\"productIdentification\": \"XS1897340854\",\"counterpartySide\": \"WHOLE\"}}";
+		Object updatedReportableFields = new ObjectMapper().readValue(inputJsonData, Object.class);
+
+		com.nwm.tntr.commons.domain.persistence.entity.valuation.ReportableData existingObj = com.nwm.tntr.commons.domain.persistence.entity.valuation.ReportableData
+				.newBuilder().withAction("action").withTradeParty1NatureOfReportingCpty("FC").build();
+
+		com.nwm.tntr.commons.domain.persistence.entity.valuation.ReportableData.Builder updatedBuilder = (ReportableData.Builder) utilObj
+				.buildObjectBuilder(
+						com.nwm.tntr.commons.domain.persistence.entity.valuation.ReportableData.newBuilder(),
+						updatedReportableFields);
+		com.nwm.tntr.commons.domain.persistence.entity.valuation.ReportableData updatedReportable = updatedBuilder.build();
+		String editedFields = utilObj.compareAndGetDiff(existingObj, updatedReportable);
+		assertEquals("action,tradeParty1NatureOfReportingCpty,collateralLegList.productIdentification,collateralLegList.counterpartySide", editedFields);
+	}
+
+	@Test(expected = BlotterRunTimeException.class)
+	public void testFprException() throws IOException {
+		String inputJsonData = "{\"action\":\"EMPTY\",\"asOfDateTime\":\"EMPTY\",\"leg1NotionalAmount\":\"a\"}";
+		Object updatedReportableFields = new ObjectMapper().readValue(inputJsonData, Object.class);
+
+		com.nwm.tntr.commons.domain.persistence.entity.trade.ReportableData existingObj = com.nwm.tntr.commons.domain.persistence.entity.trade.ReportableData
+				.newBuilder().withAction("action").withAsOfDateTime(ZonedDateTime.parse("2022-09-30T00:00:00.000Z"))
+				.withLeg1NotionalAmount(BigDecimal.valueOf(Double.valueOf("1000"))).build();
+
+		com.nwm.tntr.commons.domain.persistence.entity.trade.ReportableData.Builder updatedBuilder = (Builder) utilObj
+				.buildObjectBuilder(
+						com.nwm.tntr.commons.domain.persistence.entity.trade.ReportableData.newBuilder(),
+						updatedReportableFields);
+		com.nwm.tntr.commons.domain.persistence.entity.trade.ReportableData updatedReportable = updatedBuilder.build();
+	}
 }
