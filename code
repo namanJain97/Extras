@@ -1,808 +1,10 @@
-Could you write all the additional test cases for below java class to cover all the remaining scenarios or methods and make the test coverage or code coverage as 100% using junit 4 and old mockito version and java 8. Also don't use power mockito as i m using older mockito version and for private methods try to use reflection. Plus we can't change any file other than the above test class. 
-
-package com.rbs.tntr.business.blotter.services.replay.tntr;
-
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.nwm.tntr.commons.domain.persistence.constant.ReportingRegime;
-import com.nwm.tntr.commons.domain.persistence.constant.ReportingRegulatoryAuthority;
-import com.nwm.tntr.commons.domain.persistence.constant.SourceSystemId;
-import com.rbs.tntr.business.blotter.configuration.ReportingEngineConfiguration;
-import com.rbs.tntr.business.blotter.security.BlotterSecurityService;
-import com.rbs.tntr.business.blotter.services.datetime.DateTimeService;
-import com.rbs.tntr.domain.blotter.enums.CRAction;
-import com.rbs.tntr.domain.blotter.tntrBlotterView.*;
-import org.apache.commons.lang.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.http.*;
-import org.springframework.stereotype.Component;
-import org.springframework.web.client.ResourceAccessException;
-import org.springframework.web.client.RestClientException;
-import org.springframework.web.client.RestTemplate;
-import org.springframework.web.util.UriComponentsBuilder;
-
-import java.util.*;
-import java.util.stream.Collectors;
-import static com.rbs.tntr.business.blotter.services.common.StringConstants.*;
-
-@Component
-public class ReplayServiceImpl implements ReplayService {
-    private final ReportingEngineConfiguration reportingEngineConfiguration;
-    private final RestTemplate restTemplate;
-    private  final BlotterSecurityService authenticationService;
-    private DateTimeService dateTimeService;
-    private static final ObjectMapper mapper = new ObjectMapper();
-    static final Logger log = LoggerFactory.getLogger(ReplayServiceImpl.class);
-    private static final String HEADER_SSO_TOKEN  = "sso-token";
-    private static final String HEADER_REQUEST_ID  = "RequestId";
-    private static final String HEADER_USER_ID  = "user";
-    private static final String TRUE = "true";
-    private static final String AC_EXOTIC = "AC_Exotic";
-    private static final String TRANSACTION = "TRANSACTION";
-    private static final String POSITION  = "POSITION";
-    private static final String LIFECYCLE = "LIFECYCLE";
-
-    public ReplayServiceImpl(@Autowired ReportingEngineConfiguration reportingEngineConfiguration,
-                             @Qualifier("RestTemplateWithTimeout")
-                             @Autowired RestTemplate restTemplate,
-                             @Autowired BlotterSecurityService authenticationService,
-                             @Autowired DateTimeService dateTimeService) {
-        this.reportingEngineConfiguration = reportingEngineConfiguration;
-        this.restTemplate = restTemplate;
-        this.authenticationService = authenticationService;
-        this.dateTimeService = dateTimeService;
-    }
-
-    @Override
-    public String replayCRValuation(CorrectiveReportingForValuation crRequest) {
-        String userName = authenticationService.getLoggedInUserName();
-        log.info("Request for CR for NOA Trades Action for {} by : {}", crRequest.getPrimaryKey().getAssetClass(),userName);
-        String result = EMPTY;
-        boolean useCmg = crRequest.getDataFetchFrom().equals("CMG");
-        String url = getCustomCRUrlHost(crRequest.getPrimaryKey().getRegime(), crRequest.getPrimaryKey().getAssetClass()) +
-                getCustomCRUrlEndpoint(crRequest.getPrimaryKey().getRegime(), crRequest.getPrimaryKey().getAction(), crRequest.getPrimaryKey().getIssueType());
-        if (crRequest.getPrimaryKey().getAction() == CRAction.CR_VALUATION){
-            TntrCRValuationRequest tradesRequest = new TntrCRValuationRequest(crRequest.getPrimaryKey().getSourceSystem(), useCmg, userName);
-            HttpEntity request = new HttpEntity(tradesRequest, getHeaderWithApplicationSSO());
-            result = fetchingResponseFromReForCR(request, url, crRequest.getPrimaryKey().getRegime(), crRequest.getPrimaryKey().getAssetClass());
-        } else {
-            String urlWithQueryParams = UriComponentsBuilder.fromHttpUrl(url)
-                    .queryParam("sourceSystem", crRequest.getPrimaryKey().getSourceSystem())
-                    .queryParam("useCmgValuationData", useCmg)
-                    .queryParam("actionBy", userName)
-                    .queryParam("valuationDateFrom", crRequest.getValuationDateFrom())
-                    .queryParam("valuationDateTo", crRequest.getValuationDateTo())
-                    .build().encode().toUri().toString();
-            HttpEntity request = new HttpEntity(getHeaderWithApplicationSSO());
-            result = fetchingResponseFromReForCR(request, urlWithQueryParams, crRequest.getPrimaryKey().getRegime(), crRequest.getPrimaryKey().getAssetClass());
-        }
-        return result;
-    }
-
-    @Override
-    public String replayCRCollateral(CorrectiveReportingForCollateral crRequest) {
-        String userName = authenticationService.getLoggedInUserName();
-        log.info("Request for CR for NOA Trades Action for {} by : {}", crRequest.getPrimaryKey().getAssetClass(),userName);
-        String result = EMPTY;
-        if (crRequest.getFlow().equalsIgnoreCase("Transaction & Collateral"))
-            crRequest.getPrimaryKey().setAction(CRAction.CR_TRADE_N_COL_WITH_DATE_RANGE);
-        String url = getCustomCRUrlHost(crRequest.getPrimaryKey().getRegime(), crRequest.getPrimaryKey().getAssetClass()) +
-                getCustomCRUrlEndpoint(crRequest.getPrimaryKey().getRegime(), crRequest.getPrimaryKey().getAction(), crRequest.getPrimaryKey().getIssueType());
-        String urlWithQueryParams = EMPTY;
-        if (crRequest.getPrimaryKey().getAction() == CRAction.CR_COLLATERAL){
-            urlWithQueryParams = UriComponentsBuilder.fromHttpUrl(url)
-                    .queryParam("overrideField", crRequest.getOverrideFields().trim())
-                    .build().encode().toUri().toString();
-        } else if (StringUtils.isBlank(crRequest.getOverrideFields())){
-            urlWithQueryParams = UriComponentsBuilder.fromHttpUrl(url)
-                    .queryParam("beginDate", crRequest.getCollateralDateFrom())
-                    .queryParam("endDate", crRequest.getCollateralDateTo())
-                    .build().encode().toUri().toString();
-        } else {
-            urlWithQueryParams = UriComponentsBuilder.fromHttpUrl(url)
-                    .queryParam("overrideFields", crRequest.getOverrideFields().trim())
-                    .queryParam("beginDate", crRequest.getCollateralDateFrom())
-                    .queryParam("endDate", crRequest.getCollateralDateTo())
-                    .build().encode().toUri().toString();
-        }
-        HttpEntity request = new HttpEntity(getHeaderWithApplicationSSO());
-        result = fetchingResponseFromReForCR(request, urlWithQueryParams, crRequest.getPrimaryKey().getRegime(), crRequest.getPrimaryKey().getAssetClass());
-        return result;
-    }
-
-    @Override
-    public String replayCRTrades(CorrectiveReportingForTrade crRequest) {
-        String userName = authenticationService.getLoggedInUserName();
-        log.info("Request for CR for NOA Trades Action for {} by : {}", crRequest.getAssetClass(),userName);
-        if (crRequest.getAssetClass().equalsIgnoreCase(FX) && null==SourceSystemId.fromValue(crRequest.getSourceSystem())){
-            String result = "Request for invalid source system id : "+crRequest.getSourceSystem()+" rejected";
-            return result;
-        }
-        TntrCRTradeRequest tradesRequest = new TntrCRTradeRequest(crRequest.getSourceSystem(),userName, getReportingTypeFromIssueType(crRequest.getIssueType()));
-        String url = getCustomCRUrlHost(crRequest.getRegime(), crRequest.getAssetClass()) +
-                getCustomCRUrlEndpoint(crRequest.getRegime(), crRequest.getAction(), crRequest.getIssueType());
-        HttpEntity request = new HttpEntity(tradesRequest, getHeaderWithApplicationSSO());
-        return fetchingResponseFromReForCR(request, url, crRequest.getRegime(), crRequest.getAssetClass());
-    }
-
-    private String fetchingResponseFromReForCR(HttpEntity request, String url, ReportingRegime regime, String assetClass) {
-        String result = EMPTY;
-        try {
-            ResponseEntity<String> responseEntity =
-                    getResonseAsString(request,url);
-            String isError = !responseEntity.getStatusCode().is2xxSuccessful()?"Failed":"Successful";
-            log.info("Request for {} was executed with code {}", assetClass,responseEntity.getStatusCode());
-            result = "Request for "+regime.value()+" for "+assetClass+" was "+isError;
-        }catch(ResourceAccessException e){
-            if(e.getCause().getMessage().equalsIgnoreCase("Read timed out")) {
-                log.info("Request for CR for {} was submitted successfully.", assetClass);
-                result = "Request for " + regime.value() + " for " + assetClass + " was submitted successfully";
-            }
-        } catch (RestClientException ex){
-            log.info("Request for CR for {} was submitted successfully with Response {}", assetClass, ex.getMessage());
-            result = "Request for " + regime.value() + " for " + assetClass + " was submitted to RE Service";
-        } catch (Exception ex){
-            log.error("Error occured in sending request for CR Trade", ex);
-        }
-        return result;
-    }
-
-    private String getCustomCRUrlEndpoint(ReportingRegime regime, CRAction action, String issueType) {
-        if (ReportingRegime.DODD_FRANK_ACT_US.equals(regime)){
-            switch (action){
-                case CR_TRADE:
-                    return reportingEngineConfiguration.getNoaReplayREEndpoints().getCrTrade();
-                case CR_VALUATION:
-                    return reportingEngineConfiguration.getNoaReplayREEndpoints().getCrValPath();
-                case CR_VALUATION_DATE_RANGE:
-                    return reportingEngineConfiguration.getNoaReplayREEndpoints().getCrValDateRange();
-                case CR_COLLATERAL:
-                    return reportingEngineConfiguration.getNoaReplayREEndpoints().getCrColPath();
-                case CR_COLLATERAL_DATE_RANGE:
-                    if (issueType.equals("Mis Reporting"))
-                        return reportingEngineConfiguration.getNoaReplayREEndpoints().getMrColDateRange();
-                    else if (issueType.equals("Under Reporting"))
-                        return reportingEngineConfiguration.getNoaReplayREEndpoints().getUrColDateRange();
-                case CR_TRADE_N_COL_WITH_DATE_RANGE:
-                    if (issueType.equals("Mis Reporting"))
-                        return reportingEngineConfiguration.getNoaReplayREEndpoints().getMrBothDateRange();
-                    else if (issueType.equals("Under Reporting"))
-                        return reportingEngineConfiguration.getNoaReplayREEndpoints().getUrBothDateRange();
-                default:
-                    return null;
-            }
-        }
-        return null;
-    }
-
-    private String getCustomCRUrlHost(ReportingRegime regime, String assetClass) {
-        if (ReportingRegime.DODD_FRANK_ACT_US.equals(regime)){
-            switch (assetClass){
-                case EXOTIC:
-                    return reportingEngineConfiguration.getNoaReplayREHost().getExotic();
-                case "InterestRate":
-                    return reportingEngineConfiguration.getNoaReplayREHost().getRates();
-                case "ForeignExchange":
-                    return reportingEngineConfiguration.getNoaReplayREHost().getFx();
-                case "Collateral":
-                    return reportingEngineConfiguration.getNoaReplayREHost().getCftcCollal();
-                default:
-                    return null;
-            }
-        }
-        return null;
-    }
-
-    private String getReportingTypeFromIssueType(String issueType) {
-    if (issueType.equalsIgnoreCase("Mis Reporting"))
-        return "MIS_REPORTING";
-    else if (issueType.equalsIgnoreCase("Under Reporting")) {
-        return "UNDER_REPORTING";
-    }
-    return null;
-}
-
-    @Override
-    public List<String> replayTradesForUpstream(List<ReplayTrade> requests, ReportingRegime regime) {
-        List<String> results = new ArrayList<>();
-        if (ReportingRegime.EUROPEAN_MARKETS_INFRASTRUCTURE_REGULATION.equals(regime)){
-            List<ReplayTrade> emirEtdTrades = requests.stream().filter(request ->
-                    request.getSourceSystemId().equals(SourceSystemId.ROLFE_NOLAN.value())).collect(Collectors.toList());
-            if (!emirEtdTrades.isEmpty()){
-                emirEtdTrades.stream().map(ReplayTrade::getType).distinct().forEach(type -> {
-                    Map<String, List<String>> etdTradeIdsByType = new HashMap<>();
-                    List<String> tradeIds =
-                            requests.stream().filter(result -> result.getType().equals(type))
-                                    .map(ReplayTrade::getTradeId).distinct().collect(Collectors.toList());
-                    etdTradeIdsByType.put(SourceSystemId.ROLFE_NOLAN.value(), tradeIds);
-                    results.addAll(replayUpstreamTrades(etdTradeIdsByType, regime,false,type, NONE));
-                });
-                requests.removeAll(emirEtdTrades);
-            }
-            List<ReplayTrade> emirNwbTrades = requests.stream().filter(request ->
-                    request.getSourceSystemId().equals(SourceSystemId.TMS_GBLO.value())).collect(Collectors.toList());
-            if (!emirNwbTrades.isEmpty()){
-                emirNwbTrades.stream().map(ReplayTrade::getAssetClass).distinct().forEach(assetClass -> {
-                    Map<String, List<String>> tradeIdsByAssetClass = new HashMap<>();
-                    List<String> tradeIds =
-                            requests.stream().filter(result -> result.getAssetClass().equals(assetClass))
-                                    .map(ReplayTrade::getTradeId).distinct().collect(Collectors.toList());
-                    tradeIdsByAssetClass.put(SourceSystemId.TMS_GBLO.value(), tradeIds);
-                    results.addAll(replayUpstreamTrades(tradeIdsByAssetClass, regime,false,TRANSACTION, assetClass));
-                });
-                requests.removeAll(emirNwbTrades);
-            }
-        }
-        if (ReportingRegime.DODD_FRANK_ACT_US.equals(regime) || ReportingRegime.CANADA_RULE_91_507.equals(regime) || ReportingRegime.EUROPEAN_MARKETS_INFRASTRUCTURE_REGULATION.equals(regime)){
-            List<ReplayTrade> exoticRequests = requests.stream().filter(request ->
-                    TRUE.equalsIgnoreCase(request.getIsExoticTrade()) && (request.getSourceSystemId().equals(SourceSystemId.GDS_GBLO.value()) || request.getSourceSystemId().equals(SourceSystemId.GDS_USNY.value()))).collect(Collectors.toList());
-            Map<String, List<String>> exoticTradeIdsbySourceSystem = getReplayTradeIdsbySourceSystem(exoticRequests);
-            if (!exoticTradeIdsbySourceSystem.isEmpty()){
-                results.addAll(replayUpstreamTrades(exoticTradeIdsbySourceSystem, regime,true, TRANSACTION, NONE));
-                requests.removeAll(exoticRequests);
-            }
-        }
-        Map<String, List<String>> tradeIdsbySourceSystem = getReplayTradeIdsbySourceSystem(requests);
-        if (!tradeIdsbySourceSystem.isEmpty())
-            results.addAll(replayUpstreamTrades(tradeIdsbySourceSystem, regime,false, TRANSACTION, NONE));
-
-        return results;
-    }
-
-    private Map<String, List<String>> getReplayTradeIdsbySourceSystem(List<ReplayTrade> requests) {
-        List<String> uniqueSourceSystemIdList = requests.stream().map(ReplayTrade::getSourceSystemId).distinct().collect(Collectors.toList());
-        Map<String, List<String>> tradeIdsbySourceSystem = new HashMap<>();
-        for (String sourceSystemId : uniqueSourceSystemIdList) {
-            List<String> tradeIds =
-                    requests.stream().filter(result -> result.getSourceSystemId().equals(sourceSystemId))
-            .map(ReplayTrade::getTradeId).distinct().collect(Collectors.toList());
-            tradeIdsbySourceSystem.put(sourceSystemId, tradeIds);
-        }
-        return tradeIdsbySourceSystem;
-    }
-
-    private List<String> replayUpstreamTrades(Map<String, List<String>> tradeIdsList,
-                                              ReportingRegime regime, boolean isExoticTrade, String tradetype, String assetClass) {
-        String userName = authenticationService.getLoggedInUserName();
-        log.info("Request to Replay Trades Action for {} by : {}", regime.value(),userName);
-        List<String> results = new ArrayList<>();
-        for (String sourceSystemId :tradeIdsList.keySet()) {
-            if (null==SourceSystemId.fromValue(sourceSystemId)){
-                results.add("Request for invalid source system id : "+sourceSystemId+" rejected");
-                continue;
-            }
-            log.info("Request to Replay {} trades for source system : {}", tradeIdsList.get(sourceSystemId).size(), sourceSystemId);
-            TntrReplayTradesRequest tradesRequest = new TntrReplayTradesRequest(tradeIdsList.get(sourceSystemId), sourceSystemId, userName);
-            String url = isExoticTrade?getCustomExoticTradeEndpoint(regime,sourceSystemId,tradetype):getCustomTradeEndpoint(regime, sourceSystemId,tradetype, assetClass);
-            HttpEntity request = new HttpEntity(tradesRequest, getHeaderWithApplicationSSO());
-            try {
-                ResponseEntity<String> responseEntity =
-                        getResonseAsString(request,url);
-                String isError = responseEntity.getStatusCode()!=HttpStatus.OK?"Failed":"Successful";
-                log.info("Request for {} was executed with code {}", sourceSystemId,responseEntity.getStatusCode());
-                results.add("Request for "+regime.value()+" for "+sourceSystemId+" was "+isError);
-            }catch(ResourceAccessException e){
-                if(e.getCause().getMessage().equalsIgnoreCase("Read timed out")){
-                    log.info("Request for Replay Upstream Trade for {} was submitted successfully.", sourceSystemId);
-                    results.add("Request for "+regime.value()+" for "+sourceSystemId+" was submitted successfully");
-                }else{
-                    log.error("Error occured in Replay Trade", e);
-                }
-            }
-        }
-        return results;
-    }
-
-    private String getCustomExoticTradeEndpoint(ReportingRegime regime, String sourceSystemId, String tradetype) {
-        if (ReportingRegime.DODD_FRANK_ACT_US.equals(regime) || ReportingRegime.CANADA_RULE_91_507.equals(regime)){
-            switch (SourceSystemId.fromValue(sourceSystemId)){
-                case GDS_GBLO:
-                case GDS_USNY:
-                    return reportingEngineConfiguration.getNoaReplayREHost().getExotic()+reportingEngineConfiguration.getNoaReplayREEndpoints().getTrade();
-                default:
-                    return null;
-            }
-        }
-        else if (ReportingRegime.EUROPEAN_MARKETS_INFRASTRUCTURE_REGULATION.equals(regime)){
-            switch (SourceSystemId.fromValue(sourceSystemId)){
-                case GDS_GBLO:
-                case GDS_USNY:
-                    return reportingEngineConfiguration.getEmirExoticReplayREHost()+reportingEngineConfiguration.getEmirExoticReplayREEndpoint().getTrade();
-                default:
-                    return null;
-            }
-        }
-        return null;
-    }
-
-    private String getCustomTradeEndpoint(ReportingRegime regime, String sourceSystemId, String tradetype, String assetClass) {
-        if (ReportingRegime.MARKETS_IN_FINANCIAL_INSTRUMENTS_DIRECTIVE.equals(regime)){
-            switch (SourceSystemId.fromValue(sourceSystemId)){
-                case GDS_GBLO:
-                case GDS_USNY:
-                    return reportingEngineConfiguration.getMifidReplayREHost().getRates()+reportingEngineConfiguration.getMifidReplayREEndpoint().getRates();
-                case GLOBAL_FX_GBLO:
-                case SYSTEM_X:
-                    return reportingEngineConfiguration.getMifidReplayREHost().getFx()+reportingEngineConfiguration.getMifidReplayREEndpoint().getFx();
-                case ICE:
-                    return reportingEngineConfiguration.getMifidReplayREHost().getCredit()+reportingEngineConfiguration.getMifidReplayREEndpoint().getCredit();
-                case HERMES:
-                    return reportingEngineConfiguration.getMifidReplayREHost().getEtd()+reportingEngineConfiguration.getMifidReplayREEndpoint().getEtd();
-                case IGNITE:
-                    return reportingEngineConfiguration.getMifidReplayREHost().getBonds()+reportingEngineConfiguration.getMifidReplayREEndpoint().getBonds();
-                default:
-                    return null;
-            }
-        }
-        else if (ReportingRegime.DODD_FRANK_ACT_US.equals(regime) || ReportingRegime.CANADA_RULE_91_507.equals(regime)){
-            switch (SourceSystemId.fromValue(sourceSystemId)){
-                case GDS_GBLO:
-                case GDS_USNY:
-                    return reportingEngineConfiguration.getNoaReplayREHost().getRates()+reportingEngineConfiguration.getNoaReplayREEndpoints().getTrade();
-                case GLOBAL_FX_GBLO:
-                case SYSTEM_X:
-                    return reportingEngineConfiguration.getNoaReplayREHost().getFx()+reportingEngineConfiguration.getNoaReplayREEndpoints().getTrade();
-                default:
-                    return null;
-            }
-        }
-        else if (ReportingRegime.EUROPEAN_MARKETS_INFRASTRUCTURE_REGULATION.equals(regime)){
-            switch (SourceSystemId.fromValue(sourceSystemId)){
-                case GDS_GBLO:
-                case GDS_USNY:
-                    return reportingEngineConfiguration.getEmirReplayREHost().getRates()+reportingEngineConfiguration.getEmirReplayREEndpoints().getRates();
-                case GLOBAL_FX_GBLO:
-                case SYSTEM_X:
-                    return reportingEngineConfiguration.getEmirReplayREHost().getFx()+reportingEngineConfiguration.getEmirReplayREEndpoints().getFx();
-                case ICE:
-                    return reportingEngineConfiguration.getEmirReplayREHost().getCredit()+reportingEngineConfiguration.getEmirReplayREEndpoints().getCredit();
-                case ROLFE_NOLAN:
-                    if (TRANSACTION.equalsIgnoreCase(tradetype))
-                        return reportingEngineConfiguration.getEmirReplayREHost().getEtd()+reportingEngineConfiguration.getEmirReplayREEndpoints().getEtdTransaction();
-                    else if (LIFECYCLE.equalsIgnoreCase(tradetype))
-                        return reportingEngineConfiguration.getEmirReplayREHost().getEtd()+reportingEngineConfiguration.getEmirReplayREEndpoints().getEtdLifecycle();
-                    else if (POSITION.equalsIgnoreCase(tradetype))
-                        return reportingEngineConfiguration.getEmirReplayREHost().getEtd()+reportingEngineConfiguration.getEmirReplayREEndpoints().getEtdPosition();
-                case TMS_GBLO:
-                    if (IR.equalsIgnoreCase(assetClass))
-                        return reportingEngineConfiguration.getEmirReplayREHost().getRates()+reportingEngineConfiguration.getEmirReplayREEndpoints().getRates();
-                    else if (FX.equalsIgnoreCase(assetClass))
-                        return reportingEngineConfiguration.getEmirReplayREHost().getFx()+reportingEngineConfiguration.getEmirReplayREEndpoints().getFx();
-                default:
-                    return null;
-            }
-        }
-        else if (ReportingRegime.THE_MONETARY_AUTHORITY_OF_SINGAPORE.equals(regime)){
-            switch (SourceSystemId.fromValue(sourceSystemId)){
-                case GDS_GBLO:
-                case GDS_USNY:
-                    return reportingEngineConfiguration.getMasReplayREHost().getRates() +reportingEngineConfiguration.getMasReplayREEndpoints().getTrade()+"/";
-                case GLOBAL_FX_GBLO:
-                case SYSTEM_X:
-                    return reportingEngineConfiguration.getMasReplayREHost().getFx()+reportingEngineConfiguration.getMasReplayREEndpoints().getTrade();
-                default:
-                    return null;
-            }
-        }
-        else if (ReportingRegime.SECURITIES_FINANCING_TRANSACTION_REGULATION_SELF_REPORTING.equals(regime)){
-            switch (SourceSystemId.fromValue(sourceSystemId)){
-                case IHS_MARKIT:
-                case TRAX:
-                    return reportingEngineConfiguration.getReportingHost()+reportingEngineConfiguration.getSftrReplayReEndpoints().getTradeAldop();
-                case ANVIL_GBLO_LDN:
-                    return reportingEngineConfiguration.getReportingHost()+reportingEngineConfiguration.getSftrReplayReEndpoints().getTrade();
-                default:
-                    return null;
-            }
-        }
-        return null;
-    }
-
-    @Override
-    public List<String> replayBackdatedValuationForBusinessDate(List<ReplayValuationForBusinessDate> requests, ReportingRegime regime,
-                                                                ReportingRegulatoryAuthority regulatoryAuthority) {
-        List<String> results = new ArrayList<>();
-        Map<String, List<ReplayValuationForBusinessDate>> tradeRequestsBySourceSystem = requests.stream().collect(Collectors.groupingBy(ReplayValuationForBusinessDate::getSourceSystem));
-        for (String sourceSystemId :tradeRequestsBySourceSystem.keySet()) {
-            if (null==SourceSystemId.fromValue(sourceSystemId)){
-                results.add("Request for invalid source system id : "+sourceSystemId+" rejected");
-                continue;
-            }
-            switch (regime) {
-                case DODD_FRANK_ACT_US:
-                case CANADA_RULE_91_507:
-                    if (sourceSystemId.equals(SourceSystemId.GDS_GBLO.value()) || sourceSystemId.equals(SourceSystemId.GDS_USNY.value()))
-                        replayBackdatedValExoticTrades(tradeRequestsBySourceSystem.get(sourceSystemId), results);
-                    break;
-                case EUROPEAN_MARKETS_INFRASTRUCTURE_REGULATION:
-                    if (sourceSystemId.equals(SourceSystemId.GDS_GBLO.value()) || sourceSystemId.equals(SourceSystemId.GDS_USNY.value()) || sourceSystemId.equals(SourceSystemId.TMS_GBLO.value()))
-                        replaNWBValSegregatedTradesEmir(tradeRequestsBySourceSystem.get(sourceSystemId), results);
-                    break;
-            }
-            if (!tradeRequestsBySourceSystem.get(sourceSystemId).isEmpty())
-                results.addAll(getReplayBackdatedValuationResponse(tradeRequestsBySourceSystem.get(sourceSystemId), NONE, false));
-        }
-
-        return  results;
-    }
-
-    private void replaNWBValSegregatedTradesEmir(List<ReplayValuationForBusinessDate> trades, List<String> results) {
-        Boolean isExotic;
-        List<ReplayValuationForBusinessDate> segregatedTrades;
-
-        if (trades.get(0).getSourceSystem().equals(SourceSystemId.TMS_GBLO.value())) {
-            segregatedTrades = trades;
-            isExotic = false;
-        } else {
-            segregatedTrades = trades.stream().filter(trade -> TRUE.equalsIgnoreCase(trade.getIsExoticTrade()))
-                    .collect(Collectors.toList());
-            isExotic = true;
-        }
-
-        if (!segregatedTrades.isEmpty()){
-            Map<String, List<ReplayValuationForBusinessDate>> tradeRequestsByAssetClass = segregatedTrades.stream().collect(Collectors.groupingBy(ReplayValuationForBusinessDate::getAssetClass));
-            for (String assetClass : tradeRequestsByAssetClass.keySet()){
-                results.addAll(getReplayBackdatedValuationResponse(tradeRequestsByAssetClass.get(assetClass),assetClass, isExotic));
-            }
-            trades.removeAll(segregatedTrades);
-        }
-    }
-
-    @Override
-    public List<String> replayBackdatedValuationForDateRange(List<ReplayValuationForDateRange> requests, ReportingRegime regime, ReportingRegulatoryAuthority regulatoryAuthority) {
-        List<String> results = new ArrayList<>();
-        Map<String, List<ReplayValuationForDateRange>> tradeRequestsBySourceSystem = requests.stream().collect(Collectors.groupingBy(ReplayValuationForDateRange::getSourceSystem));
-        for (String sourceSystemId :tradeRequestsBySourceSystem.keySet()) {
-            if (null==SourceSystemId.fromValue(sourceSystemId)){
-                results.add("Request for invalid source system id : "+sourceSystemId+" rejected");
-                continue;
-            }
-            switch (regime) {
-                case EUROPEAN_MARKETS_INFRASTRUCTURE_REGULATION:
-                    if (sourceSystemId.equals(SourceSystemId.GDS_GBLO.value()) || sourceSystemId.equals(SourceSystemId.GDS_USNY.value()) || sourceSystemId.equals(SourceSystemId.TMS_GBLO.value()))
-                        replayBackdatedValSegregatedTradesEmir(tradeRequestsBySourceSystem.get(sourceSystemId), results);
-                default:
-                    if (!tradeRequestsBySourceSystem.get(sourceSystemId).isEmpty())
-                        results.addAll(getReplayBackdatedVakByDateRabgeResponse(tradeRequestsBySourceSystem.get(sourceSystemId), NONE, false));
-            }
-        }
-
-        return  results;
-    }
-
-    private void replayBackdatedValSegregatedTradesEmir(List<ReplayValuationForDateRange> trades, List<String> results) {
-        Boolean isExotic;
-        List<ReplayValuationForDateRange> segregatedTrades;
-
-        if (trades.get(0).getSourceSystem().equals(SourceSystemId.TMS_GBLO.value())) {
-            segregatedTrades = trades;
-            isExotic = false;
-        } else {
-            segregatedTrades = trades.stream().filter(trade -> TRUE.equalsIgnoreCase(trade.getIsExoticTrade()) &&
-                            AC_EXOTIC.equalsIgnoreCase(trade.getExoticType()))
-                    .collect(Collectors.toList());
-            isExotic = true;
-        }
-
-        if (!segregatedTrades.isEmpty()){
-            Map<String, List<ReplayValuationForDateRange>> tradeRequestsByAssetClass = segregatedTrades.stream().collect(Collectors.groupingBy(ReplayValuationForDateRange::getAssetClass));
-            for (String assetClass : tradeRequestsByAssetClass.keySet()){
-                results.addAll(getReplayBackdatedVakByDateRabgeResponse(tradeRequestsByAssetClass.get(assetClass),assetClass, isExotic));
-            }
-            trades.removeAll(segregatedTrades);
-        }
-    }
-
-    private void replayBackdatedValExoticTrades(List<ReplayValuationForBusinessDate> trades, List<String> results) {
-        List<ReplayValuationForBusinessDate> exoticTrades = trades.stream().filter(trade -> TRUE.equalsIgnoreCase(trade.getIsExoticTrade()))
-                .collect(Collectors.toList());
-
-        if (!exoticTrades.isEmpty()){
-            results.addAll(getReplayBackdatedValuationResponse(exoticTrades, NONE, true));
-            trades.removeAll(exoticTrades);
-        }
-    }
-
-    private List<String> getReplayBackdatedValuationResponse(List<ReplayValuationForBusinessDate> tradeRequests, String assetClass, boolean isExoticTrade) {
-        String userName = authenticationService.getLoggedInUserName();
-        ReportingRegime regime = tradeRequests.get(0).getRegulatoryName();
-        String sourceSystemId = tradeRequests.get(0).getSourceSystem();
-        log.info("Request to Replay Trades Action for {} by : {}", regime.value(),userName);
-        List<String> results = new ArrayList<>();
-        log.info("Request to Replay {} trades for source system : {}", tradeRequests.size(), sourceSystemId);
-        TntrReplayValuationForBusinessDateRequest backdatedRequest = createTntrBackdatedValuation(tradeRequests, userName);
-        String url = isExoticTrade?getCustomExoticBackdatedValuationEndpoint(regime,sourceSystemId,assetClass):getCustomBackdatedValuationEndpoint(regime,sourceSystemId,assetClass);
-        HttpEntity request = new HttpEntity(backdatedRequest, getHeaderWithApplicationSSO());
-        try {
-            ResponseEntity<String> responseEntity =
-                    getResonseAsString(request,url);
-            String isError = responseEntity.getStatusCode()!=HttpStatus.OK?"Failed":"Successful";
-            log.info("Request for {} was executed with code {}", sourceSystemId,responseEntity.getStatusCode());
-            results.add("Request for "+regime.value()+" for "+sourceSystemId+" was "+isError);
-        }catch(Exception e){
-            if(e.getCause().getMessage().equalsIgnoreCase("Read timed out")){
-                log.info("Request for Replay Backdated Trade for {} was submitted successfully.", sourceSystemId);
-                results.add("Request for "+regime.value()+" for "+sourceSystemId+" was submitted successfully");
-            }else{
-                log.error("Error occured in Replay Backdated Trade", e);
-                throw e;
-            }
-        }
-        return results;
-    }
-
-    private List<String> getReplayBackdatedVakByDateRabgeResponse(List<ReplayValuationForDateRange> tradeRequests, String assetClass, boolean isExoticTrade) {
-        String userName = authenticationService.getLoggedInUserName();
-        ReportingRegime regime = tradeRequests.get(0).getRegulatoryName();
-        String sourceSystemId = tradeRequests.get(0).getSourceSystem();
-        log.info("Request to Replay Trades Action for {} by : {}", regime.value(),userName);
-        List<String> results = new ArrayList<>();
-        log.info("Request to Replay {} trades for source system : {}", tradeRequests.size(), sourceSystemId);
-        TntrReplayValuationForDateRangeRequest dateRangeRequest = createTntrBackdatedValuationDateRange(tradeRequests, userName);
-        String url = isExoticTrade?getCustomExoticBackdatedValuationEndpoint(regime,sourceSystemId,assetClass):getCustomBackdatedValuationEndpoint(regime,sourceSystemId,assetClass);
-        HttpEntity request = new HttpEntity(dateRangeRequest, getHeaderWithApplicationSSO());
-        try {
-            ResponseEntity<String> responseEntity =
-                    getResonseAsString(request,url);
-            String isError = responseEntity.getStatusCode()!=HttpStatus.OK?"Failed":"Successful";
-            log.info("Request for {} was executed with code {}", sourceSystemId,responseEntity.getStatusCode());
-            results.add("Request for "+regime.value()+" for "+sourceSystemId+" was "+isError);
-        }catch(Exception e){
-            if(e.getCause().getMessage().equalsIgnoreCase("Read timed out")){
-                log.info("Request for Replay Backdated Trade for {} was submitted successfully.", sourceSystemId);
-                results.add("Request for "+regime.value()+" for "+sourceSystemId+" was submitted successfully");
-            }else{
-                log.error("Error occured in Replay Backdated Trade", e);
-                throw e;
-            }
-        }
-        return results;
-    }
-
-    private String getCustomExoticBackdatedValuationEndpoint(ReportingRegime regime, String sourceSystemId, String assetClass) {
-        if (ReportingRegime.CANADA_RULE_91_507.equals(regime)){
-            switch (SourceSystemId.fromValue(sourceSystemId)){
-                case GDS_GBLO:
-                case GDS_USNY:
-                    return reportingEngineConfiguration.getNoaReplayREHost().getExotic()+reportingEngineConfiguration.getCsaReplayValuationEndpoint();
-                default:
-                    return null;
-            }
-        }
-        else if (ReportingRegime.DODD_FRANK_ACT_US.equals(regime)){
-            switch (SourceSystemId.fromValue(sourceSystemId)){
-                case GDS_GBLO:
-                case GDS_USNY:
-                    return reportingEngineConfiguration.getNoaReplayREHost().getExotic()+reportingEngineConfiguration.getCftcReplayValutionEndpoint();
-                default:
-                    return null;
-            }
-        }
-        else if (ReportingRegime.EUROPEAN_MARKETS_INFRASTRUCTURE_REGULATION.equals(regime)){
-            switch (SourceSystemId.fromValue(sourceSystemId)){
-                case GDS_GBLO:
-                case GDS_USNY:
-                    if (IR.equalsIgnoreCase(assetClass))
-                        return reportingEngineConfiguration.getEmirExoticReplayREHost()+reportingEngineConfiguration.getEmirExoticReplayREEndpoint().getRates();
-                    else if (FX.equalsIgnoreCase(assetClass))
-                        return reportingEngineConfiguration.getEmirExoticReplayREHost()+reportingEngineConfiguration.getEmirExoticReplayREEndpoint().getFx();
-                    else if (CR.equalsIgnoreCase(assetClass))
-                        return reportingEngineConfiguration.getEmirExoticReplayREHost()+reportingEngineConfiguration.getEmirExoticReplayREEndpoint().getCredit();
-                default:
-                    return null;
-            }
-        }
-        return null;
-    }
-
-    private String getCustomBackdatedValuationEndpoint(ReportingRegime regime, String sourceSystemId, String assetClass) {
-        if (ReportingRegime.CANADA_RULE_91_507.equals(regime)){
-            switch (SourceSystemId.fromValue(sourceSystemId)){
-                case GDS_GBLO:
-                case GDS_USNY:
-                    return reportingEngineConfiguration.getNoaReplayREHost().getRates()+reportingEngineConfiguration.getCsaReplayValuationEndpoint();
-                case GLOBAL_FX_GBLO:
-                case SYSTEM_X:
-                    return reportingEngineConfiguration.getNoaReplayREHost().getFx()+reportingEngineConfiguration.getCsaReplayValuationEndpoint();
-                default:
-                    return null;
-            }
-        }
-        else if (ReportingRegime.DODD_FRANK_ACT_US.equals(regime)){
-            switch (SourceSystemId.fromValue(sourceSystemId)){
-                case GDS_GBLO:
-                case GDS_USNY:
-                    return reportingEngineConfiguration.getNoaReplayREHost().getRates()+reportingEngineConfiguration.getCftcReplayValutionEndpoint();
-                case GLOBAL_FX_GBLO:
-                case SYSTEM_X:
-                    return reportingEngineConfiguration.getNoaReplayREHost().getFx()+reportingEngineConfiguration.getCftcReplayValutionEndpoint();
-                default:
-                    return null;
-            }
-        }
-        else if (ReportingRegime.EUROPEAN_MARKETS_INFRASTRUCTURE_REGULATION.equals(regime)){
-            switch (SourceSystemId.fromValue(sourceSystemId)){
-                case GDS_GBLO:
-                case GDS_USNY:
-                    return reportingEngineConfiguration.getEmirReplayREHost().getRates()+reportingEngineConfiguration.getEmirReplayBackdatedValREEndpoints().getRates();
-                case GLOBAL_FX_GBLO:
-                case SYSTEM_X:
-                    return reportingEngineConfiguration.getEmirReplayREHost().getFx()+reportingEngineConfiguration.getEmirReplayBackdatedValREEndpoints().getFx();
-                case ICE:
-                    return reportingEngineConfiguration.getEmirReplayREHost().getCredit()+reportingEngineConfiguration.getEmirReplayBackdatedValREEndpoints().getCredit();
-                case TMS_GBLO:
-                    if (IR.equalsIgnoreCase(assetClass))
-                        return reportingEngineConfiguration.getEmirReplayREHost().getRates()+reportingEngineConfiguration.getEmirReplayBackdatedValREEndpoints().getRates();
-                    else if (FX.equalsIgnoreCase(assetClass))
-                        return reportingEngineConfiguration.getEmirReplayREHost().getFx()+reportingEngineConfiguration.getEmirReplayBackdatedValREEndpoints().getFx();
-                default:
-                    return null;
-            }
-        }
-        else if (ReportingRegime.THE_MONETARY_AUTHORITY_OF_SINGAPORE.equals(regime)){
-            switch (SourceSystemId.fromValue(sourceSystemId)){
-                case GDS_GBLO:
-                case GDS_USNY:
-                    return reportingEngineConfiguration.getMasReplayREHost().getRates() +reportingEngineConfiguration.getMasReplayREEndpoints().getValuationRates();
-                case GLOBAL_FX_GBLO:
-                case SYSTEM_X:
-                    return reportingEngineConfiguration.getMasReplayREHost().getFx()+reportingEngineConfiguration.getMasReplayREEndpoints().getValuationFx();
-                default:
-                    return null;
-            }
-        }
-        return null;
-    }
-
-    private TntrReplayValuationForBusinessDateRequest createTntrBackdatedValuation(List<ReplayValuationForBusinessDate> tradeRequests, String userName) {
-        List<String> tradeIds = tradeRequests.stream().map(ReplayValuationForBusinessDate::getTradeId).distinct().collect(Collectors.toList());
-        String valuationDate = tradeRequests.get(0).getValuationDate();
-        return new TntrReplayValuationForBusinessDateRequest(tradeRequests.get(0).getSourceSystem(),
-                tradeIds,valuationDate,userName, tradeRequests.get(0).getRegulatoryAuthority().value());
-    }
-
-    private TntrReplayValuationForDateRangeRequest createTntrBackdatedValuationDateRange(List<ReplayValuationForDateRange> tradeRequests, String userName) {
-        List<String> tradeIds = tradeRequests.stream().map(ReplayValuationForDateRange::getTradeId).distinct().collect(Collectors.toList());
-        String valuationFrom = tradeRequests.get(0).getValuationDateFrom();
-        String valuationTo = tradeRequests.get(0).getValuationDateTo();
-        return new TntrReplayValuationForDateRangeRequest(tradeRequests.get(0).getSourceSystem(),
-                tradeIds,valuationFrom,valuationTo,userName, tradeRequests.get(0).getRegulatoryAuthority().value());
-    }
-
-    @Override
-    public List<String> replayBackdatedCollateralForDateRange(List<ReplayCollateralForDateRange> requests, ReportingRegime regime, ReportingRegulatoryAuthority regulatoryAuthority) {
-        List<String> results = new ArrayList<>();
-        Map<String, List<ReplayCollateralForDateRange>> tradeRequestsByEntity = requests.stream()
-                .collect(Collectors.groupingBy(ReplayCollateralForDateRange::getEntity));
-        for (String entity : tradeRequestsByEntity.keySet()) {
-            Map<String, List<ReplayCollateralForDateRange>> tradeRequestsBySubmissionType = tradeRequestsByEntity.get(entity).stream()
-                    .collect(Collectors.groupingBy(ReplayCollateralForDateRange::getReportSubmissionType));
-            tradeRequestsBySubmissionType.forEach((reportsubmission, tradesByReport) -> {
-                results.addAll(getReplayBackdatedCollateralResponse(tradesByReport,regime, regulatoryAuthority));
-            });
-        }
-        return results;
-    }
-
-    private List<String> getReplayBackdatedCollateralResponse(List<ReplayCollateralForDateRange> tradesByReport, ReportingRegime regime, ReportingRegulatoryAuthority regulatoryAuthority) {
-        String userName = authenticationService.getLoggedInUserName();
-        String reportSubType = tradesByReport.get(0).getReportSubmissionType();
-        log.info("Request to Replay Trades Action for {} by : {}", regime.value(),userName);
-        List<String> results = new ArrayList<>();
-        log.info("Request to Replay {} trades ...",tradesByReport.size());
-        TntrReplayCollateralForDateRangeRequest dateRangeRequest = createTntrBackdatedCollateral(tradesByReport);
-        String url = getCustomBackdateColUrl(regime, regulatoryAuthority);
-        HttpEntity request = new HttpEntity(dateRangeRequest, getHeaderWithApplicationSSO());
-        try {
-            ResponseEntity<String> responseEntity = getResonseAsString(request,url);
-            String isError = responseEntity.getStatusCode()!=HttpStatus.OK?"Failed":"Successful";
-            log.info("Request for {} was executed with code {}", reportSubType,responseEntity.getStatusCode());
-            results.add("Request for "+dateRangeRequest.entity+" for "+reportSubType+" was "+isError);
-        }catch(Exception e){
-            if(e.getCause().getMessage().equalsIgnoreCase("Read timed out")){
-                log.info("Request for Replay Backdated Trade for {} was submitted successfully.", reportSubType);
-                results.add("Request for "+dateRangeRequest.entity+" for "+reportSubType+" was submitted successfully");
-            }else{
-                log.error("Error occured in Replay Backdated Collateral Trade", e);
-                throw e;
-            }
-        }
-        return results;
-    }
-
-    private String getCustomBackdateColUrl(ReportingRegime regime, ReportingRegulatoryAuthority regulatoryAuthority) {
-        if (ReportingRegime.EUROPEAN_MARKETS_INFRASTRUCTURE_REGULATION.equals(regime)){
-            switch (regulatoryAuthority){
-                case EUROPEAN_SECURITIES_AND_MARKETS_AUTHORITY_EUROPEAN_UNION:
-                    return reportingEngineConfiguration.getEmirColReplayREHost()+reportingEngineConfiguration.getEmirColReplayEsmaEndpoint();
-                case FINANCIAL_CONDUCT_AUTHORITY_UK:
-                    return reportingEngineConfiguration.getEmirColReplayREHost()+reportingEngineConfiguration.getEmirColReplayFcaEndpoint();
-                default:
-                    return null;
-            }
-        } else if (ReportingRegime.THE_MONETARY_AUTHORITY_OF_SINGAPORE.equals(regime)) {
-            return reportingEngineConfiguration.getMasReplayREHost().getCollateral()+reportingEngineConfiguration.getMasReplayREEndpoints().getCollateral();
-            
-        }
-        return null;
-    }
-
-    private TntrReplayCollateralForDateRangeRequest createTntrBackdatedCollateral(List<ReplayCollateralForDateRange> tradeRequests) {
-        List<String> masterAgreementIds = tradeRequests.stream().map(ReplayCollateralForDateRange::getMasterAgreementId).distinct().collect(Collectors.toList());
-        return new TntrReplayCollateralForDateRangeRequest(tradeRequests.get(0).getStartDate(), tradeRequests.get(0).getEndDate(),
-                tradeRequests.get(0).getReportSubmissionType(), tradeRequests.get(0).getEntity(), masterAgreementIds);
-    }
-
-    private ResponseEntity<String> getResonseAsString(HttpEntity request, String reportingEngineForCustomTradeEndpoint) {
-        try {
-            ParameterizedTypeReference<String> parameterizedTypeReference =
-                    new ParameterizedTypeReference<String>() {
-                    };
-            logHttpRequest(request, reportingEngineForCustomTradeEndpoint);
-            return restTemplate.exchange(reportingEngineForCustomTradeEndpoint, HttpMethod.POST,
-                    request,
-                    parameterizedTypeReference);
-        }catch (Exception ex){
-            log.error("Error executing http request, requestId:{}", request.getHeaders().get(HEADER_REQUEST_ID));
-            throw  ex;
-        }
-    }
-
-    private void logHttpRequest(HttpEntity request, String endPoint) {
-        try {
-            log.info("Executing http request, uri:{}, requestId:{}, user:{}, requestBody:{}",
-                    endPoint,
-                    request.getHeaders().get(HEADER_REQUEST_ID),
-                    request.getHeaders().get(HEADER_USER_ID),
-                    mapper.writeValueAsString(request.getBody())
-            );
-        } catch (JsonProcessingException e) {
-            log.error("Error logging httpRequest", e);
-        }
-    }
-
-    private HttpHeaders getHeaderWithUserSSO() {
-        HttpHeaders headers = getCommonHttpHeaders();
-        headers.set(HEADER_SSO_TOKEN, authenticationService.getLoggedInUserToken());
-        return headers;
-    }
-
-    private HttpHeaders getHeaderWithApplicationSSO() {
-        HttpHeaders headers = getCommonHttpHeaders();
-        headers.set(HEADER_SSO_TOKEN, authenticationService.getApplicationSsoToken());
-        return headers;
-    }
-
-    private HttpHeaders getHeaderWithSsoForETD() {
-        HttpHeaders headers = getCommonHttpHeaders();
-        String etdReportingEngineLoginPermission =
-                reportingEngineConfiguration.getEtdReportingLoginPermission();
-        headers.set(HEADER_SSO_TOKEN,
-                authenticationService.getApplicationSsoToken(etdReportingEngineLoginPermission));
-        return headers;
-    }
-
-    private HttpHeaders getCommonHttpHeaders() {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set(HEADER_REQUEST_ID, UUID.randomUUID().toString());
-        headers.set(HEADER_USER_ID, authenticationService.getLoggedInUserName());
-        return headers;
-    }
-}
-
-Existing test class:
-
 package com.rbs.tntr.business.blotter.services.replay;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nwm.tntr.commons.domain.persistence.constant.ReportingRegime;
 import com.nwm.tntr.commons.domain.persistence.constant.ReportingRegulatoryAuthority;
+import com.nwm.tntr.commons.domain.persistence.constant.SourceSystemId;
 import com.rbs.tntr.business.blotter.configuration.*;
 import com.rbs.tntr.business.blotter.security.BlotterSecurityService;
 import com.rbs.tntr.business.blotter.services.datetime.DateTimeService;
@@ -822,19 +24,18 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import java.lang.reflect.Method;
 import java.net.SocketTimeoutException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 
 public class ReplayServiceImplTest {
 
-    ReplayServiceImpl replayService ;
+    ReplayServiceImpl replayService;
     RestTemplate restTemplate;
     private static final ObjectMapper mapper = new ObjectMapper();
     BlotterSecurityService bss;
     DateTimeService dateTimeService;
-    String currentDate="2019-01-26T12:23:00.373Z";
+    String currentDate = "2019-01-26T12:23:00.373Z";
     final static String COLLATERAL_UPDATE = "Collateral Update";
     EmirReplayBackdatedValREEndpoints emirReplayBackdatedValREEndpoints;
     NoaReplayREEndpoints noaReplayREEndpoints;
@@ -847,11 +48,11 @@ public class ReplayServiceImplTest {
     MasReplayREEndpoints masReplayREEndpoints;
     MasReplayREHost masReplayREHost;
 
-    final String reHost="http://tntrreportingdev-ttr-dev.arc-tst.fm.rbsgrp.net";
-    final String reEndPoint="/tntr/eodprocess/sftr/trade/initiate/replay/trades";
-    final String reColluEndPoint="/tntr/eodprocess/sftr/trade/initiate/replay/valuations";
-    final String aldopTradeEndPoint="/tntr/eodprocess/sftr/aldop/trade/initiate/replay/trades";
-    final String aldopColluTradeEndPoint="/tntr/eodprocess/sftr/aldop/trade/initiate/replay/valuations";
+    final String reHost = "http://tntrreportingdev-ttr-dev.arc-tst.fm.rbsgrp.net";
+    final String reEndPoint = "/tntr/eodprocess/sftr/trade/initiate/replay/trades";
+    final String reColluEndPoint = "/tntr/eodprocess/sftr/trade/initiate/replay/valuations";
+    final String aldopTradeEndPoint = "/tntr/eodprocess/sftr/aldop/trade/initiate/replay/trades";
+    final String aldopColluTradeEndPoint = "/tntr/eodprocess/sftr/aldop/trade/initiate/replay/valuations";
     final String replayCredit = "/tntr/credit/valuation/blotter/replay";
     final String replayRates = "/tntr/rates/valuation/blotter/replay";
     final String replayCftc = "/tntr/cftc/valuation/blotter/replay";
@@ -874,7 +75,7 @@ public class ReplayServiceImplTest {
     final String emirColEsma = "/tntr/emir/colval/initate/backdated/esma";
 
     @Before
-    public  void init(){
+    public void init() {
         emirReplayBackdatedValREEndpoints = new EmirReplayBackdatedValREEndpoints();
         emirReplayBackdatedValREEndpoints.setCredit(replayCredit);
         emirReplayBackdatedValREEndpoints.setFx(fxReplay);
@@ -935,52 +136,415 @@ public class ReplayServiceImplTest {
         masReplayREEndpoints = new MasReplayREEndpoints();
         masReplayREEndpoints.setCollateral(masCol);
 
-        ReportingEngineConfiguration reConfig
-                = new ReportingEngineConfiguration.Builder()
-                  .withTradeReportingEndpoint(reEndPoint)
-                  .withColluReportingEndpoint(reColluEndPoint)
-                  .withReportingHost(reHost)
-                  .withReportingHostETD(reHost)
-                  .withEmirExoticReplayREHost(reHost)
-                  .withEmirReplayBackdatedValREEndpoints(emirReplayBackdatedValREEndpoints)
-                  .withCftcReplayValutionEndpoint(replayCftc)
-                  .withNoaReplayREEndpoints(noaReplayREEndpoints)
-                  .withCsaReplayValuationEndpoint(csaReplay)
-                  .withEmirReplayREHost(emirReplayREHost)
-                  .withEmirExoticReplayREEndpoint(emirExoticReplayREEndpoint)
-                  .withNoaReplayREHost(noaReplayREHost)
-                  .withEmirReplayREEndpoints(emirReplayREEndpoints)
-                  .withMifidReplayREHost(mifidReplayREHost)
-                  .withMifidReplayREEndpoint(mifidReplayREEndpoint)
-                  .withMasReplayREEndpoints(masReplayREEndpoints)
-                  .withMasReplayREHost(masReplayREHost)
-                  .withEmirColReplayEsmaEndpoint(emirColEsma)
-                  .withEmirColReplayFcaEndpoint(emirColFca)
-                  .withEmirColReplayREHost(reHost)
-                  .build();
+        ReportingEngineConfiguration reConfig = new ReportingEngineConfiguration.Builder()
+                .withTradeReportingEndpoint(reEndPoint)
+                .withColluReportingEndpoint(reColluEndPoint)
+                .withReportingHost(reHost)
+                .withReportingHostETD(reHost)
+                .withEmirExoticReplayREHost(reHost)
+                .withEmirReplayBackdatedValREEndpoints(emirReplayBackdatedValREEndpoints)
+                .withCftcReplayValutionEndpoint(replayCftc)
+                .withNoaReplayREEndpoints(noaReplayREEndpoints)
+                .withCsaReplayValuationEndpoint(csaReplay)
+                .withEmirReplayREHost(emirReplayREHost)
+                .withEmirExoticReplayREEndpoint(emirExoticReplayREEndpoint)
+                .withNoaReplayREHost(noaReplayREHost)
+                .withEmirReplayREEndpoints(emirReplayREEndpoints)
+                .withMifidReplayREHost(mifidReplayREHost)
+                .withMifidReplayREEndpoint(mifidReplayREEndpoint)
+                .withMasReplayREEndpoints(masReplayREEndpoints)
+                .withMasReplayREHost(masReplayREHost)
+                .withEmirColReplayEsmaEndpoint(emirColEsma)
+                .withEmirColReplayFcaEndpoint(emirColFca)
+                .withEmirColReplayREHost(reHost)
+                .build();
 
-        restTemplate= Mockito.mock(RestTemplate.class);
-
-        ParameterizedTypeReference<List<String>> parameterizedTypeReference =
-                new ParameterizedTypeReference<List<String>>() {
-                };
-
-         bss= Mockito.mock(BlotterSecurityService.class);
+        restTemplate = Mockito.mock(RestTemplate.class);
+        bss = Mockito.mock(BlotterSecurityService.class);
         Mockito.when(bss.getApplicationSsoToken()).thenReturn("ApplicationSsoToken");
 
         dateTimeService = Mockito.mock(DateTimeService.class);
         Mockito.when(dateTimeService.getCurrentDateTime())
                 .thenReturn(new DateTimeServiceImpl().parseDateTime(currentDate));
 
-        replayService =
-                new ReplayServiceImpl(reConfig,restTemplate,bss,dateTimeService);
-
+        replayService = new ReplayServiceImpl(reConfig, restTemplate, bss, dateTimeService);
         Mockito.when(bss.getLoggedInUserName()).thenReturn("username");
-
     }
 
+    // Existing test methods remain unchanged, additional tests added below
+
+    // Test for replayCRValuation with exception handling (RestClientException)
     @Test
-    public void replayBackdatedValuationForBusinessDate_EMIR_Interest_Rate() throws JsonProcessingException{
+    public void replayCRValuation_RestClientException() {
+        CorrectiveReportingForValuation request = new CorrectiveReportingForValuation();
+        request.setPrimaryKey(getCrTradeAsPrimaryKey("Mis Reporting", "InterestRate", "GDS GBLO"));
+        request.getPrimaryKey().setAction(CRAction.CR_VALUATION);
+        request.setDataFetchFrom("CMG");
+
+        TntrCRValuationRequest valuationRequest = new TntrCRValuationRequest(
+                request.getPrimaryKey().getSourceSystem(), true, "username");
+        String reUrl = reHost + noaCrValPath;
+
+        ArgumentMatcher<HttpEntity> httpEntityMatcher = argument -> {
+            TntrCRValuationRequest t = (TntrCRValuationRequest) argument.getBody();
+            return t.getSourceSystem().equals(valuationRequest.getSourceSystem()) &&
+                    t.getActionBy().equals(valuationRequest.getActionBy()) &&
+                    t.isUseCmgValuationData() &&
+                    argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON) &&
+                    argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
+        };
+
+        Mockito.when(restTemplate.exchange(
+                Mockito.eq(reUrl),
+                Mockito.eq(HttpMethod.POST),
+                Mockito.argThat(httpEntityMatcher),
+                Mockito.any(ParameterizedTypeReference.class)))
+                .thenThrow(new RestClientException("Test Exception"));
+
+        String result = replayService.replayCRValuation(request);
+        Assert.assertEquals("Request for DODD_FRANK_ACT_US for InterestRate was submitted to RE Service", result);
+    }
+
+    // Test for replayCRValuation with generic Exception
+    @Test
+    public void replayCRValuation_GenericException() {
+        CorrectiveReportingForValuation request = new CorrectiveReportingForValuation();
+        request.setPrimaryKey(getCrTradeAsPrimaryKey("Mis Reporting", "InterestRate", "GDS GBLO"));
+        request.getPrimaryKey().setAction(CRAction.CR_VALUATION);
+        request.setDataFetchFrom("CMG");
+
+        TntrCRValuationRequest valuationRequest = new TntrCRValuationRequest(
+                request.getPrimaryKey().getSourceSystem(), true, "username");
+        String reUrl = reHost + noaCrValPath;
+
+        ArgumentMatcher<HttpEntity> httpEntityMatcher = argument -> {
+            TntrCRValuationRequest t = (TntrCRValuationRequest) argument.getBody();
+            return t.getSourceSystem().equals(valuationRequest.getSourceSystem()) &&
+                    t.getActionBy().equals(valuationRequest.getActionBy()) &&
+                    t.isUseCmgValuationData() &&
+                    argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON) &&
+                    argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
+        };
+
+        Mockito.when(restTemplate.exchange(
+                Mockito.eq(reUrl),
+                Mockito.eq(HttpMethod.POST),
+                Mockito.argThat(httpEntityMatcher),
+                Mockito.any(ParameterizedTypeReference.class)))
+                .thenThrow(new RuntimeException("Generic Exception"));
+
+        String result = replayService.replayCRValuation(request);
+        Assert.assertEquals("", result); // EMPTY string as per method logic
+    }
+
+    // Test for replayCRCollateral with Under Reporting issue type
+    @Test
+    public void replayCRCollateral_UnderReporting_Success() {
+        CorrectiveReportingForCollateral request = new CorrectiveReportingForCollateral();
+        request.setPrimaryKey(getCrTradeAsPrimaryKey("Under Reporting", "Collateral", "GDS GBLO"));
+        request.getPrimaryKey().setAction(CRAction.CR_COLLATERAL_DATE_RANGE);
+        request.setFlow("Collateral");
+        request.setCollateralDateFrom("2024-01-01");
+        request.setCollateralDateTo("2024-01-05");
+        request.setOverrideFields("field");
+
+        String baseUrl = reHost + "/tntr/cftc/colval/initiate/underreporting/collateral"; // Assuming this from configuration
+        String reUrl = UriComponentsBuilder.fromHttpUrl(baseUrl)
+                .queryParam("overrideFields", request.getOverrideFields().trim())
+                .queryParam("beginDate", request.getCollateralDateFrom())
+                .queryParam("endDate", request.getCollateralDateTo())
+                .build().encode().toUri().toString();
+
+        ArgumentMatcher<HttpEntity> httpEntityMatcher = argument ->
+                argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON) &&
+                        argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
+
+        Mockito.when(restTemplate.exchange(
+                Mockito.eq(reUrl),
+                Mockito.eq(HttpMethod.POST),
+                Mockito.argThat(httpEntityMatcher),
+                Mockito.any(ParameterizedTypeReference.class)))
+                .thenReturn(new ResponseEntity<>("Success", HttpStatus.OK));
+
+        String result = replayService.replayCRCollateral(request);
+        Assert.assertEquals("Request for DODD_FRANK_ACT_US for Collateral was Successful", result);
+    }
+
+    // Test for replayCRTrades with invalid source system for FX
+    @Test
+    public void replayCRTrades_InvalidSourceSystem_FX() {
+        CorrectiveReportingForTrade request = getCrTradeAsPrimaryKey("Mis Reporting", "ForeignExchange", "InvalidSource");
+        String result = replayService.replayCRTrades(request);
+        Assert.assertEquals("Request for invalid source system id : InvalidSource rejected", result);
+    }
+
+    // Test for replayTradesForUpstream with empty list
+    @Test
+    public void replayTradesForUpstream_EmptyList() {
+        List<ReplayTrade> requests = new ArrayList<>();
+        List<String> results = replayService.replayTradesForUpstream(requests, ReportingRegime.EUROPEAN_MARKETS_INFRASTRUCTURE_REGULATION);
+        Assert.assertTrue(results.isEmpty());
+    }
+
+    // Test for replayTradesForUpstream with exotic trade in EMIR
+    @Test
+    public void replayTradesForUpstream_EMIR_ExoticTrade() throws JsonProcessingException {
+        ReplayTrade replayTrade = new ReplayTrade();
+        replayTrade.setTradeId("tradeId1");
+        replayTrade.setSourceSystemId("GDS GBLO");
+        replayTrade.setRegime(ReportingRegime.EUROPEAN_MARKETS_INFRASTRUCTURE_REGULATION);
+        replayTrade.setIsExoticTrade("true");
+        replayTrade.setType("Transaction");
+        List<ReplayTrade> requests = Arrays.asList(replayTrade);
+
+        TntrReplayTradesRequest tradesRequest = new TntrReplayTradesRequest(
+                Arrays.asList(replayTrade.getTradeId()), replayTrade.getSourceSystemId(), "username");
+        String reUrl = reHost + "/trade";
+
+        ArgumentMatcher<HttpEntity> httpEntityMatcher = argument -> {
+            TntrReplayTradesRequest t = (TntrReplayTradesRequest) argument.getBody();
+            return t.getTradeIds().containsAll(tradesRequest.getTradeIds()) &&
+                    t.getSourceSystem().equals(tradesRequest.getSourceSystem()) &&
+                    t.getActionBy().equals(tradesRequest.getActionBy()) &&
+                    argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON) &&
+                    argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
+        };
+
+        Mockito.when(restTemplate.exchange(
+                Mockito.eq(reUrl),
+                Mockito.eq(HttpMethod.POST),
+                Mockito.argThat(httpEntityMatcher),
+                Mockito.any(ParameterizedTypeReference.class)))
+                .thenReturn(new ResponseEntity<>("Success", HttpStatus.OK));
+
+        List<String> results = replayService.replayTradesForUpstream(requests, ReportingRegime.EUROPEAN_MARKETS_INFRASTRUCTURE_REGULATION);
+        Assert.assertEquals(1, results.size());
+        Assert.assertEquals("Request for EUROPEAN_MARKETS_INFRASTRUCTURE_REGULATION for GDS GBLO was Successful", results.get(0));
+    }
+
+    // Test for replayBackdatedValuationForBusinessDate with invalid source system
+    @Test
+    public void replayBackdatedValuationForBusinessDate_InvalidSourceSystem() {
+        ReplayValuationForBusinessDate request = new ReplayValuationForBusinessDate();
+        request.setValuationDate("2024-05-16");
+        request.setFlow("Transaction");
+        request.setTradeId("tradeId1");
+        request.setSourceSystem("InvalidSource");
+        request.setRegulatoryName(ReportingRegime.DODD_FRANK_ACT_US);
+        request.setRegulatoryAuthority(ReportingRegulatoryAuthority.EUROPEAN_SECURITIES_AND_MARKETS_AUTHORITY_EUROPEAN_UNION);
+        request.setIsExoticTrade("false");
+        List<ReplayValuationForBusinessDate> requests = Arrays.asList(request);
+
+        List<String> results = replayService.replayBackdatedValuationForBusinessDate(requests,
+                ReportingRegime.DODD_FRANK_ACT_US, ReportingRegulatoryAuthority.EUROPEAN_SECURITIES_AND_MARKETS_AUTHORITY_EUROPEAN_UNION);
+        Assert.assertEquals(1, results.size());
+        Assert.assertEquals("Request for invalid source system id : InvalidSource rejected", results.get(0));
+    }
+
+    // Test for replayBackdatedValuationForDateRange with exotic trade
+    @Test
+    public void replayBackdatedValuationForDateRange_EMIR_ExoticTrade() throws JsonProcessingException {
+        ReplayValuationForDateRange request = new ReplayValuationForDateRange();
+        request.setValuationDateFrom("2024-05-16");
+        request.setValuationDateTo("2024-05-18");
+        request.setFlow("Transaction");
+        request.setTradeId("tradeId1");
+        request.setSourceSystem("GDS GBLO");
+        request.setAssetClass("ForeignExchange");
+        request.setExoticType("AC_Exotic");
+        request.setRegulatoryName(ReportingRegime.EUROPEAN_MARKETS_INFRASTRUCTURE_REGULATION);
+        request.setRegulatoryAuthority(ReportingRegulatoryAuthority.EUROPEAN_SECURITIES_AND_MARKETS_AUTHORITY_EUROPEAN_UNION);
+        request.setIsExoticTrade("true");
+        List<ReplayValuationForDateRange> requests = Arrays.asList(request);
+
+        TntrReplayValuationForDateRangeRequest dateRangeRequest = new TntrReplayValuationForDateRangeRequest(
+                request.getSourceSystem(), Arrays.asList(request.getTradeId()), request.getValuationDateFrom(),
+                request.getValuationDateTo(), "username", request.getRegulatoryAuthority().value());
+        String reUrl = reHost + fxReplay;
+
+        ArgumentMatcher<HttpEntity> httpEntityMatcher = argument -> {
+            TntrReplayValuationForDateRangeRequest t = (TntrReplayValuationForDateRangeRequest) argument.getBody();
+            return t.getTradeList().containsAll(dateRangeRequest.getTradeList()) &&
+                    t.getSourceSystem().equals(dateRangeRequest.getSourceSystem()) &&
+                    t.getValuationDateFrom().equals(dateRangeRequest.getValuationDateFrom()) &&
+                    t.getValuationDateTo().equals(dateRangeRequest.getValuationDateTo()) &&
+                    t.getActionBy().equals(dateRangeRequest.getActionBy()) &&
+                    t.getRegulatoryAuthority().equals(dateRangeRequest.getRegulatoryAuthority()) &&
+                    argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON) &&
+                    argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
+        };
+
+        Mockito.when(restTemplate.exchange(
+                Mockito.eq(reUrl),
+                Mockito.eq(HttpMethod.POST),
+                Mockito.argThat(httpEntityMatcher),
+                Mockito.any(ParameterizedTypeReference.class)))
+                .thenReturn(new ResponseEntity<>("Success", HttpStatus.OK));
+
+        List<String> results = replayService.replayBackdatedValuationForDateRange(requests,
+                ReportingRegime.EUROPEAN_MARKETS_INFRASTRUCTURE_REGULATION,
+                ReportingRegulatoryAuthority.EUROPEAN_SECURITIES_AND_MARKETS_AUTHORITY_EUROPEAN_UNION);
+        Assert.assertEquals(1, results.size());
+        Assert.assertEquals("Request for EUROPEAN_MARKETS_INFRASTRUCTURE_REGULATION for GDS GBLO was Successful", results.get(0));
+    }
+
+    // Test for replayBackdatedCollateralForDateRange with FCA authority
+    @Test
+    public void replayBackdatedCollateralForDateRange_EMIR_FCA_Success() throws JsonProcessingException {
+        ReplayCollateralForDateRange request = new ReplayCollateralForDateRange();
+        request.setStartDate("2024-05-15");
+        request.setEndDate("2024-05-16");
+        request.setMasterAgreementId("masterAgreementId");
+        request.setReportSubmissionType("TYPE");
+        request.setEntity("PLC");
+        request.setRegulatoryName(ReportingRegime.EUROPEAN_MARKETS_INFRASTRUCTURE_REGULATION);
+        request.setRegulatoryAuthority(ReportingRegulatoryAuthority.FINANCIAL_CONDUCT_AUTHORITY_UK);
+        List<ReplayCollateralForDateRange> requests = Arrays.asList(request);
+
+        TntrReplayCollateralForDateRangeRequest tntrReq = new TntrReplayCollateralForDateRangeRequest(
+                request.getStartDate(), request.getEndDate(), request.getReportSubmissionType(),
+                request.getEntity(), Arrays.asList(request.getMasterAgreementId()));
+        String reUrl = reHost + emirColFca;
+
+        ArgumentMatcher<HttpEntity> httpEntityMatcher = argument -> {
+            TntrReplayCollateralForDateRangeRequest t = (TntrReplayCollateralForDateRangeRequest) argument.getBody();
+            return t.getMasterAgreementIdList().containsAll(tntrReq.getMasterAgreementIdList()) &&
+                    t.getStartDate().equals(tntrReq.getStartDate()) &&
+                    t.getEndDate().equals(tntrReq.getEndDate()) &&
+                    t.getEntity().equals(tntrReq.getEntity()) &&
+                    t.getReportSubmissionType().equals(tntrReq.getReportSubmissionType()) &&
+                    argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON) &&
+                    argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
+        };
+
+        Mockito.when(restTemplate.exchange(
+                Mockito.eq(reUrl),
+                Mockito.eq(HttpMethod.POST),
+                Mockito.argThat(httpEntityMatcher),
+                Mockito.any(ParameterizedTypeReference.class)))
+                .thenReturn(new ResponseEntity<>("Success", HttpStatus.OK));
+
+        List<String> results = replayService.replayBackdatedCollateralForDateRange(requests,
+                ReportingRegime.EUROPEAN_MARKETS_INFRASTRUCTURE_REGULATION,
+                ReportingRegulatoryAuthority.FINANCIAL_CONDUCT_AUTHORITY_UK);
+        Assert.assertEquals(1, results.size());
+        Assert.assertEquals("Request for PLC for TYPE was Successful", results.get(0));
+    }
+
+    // Test for getCustomExoticTradeEndpoint with different regimes
+    @Test
+    public void getCustomExoticTradeEndpoint_DifferentRegimes() throws Exception {
+        Method method = ReplayServiceImpl.class.getDeclaredMethod("getCustomExoticTradeEndpoint",
+                ReportingRegime.class, String.class, String.class);
+        method.setAccessible(true);
+
+        String result1 = (String) method.invoke(replayService, ReportingRegime.DODD_FRANK_ACT_US, "GDS GBLO", "TRANSACTION");
+        Assert.assertEquals(reHost + "/tntr/trade/blotter/replay", result1);
+
+        String result2 = (String) method.invoke(replayService, ReportingRegime.CANADA_RULE_91_507, "GDS USNY", "TRANSACTION");
+        Assert.assertEquals(reHost + "/tntr/trade/blotter/replay", result2);
+
+        String result3 = (String) method.invoke(replayService, ReportingRegime.EUROPEAN_MARKETS_INFRASTRUCTURE_REGULATION, "GDS GBLO", "TRANSACTION");
+        Assert.assertEquals(reHost + "/trade", result3);
+
+        String result4 = (String) method.invoke(replayService, ReportingRegime.THE_MONETARY_AUTHORITY_OF_SINGAPORE, "GDS GBLO", "TRANSACTION");
+        Assert.assertNull(result4); // No endpoint for MAS
+    }
+
+    // Test for getReportingTypeFromIssueType with invalid issue type
+    @Test
+    public void getReportingTypeFromIssueType_InvalidIssueType() throws Exception {
+        Method method = ReplayServiceImpl.class.getDeclaredMethod("getReportingTypeFromIssueType", String.class);
+        method.setAccessible(true);
+
+        String result = (String) method.invoke(replayService, "Invalid Type");
+        Assert.assertNull(result);
+    }
+
+    // Test for getCustomCRUrlHost with unsupported asset class
+    @Test
+    public void getCustomCRUrlHost_UnsupportedAssetClass() throws Exception {
+        Method method = ReplayServiceImpl.class.getDeclaredMethod("getCustomCRUrlHost", ReportingRegime.class, String.class);
+        method.setAccessible(true);
+
+        String result = (String) method.invoke(replayService, ReportingRegime.DODD_FRANK_ACT_US, "UnsupportedClass");
+        Assert.assertNull(result);
+    }
+
+    // Test for getCustomCRUrlEndpoint with unsupported action
+    @Test
+    public void getCustomCRUrlEndpoint_UnsupportedAction() throws Exception {
+        Method method = ReplayServiceImpl.class.getDeclaredMethod("getCustomCRUrlEndpoint",
+                ReportingRegime.class, CRAction.class, String.class);
+        method.setAccessible(true);
+
+        String result = (String) method.invoke(replayService, ReportingRegime.DODD_FRANK_ACT_US, null, "Mis Reporting");
+        Assert.assertNull(result);
+    }
+
+    // Test for logHttpRequest with JsonProcessingException
+    @Test
+    public void logHttpRequest_JsonProcessingException() throws Exception {
+        Method method = ReplayServiceImpl.class.getDeclaredMethod("logHttpRequest", HttpEntity.class, String.class);
+        method.setAccessible(true);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("sso-token", "ApplicationSsoToken");
+        HttpEntity<Object> request = new HttpEntity<>(new Object() {
+            @Override
+            public String toString() {
+                throw new RuntimeException("Force JsonProcessingException");
+            }
+        }, headers);
+
+        // No assertion needed, just ensure no crash
+        method.invoke(replayService, request, "testUrl");
+    }
+
+    // Test for getHeaderWithUserSSO
+    @Test
+    public void getHeaderWithUserSSO() throws Exception {
+        Method method = ReplayServiceImpl.class.getDeclaredMethod("getHeaderWithUserSSO");
+        method.setAccessible(true);
+
+        Mockito.when(bss.getLoggedInUserToken()).thenReturn("UserSsoToken");
+        HttpHeaders headers = (HttpHeaders) method.invoke(replayService);
+
+        Assert.assertEquals(MediaType.APPLICATION_JSON, headers.getContentType());
+        Assert.assertEquals("UserSsoToken", headers.getFirst("sso-token"));
+        Assert.assertEquals("username", headers.getFirst("user"));
+        Assert.assertNotNull(headers.getFirst("RequestId"));
+    }
+
+    // Test for getHeaderWithSsoForETD
+    @Test
+    public void getHeaderWithSsoForETD() throws Exception {
+        Method method = ReplayServiceImpl.class.getDeclaredMethod("getHeaderWithSsoForETD");
+        method.setAccessible(true);
+
+        Mockito.when(bss.getApplicationSsoToken(Mockito.anyString())).thenReturn("EtdSsoToken");
+        HttpHeaders headers = (HttpHeaders) method.invoke(replayService);
+
+        Assert.assertEquals(MediaType.APPLICATION_JSON, headers.getContentType());
+        Assert.assertEquals("EtdSsoToken", headers.getFirst("sso-token"));
+        Assert.assertEquals("username", headers.getFirst("user"));
+        Assert.assertNotNull(headers.getFirst("RequestId"));
+    }
+
+    private CorrectiveReportingForTrade getCrTradeAsPrimaryKey(String issueType, String assetClass, String sourceSystem) {
+        CorrectiveReportingForTrade request = new CorrectiveReportingForTrade();
+        request.setAction(CRAction.CR_TRADE);
+        request.setSourceSystem(sourceSystem);
+        request.setIssueType(issueType);
+        request.setAssetClass(assetClass);
+        request.setRegime(ReportingRegime.DODD_FRANK_ACT_US);
+        return request;
+    }
+
+    // Existing test methods below (unchanged)
+    @Test
+    public void replayBackdatedValuationForBusinessDate_EMIR_Interest_Rate() throws JsonProcessingException {
         List<ReplayValuationForBusinessDate> requests = new ArrayList<>();
         ReplayValuationForBusinessDate replayValuationForBusinessDate1 = new ReplayValuationForBusinessDate();
         replayValuationForBusinessDate1.setValuationDate("2024-05-16");
@@ -997,16 +561,16 @@ public class ReplayServiceImplTest {
         List<String> tradeIdsWithSourceSystem1 = Arrays.asList(requests.get(0).getTradeId());
 
         TntrReplayValuationForBusinessDateRequest backdatedRequest1 =
-                new TntrReplayValuationForBusinessDateRequest(requests.get(0).getSourceSystem(),tradeIdsWithSourceSystem1,requests.get(0).getValuationDate(),"username",requests.get(0).getRegulatoryAuthority().value());
+                new TntrReplayValuationForBusinessDateRequest(requests.get(0).getSourceSystem(), tradeIdsWithSourceSystem1, requests.get(0).getValuationDate(), "username", requests.get(0).getRegulatoryAuthority().value());
 
-        String reUrl = reHost+replayRates;
+        String reUrl = reHost + replayRates;
 
-        ArgumentMatcher<HttpEntity> httpEntityMatcher=
+        ArgumentMatcher<HttpEntity> httpEntityMatcher =
                 new ArgumentMatcher<HttpEntity>() {
                     @Override
                     public boolean matches(Object o) {
                         HttpEntity argument = (HttpEntity) o;
-                        TntrReplayValuationForBusinessDateRequest t = (TntrReplayValuationForBusinessDateRequest)argument.getBody();
+                        TntrReplayValuationForBusinessDateRequest t = (TntrReplayValuationForBusinessDateRequest) argument.getBody();
                         boolean isBodyAsExpected =
                                 (t.getTradeList().containsAll(backdatedRequest1.getTradeList()) &&
                                         t.getSourceSystem().equals(backdatedRequest1.getSourceSystem()) &&
@@ -1017,7 +581,7 @@ public class ReplayServiceImplTest {
                                 argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON);
                         boolean headerHasApplicationSsoToken
                                 = argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
-                        return  isBodyAsExpected
+                        return isBodyAsExpected
                                 && isHeaderMediaTypeJson
                                 && headerHasApplicationSsoToken;
                     }
@@ -1027,25 +591,23 @@ public class ReplayServiceImplTest {
                 new ParameterizedTypeReference<List<String>>() {
                 };
 
-        String res = "Request for "+replayValuationForBusinessDate1.getRegulatoryName().value()+" for "+replayValuationForBusinessDate1.getSourceSystem()+" was "+"Successful";
+        String res = "Request for " + replayValuationForBusinessDate1.getRegulatoryName().value() + " for " + replayValuationForBusinessDate1.getSourceSystem() + " was " + "Successful";
         List<String> list = Arrays.asList(res);
         Mockito.when(
                         restTemplate.exchange(
                                 Mockito.eq(reUrl),
                                 Mockito.eq(HttpMethod.POST),
                                 Mockito.argThat(httpEntityMatcher),
-                                Mockito.any(parameterizedTypeReference.getClass()) ))
+                                Mockito.any(parameterizedTypeReference.getClass())))
                 .thenReturn(new ResponseEntity<String>(
                         res,
                         HttpStatus.OK));
 
-        Assert.assertEquals(list,replayService.replayBackdatedValuationForBusinessDate(requests,replayValuationForBusinessDate1.getRegulatoryName(),replayValuationForBusinessDate1.getRegulatoryAuthority()));
-
-
+        Assert.assertEquals(list, replayService.replayBackdatedValuationForBusinessDate(requests, replayValuationForBusinessDate1.getRegulatoryName(), replayValuationForBusinessDate1.getRegulatoryAuthority()));
     }
 
     @Test
-    public void replayBackdatedValuationForBusinessDate_EMIR_Credit() throws JsonProcessingException{
+    public void replayBackdatedValuationForBusinessDate_EMIR_Credit() throws JsonProcessingException {
         List<ReplayValuationForBusinessDate> requests = new ArrayList<>();
         ReplayValuationForBusinessDate replayValuationForBusinessDate1 = new ReplayValuationForBusinessDate();
         replayValuationForBusinessDate1.setValuationDate("2024-05-16");
@@ -1062,16 +624,16 @@ public class ReplayServiceImplTest {
         List<String> tradeIdsWithSourceSystem1 = Arrays.asList(requests.get(0).getTradeId());
 
         TntrReplayValuationForBusinessDateRequest backdatedRequest1 =
-                new TntrReplayValuationForBusinessDateRequest(requests.get(0).getSourceSystem(),tradeIdsWithSourceSystem1,requests.get(0).getValuationDate(),"username",requests.get(0).getRegulatoryAuthority().value());
+                new TntrReplayValuationForBusinessDateRequest(requests.get(0).getSourceSystem(), tradeIdsWithSourceSystem1, requests.get(0).getValuationDate(), "username", requests.get(0).getRegulatoryAuthority().value());
 
-        String reUrl = reHost+replayCredit;
+        String reUrl = reHost + replayCredit;
 
-        ArgumentMatcher<HttpEntity> httpEntityMatcher=
+        ArgumentMatcher<HttpEntity> httpEntityMatcher =
                 new ArgumentMatcher<HttpEntity>() {
                     @Override
                     public boolean matches(Object o) {
                         HttpEntity argument = (HttpEntity) o;
-                        TntrReplayValuationForBusinessDateRequest t = (TntrReplayValuationForBusinessDateRequest)argument.getBody();
+                        TntrReplayValuationForBusinessDateRequest t = (TntrReplayValuationForBusinessDateRequest) argument.getBody();
                         boolean isBodyAsExpected =
                                 (t.getTradeList().containsAll(backdatedRequest1.getTradeList()) &&
                                         t.getSourceSystem().equals(backdatedRequest1.getSourceSystem()) &&
@@ -1082,7 +644,7 @@ public class ReplayServiceImplTest {
                                 argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON);
                         boolean headerHasApplicationSsoToken
                                 = argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
-                        return  isBodyAsExpected
+                        return isBodyAsExpected
                                 && isHeaderMediaTypeJson
                                 && headerHasApplicationSsoToken;
                     }
@@ -1092,25 +654,23 @@ public class ReplayServiceImplTest {
                 new ParameterizedTypeReference<List<String>>() {
                 };
 
-        String res = "Request for "+replayValuationForBusinessDate1.getRegulatoryName().value()+" for "+replayValuationForBusinessDate1.getSourceSystem()+" was "+"Successful";
+        String res = "Request for " + replayValuationForBusinessDate1.getRegulatoryName().value() + " for " + replayValuationForBusinessDate1.getSourceSystem() + " was " + "Successful";
         List<String> list = Arrays.asList(res);
         Mockito.when(
                         restTemplate.exchange(
                                 Mockito.eq(reUrl),
                                 Mockito.eq(HttpMethod.POST),
                                 Mockito.argThat(httpEntityMatcher),
-                                Mockito.any(parameterizedTypeReference.getClass()) ))
+                                Mockito.any(parameterizedTypeReference.getClass())))
                 .thenReturn(new ResponseEntity<String>(
                         res,
                         HttpStatus.OK));
 
-        Assert.assertEquals(list,replayService.replayBackdatedValuationForBusinessDate(requests,replayValuationForBusinessDate1.getRegulatoryName(),replayValuationForBusinessDate1.getRegulatoryAuthority()));
-
-
+        Assert.assertEquals(list, replayService.replayBackdatedValuationForBusinessDate(requests, replayValuationForBusinessDate1.getRegulatoryName(), replayValuationForBusinessDate1.getRegulatoryAuthority()));
     }
 
     @Test
-    public void replayBackdatedValuationForBusinessDate_EMIR_Fx() throws JsonProcessingException{
+    public void replayBackdatedValuationForBusinessDate_EMIR_Fx() throws JsonProcessingException {
         List<ReplayValuationForBusinessDate> requests = new ArrayList<>();
         ReplayValuationForBusinessDate replayValuationForBusinessDate1 = new ReplayValuationForBusinessDate();
         replayValuationForBusinessDate1.setValuationDate("2024-05-16");
@@ -1127,16 +687,16 @@ public class ReplayServiceImplTest {
         List<String> tradeIdsWithSourceSystem1 = Arrays.asList(requests.get(0).getTradeId());
 
         TntrReplayValuationForBusinessDateRequest backdatedRequest1 =
-                new TntrReplayValuationForBusinessDateRequest(requests.get(0).getSourceSystem(),tradeIdsWithSourceSystem1,requests.get(0).getValuationDate(),"username",requests.get(0).getRegulatoryAuthority().value());
+                new TntrReplayValuationForBusinessDateRequest(requests.get(0).getSourceSystem(), tradeIdsWithSourceSystem1, requests.get(0).getValuationDate(), "username", requests.get(0).getRegulatoryAuthority().value());
 
-        String reUrl = reHost+fxReplay;
+        String reUrl = reHost + fxReplay;
 
-        ArgumentMatcher<HttpEntity> httpEntityMatcher=
+        ArgumentMatcher<HttpEntity> httpEntityMatcher =
                 new ArgumentMatcher<HttpEntity>() {
                     @Override
                     public boolean matches(Object o) {
                         HttpEntity argument = (HttpEntity) o;
-                        TntrReplayValuationForBusinessDateRequest t = (TntrReplayValuationForBusinessDateRequest)argument.getBody();
+                        TntrReplayValuationForBusinessDateRequest t = (TntrReplayValuationForBusinessDateRequest) argument.getBody();
                         boolean isBodyAsExpected =
                                 (t.getTradeList().containsAll(backdatedRequest1.getTradeList()) &&
                                         t.getSourceSystem().equals(backdatedRequest1.getSourceSystem()) &&
@@ -1147,7 +707,7 @@ public class ReplayServiceImplTest {
                                 argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON);
                         boolean headerHasApplicationSsoToken
                                 = argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
-                        return  isBodyAsExpected
+                        return isBodyAsExpected
                                 && isHeaderMediaTypeJson
                                 && headerHasApplicationSsoToken;
                     }
@@ -1157,25 +717,23 @@ public class ReplayServiceImplTest {
                 new ParameterizedTypeReference<List<String>>() {
                 };
 
-        String res = "Request for "+replayValuationForBusinessDate1.getRegulatoryName().value()+" for "+replayValuationForBusinessDate1.getSourceSystem()+" was "+"Successful";
+        String res = "Request for " + replayValuationForBusinessDate1.getRegulatoryName().value() + " for " + replayValuationForBusinessDate1.getSourceSystem() + " was " + "Successful";
         List<String> list = Arrays.asList(res);
         Mockito.when(
                         restTemplate.exchange(
                                 Mockito.eq(reUrl),
                                 Mockito.eq(HttpMethod.POST),
                                 Mockito.argThat(httpEntityMatcher),
-                                Mockito.any(parameterizedTypeReference.getClass()) ))
+                                Mockito.any(parameterizedTypeReference.getClass())))
                 .thenReturn(new ResponseEntity<String>(
                         res,
                         HttpStatus.OK));
 
-        Assert.assertEquals(list,replayService.replayBackdatedValuationForBusinessDate(requests,replayValuationForBusinessDate1.getRegulatoryName(),replayValuationForBusinessDate1.getRegulatoryAuthority()));
-
-
+        Assert.assertEquals(list, replayService.replayBackdatedValuationForBusinessDate(requests, replayValuationForBusinessDate1.getRegulatoryName(), replayValuationForBusinessDate1.getRegulatoryAuthority()));
     }
 
     @Test
-    public void replayBackdatedValuationForBusinessDate_EMIR_SystemX_FX() throws JsonProcessingException{
+    public void replayBackdatedValuationForBusinessDate_EMIR_SystemX_FX() throws JsonProcessingException {
         List<ReplayValuationForBusinessDate> requests = new ArrayList<>();
         ReplayValuationForBusinessDate replayValuationForBusinessDate1 = new ReplayValuationForBusinessDate();
         replayValuationForBusinessDate1.setValuationDate("2024-05-16");
@@ -1192,16 +750,16 @@ public class ReplayServiceImplTest {
         List<String> tradeIdsWithSourceSystem1 = Arrays.asList(requests.get(0).getTradeId());
 
         TntrReplayValuationForBusinessDateRequest backdatedRequest1 =
-                new TntrReplayValuationForBusinessDateRequest(requests.get(0).getSourceSystem(),tradeIdsWithSourceSystem1,requests.get(0).getValuationDate(),"username",requests.get(0).getRegulatoryAuthority().value());
+                new TntrReplayValuationForBusinessDateRequest(requests.get(0).getSourceSystem(), tradeIdsWithSourceSystem1, requests.get(0).getValuationDate(), "username", requests.get(0).getRegulatoryAuthority().value());
 
-        String reUrl = reHost+fxReplay;
+        String reUrl = reHost + fxReplay;
 
-        ArgumentMatcher<HttpEntity> httpEntityMatcher=
+        ArgumentMatcher<HttpEntity> httpEntityMatcher =
                 new ArgumentMatcher<HttpEntity>() {
                     @Override
                     public boolean matches(Object o) {
                         HttpEntity argument = (HttpEntity) o;
-                        TntrReplayValuationForBusinessDateRequest t = (TntrReplayValuationForBusinessDateRequest)argument.getBody();
+                        TntrReplayValuationForBusinessDateRequest t = (TntrReplayValuationForBusinessDateRequest) argument.getBody();
                         boolean isBodyAsExpected =
                                 (t.getTradeList().containsAll(backdatedRequest1.getTradeList()) &&
                                         t.getSourceSystem().equals(backdatedRequest1.getSourceSystem()) &&
@@ -1212,7 +770,7 @@ public class ReplayServiceImplTest {
                                 argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON);
                         boolean headerHasApplicationSsoToken
                                 = argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
-                        return  isBodyAsExpected
+                        return isBodyAsExpected
                                 && isHeaderMediaTypeJson
                                 && headerHasApplicationSsoToken;
                     }
@@ -1222,25 +780,23 @@ public class ReplayServiceImplTest {
                 new ParameterizedTypeReference<List<String>>() {
                 };
 
-        String res = "Request for "+replayValuationForBusinessDate1.getRegulatoryName().value()+" for "+replayValuationForBusinessDate1.getSourceSystem()+" was "+"Successful";
+        String res = "Request for " + replayValuationForBusinessDate1.getRegulatoryName().value() + " for " + replayValuationForBusinessDate1.getSourceSystem() + " was " + "Successful";
         List<String> list = Arrays.asList(res);
         Mockito.when(
                         restTemplate.exchange(
                                 Mockito.eq(reUrl),
                                 Mockito.eq(HttpMethod.POST),
                                 Mockito.argThat(httpEntityMatcher),
-                                Mockito.any(parameterizedTypeReference.getClass()) ))
+                                Mockito.any(parameterizedTypeReference.getClass())))
                 .thenReturn(new ResponseEntity<String>(
                         res,
                         HttpStatus.OK));
 
-        Assert.assertEquals(list,replayService.replayBackdatedValuationForBusinessDate(requests,replayValuationForBusinessDate1.getRegulatoryName(),replayValuationForBusinessDate1.getRegulatoryAuthority()));
-
-
+        Assert.assertEquals(list, replayService.replayBackdatedValuationForBusinessDate(requests, replayValuationForBusinessDate1.getRegulatoryName(), replayValuationForBusinessDate1.getRegulatoryAuthority()));
     }
 
     @Test
-    public void replayBackdatedValuationForBusinessDate_DODD_FRANK_ACT_US_GDS_GBLO() throws JsonProcessingException{
+    public void replayBackdatedValuationForBusinessDate_DODD_FRANK_ACT_US_GDS_GBLO() throws JsonProcessingException {
         List<ReplayValuationForBusinessDate> requests = new ArrayList<>();
         ReplayValuationForBusinessDate replayValuationForBusinessDate1 = new ReplayValuationForBusinessDate();
         replayValuationForBusinessDate1.setValuationDate("2024-05-16");
@@ -1256,16 +812,16 @@ public class ReplayServiceImplTest {
         List<String> tradeIdsWithSourceSystem1 = Arrays.asList(requests.get(0).getTradeId());
 
         TntrReplayValuationForBusinessDateRequest backdatedRequest1 =
-                new TntrReplayValuationForBusinessDateRequest(requests.get(0).getSourceSystem(),tradeIdsWithSourceSystem1,requests.get(0).getValuationDate(),"username",requests.get(0).getRegulatoryAuthority().value());
+                new TntrReplayValuationForBusinessDateRequest(requests.get(0).getSourceSystem(), tradeIdsWithSourceSystem1, requests.get(0).getValuationDate(), "username", requests.get(0).getRegulatoryAuthority().value());
 
-        String reUrl = reHost+replayCftc;
+        String reUrl = reHost + replayCftc;
 
-        ArgumentMatcher<HttpEntity> httpEntityMatcher=
+        ArgumentMatcher<HttpEntity> httpEntityMatcher =
                 new ArgumentMatcher<HttpEntity>() {
                     @Override
                     public boolean matches(Object o) {
                         HttpEntity argument = (HttpEntity) o;
-                        TntrReplayValuationForBusinessDateRequest t = (TntrReplayValuationForBusinessDateRequest)argument.getBody();
+                        TntrReplayValuationForBusinessDateRequest t = (TntrReplayValuationForBusinessDateRequest) argument.getBody();
                         boolean isBodyAsExpected =
                                 (t.getTradeList().containsAll(backdatedRequest1.getTradeList()) &&
                                         t.getSourceSystem().equals(backdatedRequest1.getSourceSystem()) &&
@@ -1276,7 +832,7 @@ public class ReplayServiceImplTest {
                                 argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON);
                         boolean headerHasApplicationSsoToken
                                 = argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
-                        return  isBodyAsExpected
+                        return isBodyAsExpected
                                 && isHeaderMediaTypeJson
                                 && headerHasApplicationSsoToken;
                     }
@@ -1286,26 +842,23 @@ public class ReplayServiceImplTest {
                 new ParameterizedTypeReference<List<String>>() {
                 };
 
-        String res = "Request for "+replayValuationForBusinessDate1.getRegulatoryName().value()+" for "+replayValuationForBusinessDate1.getSourceSystem()+" was "+"Successful";
+        String res = "Request for " + replayValuationForBusinessDate1.getRegulatoryName().value() + " for " + replayValuationForBusinessDate1.getSourceSystem() + " was " + "Successful";
         List<String> list = Arrays.asList(res);
         Mockito.when(
                         restTemplate.exchange(
                                 Mockito.eq(reUrl),
                                 Mockito.eq(HttpMethod.POST),
                                 Mockito.argThat(httpEntityMatcher),
-                                Mockito.any(parameterizedTypeReference.getClass()) ))
+                                Mockito.any(parameterizedTypeReference.getClass())))
                 .thenReturn(new ResponseEntity<String>(
                         res,
                         HttpStatus.OK));
 
-        Assert.assertEquals(list,replayService.replayBackdatedValuationForBusinessDate(requests,replayValuationForBusinessDate1.getRegulatoryName(),replayValuationForBusinessDate1.getRegulatoryAuthority()));
-
-
+        Assert.assertEquals(list, replayService.replayBackdatedValuationForBusinessDate(requests, replayValuationForBusinessDate1.getRegulatoryName(), replayValuationForBusinessDate1.getRegulatoryAuthority()));
     }
 
-
     @Test
-    public void replayBackdatedValuationForBusinessDate_CANADA_RULE_91_507_GDS_GBLO() throws JsonProcessingException{
+    public void replayBackdatedValuationForBusinessDate_CANADA_RULE_91_507_GDS_GBLO() throws JsonProcessingException {
         List<ReplayValuationForBusinessDate> requests = new ArrayList<>();
         ReplayValuationForBusinessDate replayValuationForBusinessDate1 = new ReplayValuationForBusinessDate();
         replayValuationForBusinessDate1.setValuationDate("2024-05-16");
@@ -1321,16 +874,16 @@ public class ReplayServiceImplTest {
         List<String> tradeIdsWithSourceSystem1 = Arrays.asList(requests.get(0).getTradeId());
 
         TntrReplayValuationForBusinessDateRequest backdatedRequest1 =
-                new TntrReplayValuationForBusinessDateRequest(requests.get(0).getSourceSystem(),tradeIdsWithSourceSystem1,requests.get(0).getValuationDate(),"username",requests.get(0).getRegulatoryAuthority().value());
+                new TntrReplayValuationForBusinessDateRequest(requests.get(0).getSourceSystem(), tradeIdsWithSourceSystem1, requests.get(0).getValuationDate(), "username", requests.get(0).getRegulatoryAuthority().value());
 
-        String reUrl = reHost+csaReplay;
+        String reUrl = reHost + csaReplay;
 
-        ArgumentMatcher<HttpEntity> httpEntityMatcher=
+        ArgumentMatcher<HttpEntity> httpEntityMatcher =
                 new ArgumentMatcher<HttpEntity>() {
                     @Override
                     public boolean matches(Object o) {
                         HttpEntity argument = (HttpEntity) o;
-                        TntrReplayValuationForBusinessDateRequest t = (TntrReplayValuationForBusinessDateRequest)argument.getBody();
+                        TntrReplayValuationForBusinessDateRequest t = (TntrReplayValuationForBusinessDateRequest) argument.getBody();
                         boolean isBodyAsExpected =
                                 (t.getTradeList().containsAll(backdatedRequest1.getTradeList()) &&
                                         t.getSourceSystem().equals(backdatedRequest1.getSourceSystem()) &&
@@ -1341,7 +894,7 @@ public class ReplayServiceImplTest {
                                 argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON);
                         boolean headerHasApplicationSsoToken
                                 = argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
-                        return  isBodyAsExpected
+                        return isBodyAsExpected
                                 && isHeaderMediaTypeJson
                                 && headerHasApplicationSsoToken;
                     }
@@ -1351,25 +904,23 @@ public class ReplayServiceImplTest {
                 new ParameterizedTypeReference<List<String>>() {
                 };
 
-        String res = "Request for "+replayValuationForBusinessDate1.getRegulatoryName().value()+" for "+replayValuationForBusinessDate1.getSourceSystem()+" was "+"Successful";
+        String res = "Request for " + replayValuationForBusinessDate1.getRegulatoryName().value() + " for " + replayValuationForBusinessDate1.getSourceSystem() + " was " + "Successful";
         List<String> list = Arrays.asList(res);
         Mockito.when(
                         restTemplate.exchange(
                                 Mockito.eq(reUrl),
                                 Mockito.eq(HttpMethod.POST),
                                 Mockito.argThat(httpEntityMatcher),
-                                Mockito.any(parameterizedTypeReference.getClass()) ))
+                                Mockito.any(parameterizedTypeReference.getClass())))
                 .thenReturn(new ResponseEntity<String>(
                         res,
                         HttpStatus.OK));
 
-        Assert.assertEquals(list,replayService.replayBackdatedValuationForBusinessDate(requests,replayValuationForBusinessDate1.getRegulatoryName(),replayValuationForBusinessDate1.getRegulatoryAuthority()));
-
-
+        Assert.assertEquals(list, replayService.replayBackdatedValuationForBusinessDate(requests, replayValuationForBusinessDate1.getRegulatoryName(), replayValuationForBusinessDate1.getRegulatoryAuthority()));
     }
 
     @Test
-    public void replayBackdatedValuationForBusinessDate_CANADA_RULE_91_507_SystemX() throws JsonProcessingException{
+    public void replayBackdatedValuationForBusinessDate_CANADA_RULE_91_507_SystemX() throws JsonProcessingException {
         List<ReplayValuationForBusinessDate> requests = new ArrayList<>();
         ReplayValuationForBusinessDate replayValuationForBusinessDate1 = new ReplayValuationForBusinessDate();
         replayValuationForBusinessDate1.setValuationDate("2024-05-16");
@@ -1385,16 +936,16 @@ public class ReplayServiceImplTest {
         List<String> tradeIdsWithSourceSystem1 = Arrays.asList(requests.get(0).getTradeId());
 
         TntrReplayValuationForBusinessDateRequest backdatedRequest1 =
-                new TntrReplayValuationForBusinessDateRequest(requests.get(0).getSourceSystem(),tradeIdsWithSourceSystem1,requests.get(0).getValuationDate(),"username",requests.get(0).getRegulatoryAuthority().value());
+                new TntrReplayValuationForBusinessDateRequest(requests.get(0).getSourceSystem(), tradeIdsWithSourceSystem1, requests.get(0).getValuationDate(), "username", requests.get(0).getRegulatoryAuthority().value());
 
-        String reUrl = reHost+csaReplay;
+        String reUrl = reHost + csaReplay;
 
-        ArgumentMatcher<HttpEntity> httpEntityMatcher=
+        ArgumentMatcher<HttpEntity> httpEntityMatcher =
                 new ArgumentMatcher<HttpEntity>() {
                     @Override
                     public boolean matches(Object o) {
                         HttpEntity argument = (HttpEntity) o;
-                        TntrReplayValuationForBusinessDateRequest t = (TntrReplayValuationForBusinessDateRequest)argument.getBody();
+                        TntrReplayValuationForBusinessDateRequest t = (TntrReplayValuationForBusinessDateRequest) argument.getBody();
                         boolean isBodyAsExpected =
                                 (t.getTradeList().containsAll(backdatedRequest1.getTradeList()) &&
                                         t.getSourceSystem().equals(backdatedRequest1.getSourceSystem()) &&
@@ -1405,7 +956,7 @@ public class ReplayServiceImplTest {
                                 argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON);
                         boolean headerHasApplicationSsoToken
                                 = argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
-                        return  isBodyAsExpected
+                        return isBodyAsExpected
                                 && isHeaderMediaTypeJson
                                 && headerHasApplicationSsoToken;
                     }
@@ -1415,25 +966,23 @@ public class ReplayServiceImplTest {
                 new ParameterizedTypeReference<List<String>>() {
                 };
 
-        String res = "Request for "+replayValuationForBusinessDate1.getRegulatoryName().value()+" for "+replayValuationForBusinessDate1.getSourceSystem()+" was "+"Successful";
+        String res = "Request for " + replayValuationForBusinessDate1.getRegulatoryName().value() + " for " + replayValuationForBusinessDate1.getSourceSystem() + " was " + "Successful";
         List<String> list = Arrays.asList(res);
         Mockito.when(
                         restTemplate.exchange(
                                 Mockito.eq(reUrl),
                                 Mockito.eq(HttpMethod.POST),
                                 Mockito.argThat(httpEntityMatcher),
-                                Mockito.any(parameterizedTypeReference.getClass()) ))
+                                Mockito.any(parameterizedTypeReference.getClass())))
                 .thenReturn(new ResponseEntity<String>(
                         res,
                         HttpStatus.OK));
 
-        Assert.assertEquals(list,replayService.replayBackdatedValuationForBusinessDate(requests,replayValuationForBusinessDate1.getRegulatoryName(),replayValuationForBusinessDate1.getRegulatoryAuthority()));
-
-
+        Assert.assertEquals(list, replayService.replayBackdatedValuationForBusinessDate(requests, replayValuationForBusinessDate1.getRegulatoryName(), replayValuationForBusinessDate1.getRegulatoryAuthority()));
     }
 
     @Test
-    public void replayBackdatedValuationForBusinessDate_DODD_FRANK_ACT_US_GLOBAL_FX_GBLO() throws JsonProcessingException{
+    public void replayBackdatedValuationForBusinessDate_DODD_FRANK_ACT_US_GLOBAL_FX_GBLO() throws JsonProcessingException {
         List<ReplayValuationForBusinessDate> requests = new ArrayList<>();
         ReplayValuationForBusinessDate replayValuationForBusinessDate1 = new ReplayValuationForBusinessDate();
         replayValuationForBusinessDate1.setValuationDate("2024-05-16");
@@ -1449,16 +998,16 @@ public class ReplayServiceImplTest {
         List<String> tradeIdsWithSourceSystem1 = Arrays.asList(requests.get(0).getTradeId());
 
         TntrReplayValuationForBusinessDateRequest backdatedRequest1 =
-                new TntrReplayValuationForBusinessDateRequest(requests.get(0).getSourceSystem(),tradeIdsWithSourceSystem1,requests.get(0).getValuationDate(),"username",requests.get(0).getRegulatoryAuthority().value());
+                new TntrReplayValuationForBusinessDateRequest(requests.get(0).getSourceSystem(), tradeIdsWithSourceSystem1, requests.get(0).getValuationDate(), "username", requests.get(0).getRegulatoryAuthority().value());
 
-        String reUrl = reHost+replayCftc;
+        String reUrl = reHost + replayCftc;
 
-        ArgumentMatcher<HttpEntity> httpEntityMatcher=
+        ArgumentMatcher<HttpEntity> httpEntityMatcher =
                 new ArgumentMatcher<HttpEntity>() {
                     @Override
                     public boolean matches(Object o) {
                         HttpEntity argument = (HttpEntity) o;
-                        TntrReplayValuationForBusinessDateRequest t = (TntrReplayValuationForBusinessDateRequest)argument.getBody();
+                        TntrReplayValuationForBusinessDateRequest t = (TntrReplayValuationForBusinessDateRequest) argument.getBody();
                         boolean isBodyAsExpected =
                                 (t.getTradeList().containsAll(backdatedRequest1.getTradeList()) &&
                                         t.getSourceSystem().equals(backdatedRequest1.getSourceSystem()) &&
@@ -1469,7 +1018,7 @@ public class ReplayServiceImplTest {
                                 argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON);
                         boolean headerHasApplicationSsoToken
                                 = argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
-                        return  isBodyAsExpected
+                        return isBodyAsExpected
                                 && isHeaderMediaTypeJson
                                 && headerHasApplicationSsoToken;
                     }
@@ -1479,25 +1028,23 @@ public class ReplayServiceImplTest {
                 new ParameterizedTypeReference<List<String>>() {
                 };
 
-        String res = "Request for "+replayValuationForBusinessDate1.getRegulatoryName().value()+" for "+replayValuationForBusinessDate1.getSourceSystem()+" was "+"Successful";
+        String res = "Request for " + replayValuationForBusinessDate1.getRegulatoryName().value() + " for " + replayValuationForBusinessDate1.getSourceSystem() + " was " + "Successful";
         List<String> list = Arrays.asList(res);
         Mockito.when(
                         restTemplate.exchange(
                                 Mockito.eq(reUrl),
                                 Mockito.eq(HttpMethod.POST),
                                 Mockito.argThat(httpEntityMatcher),
-                                Mockito.any(parameterizedTypeReference.getClass()) ))
+                                Mockito.any(parameterizedTypeReference.getClass())))
                 .thenReturn(new ResponseEntity<String>(
                         res,
                         HttpStatus.OK));
 
-        Assert.assertEquals(list,replayService.replayBackdatedValuationForBusinessDate(requests,replayValuationForBusinessDate1.getRegulatoryName(),replayValuationForBusinessDate1.getRegulatoryAuthority()));
-
-
+        Assert.assertEquals(list, replayService.replayBackdatedValuationForBusinessDate(requests, replayValuationForBusinessDate1.getRegulatoryName(), replayValuationForBusinessDate1.getRegulatoryAuthority()));
     }
 
     @Test
-    public void replayBackdatedValuationForBusinessDate_EMIR_TMS_GBLO_FX() throws JsonProcessingException{
+    public void replayBackdatedValuationForBusinessDate_EMIR_TMS_GBLO_FX() throws JsonProcessingException {
         List<ReplayValuationForDateRange> requests = new ArrayList<>();
         ReplayValuationForDateRange replayValuationForDateRange1 = new ReplayValuationForDateRange();
         replayValuationForDateRange1.setValuationDateFrom("2024-05-16");
@@ -1514,16 +1061,16 @@ public class ReplayServiceImplTest {
         List<String> tradeIdsWithSourceSystem1 = Arrays.asList(requests.get(0).getTradeId());
 
         TntrReplayValuationForDateRangeRequest backdatedRequest1 =
-                new TntrReplayValuationForDateRangeRequest(requests.get(0).getSourceSystem(),tradeIdsWithSourceSystem1,requests.get(0).getValuationDateFrom(),requests.get(0).getValuationDateTo(),"username",requests.get(0).getRegulatoryAuthority().value());
+                new TntrReplayValuationForDateRangeRequest(requests.get(0).getSourceSystem(), tradeIdsWithSourceSystem1, requests.get(0).getValuationDateFrom(), requests.get(0).getValuationDateTo(), "username", requests.get(0).getRegulatoryAuthority().value());
 
-        String reUrl = reHost+replayRates;
+        String reUrl = reHost + replayRates;
 
-        ArgumentMatcher<HttpEntity> httpEntityMatcher=
+        ArgumentMatcher<HttpEntity> httpEntityMatcher =
                 new ArgumentMatcher<HttpEntity>() {
                     @Override
                     public boolean matches(Object o) {
                         HttpEntity argument = (HttpEntity) o;
-                        TntrReplayValuationForDateRangeRequest t = (TntrReplayValuationForDateRangeRequest)argument.getBody();
+                        TntrReplayValuationForDateRangeRequest t = (TntrReplayValuationForDateRangeRequest) argument.getBody();
                         boolean isBodyAsExpected =
                                 (t.getTradeList().containsAll(backdatedRequest1.getTradeList()) &&
                                         t.getSourceSystem().equals(backdatedRequest1.getSourceSystem()) &&
@@ -1535,7 +1082,7 @@ public class ReplayServiceImplTest {
                                 argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON);
                         boolean headerHasApplicationSsoToken
                                 = argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
-                        return  isBodyAsExpected
+                        return isBodyAsExpected
                                 && isHeaderMediaTypeJson
                                 && headerHasApplicationSsoToken;
                     }
@@ -1545,23 +1092,23 @@ public class ReplayServiceImplTest {
                 new ParameterizedTypeReference<List<String>>() {
                 };
 
-        String res = "Request for "+replayValuationForDateRange1.getRegulatoryName().value()+" for "+replayValuationForDateRange1.getSourceSystem()+" was "+"Successful";
+        String res = "Request for " + replayValuationForDateRange1.getRegulatoryName().value() + " for " + replayValuationForDateRange1.getSourceSystem() + " was " + "Successful";
         List<String> list = Arrays.asList(res);
         Mockito.when(
                         restTemplate.exchange(
                                 Mockito.eq(reUrl),
                                 Mockito.eq(HttpMethod.POST),
                                 Mockito.argThat(httpEntityMatcher),
-                                Mockito.any(parameterizedTypeReference.getClass()) ))
+                                Mockito.any(parameterizedTypeReference.getClass())))
                 .thenReturn(new ResponseEntity<String>(
                         res,
                         HttpStatus.OK));
 
-        Assert.assertEquals(list,replayService.replayBackdatedValuationForDateRange(requests,replayValuationForDateRange1.getRegulatoryName(),replayValuationForDateRange1.getRegulatoryAuthority()));
+        Assert.assertEquals(list, replayService.replayBackdatedValuationForDateRange(requests, replayValuationForDateRange1.getRegulatoryName(), replayValuationForDateRange1.getRegulatoryAuthority()));
     }
 
     @Test
-    public void replayBackdateCollateral_Emir() throws JsonProcessingException{
+    public void replayBackdateCollateral_Emir() throws JsonProcessingException {
         List<ReplayCollateralForDateRange> requests = new ArrayList<>();
         ReplayCollateralForDateRange request = new ReplayCollateralForDateRange();
         request.setStartDate("2024-05-15");
@@ -1583,9 +1130,9 @@ public class ReplayServiceImplTest {
                 requests.get(0).getEntity(),
                 idList);
 
-        String reUrl = reHost+emirColEsma;
+        String reUrl = reHost + emirColEsma;
 
-        ArgumentMatcher<HttpEntity> httpEntityMatcher=
+        ArgumentMatcher<HttpEntity> httpEntityMatcher =
                 new ArgumentMatcher<HttpEntity>() {
                     @Override
                     public boolean matches(Object o) {
@@ -1600,7 +1147,7 @@ public class ReplayServiceImplTest {
                                 argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON);
                         boolean headerHasApplicationSsoToken
                                 = argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
-                        return  isBodyAsExpected
+                        return isBodyAsExpected
                                 && isHeaderMediaTypeJson
                                 && headerHasApplicationSsoToken;
                     }
@@ -1610,25 +1157,23 @@ public class ReplayServiceImplTest {
                 new ParameterizedTypeReference<List<String>>() {
                 };
 
-        String res = "Request for "+request.getEntity()+" for "+request.getReportSubmissionType()+" was "+"Successful";
+        String res = "Request for " + request.getEntity() + " for " + request.getReportSubmissionType() + " was " + "Successful";
         List<String> list = Arrays.asList(res);
         Mockito.when(
                         restTemplate.exchange(
                                 Mockito.eq(reUrl),
                                 Mockito.eq(HttpMethod.POST),
                                 Mockito.argThat(httpEntityMatcher),
-                                Mockito.any(parameterizedTypeReference.getClass()) ))
+                                Mockito.any(parameterizedTypeReference.getClass())))
                 .thenReturn(new ResponseEntity<String>(
                         res,
                         HttpStatus.OK));
 
-        Assert.assertEquals(list,replayService.replayBackdatedCollateralForDateRange(requests,request.getRegulatoryName(),request.getRegulatoryAuthority()));
-
-
+        Assert.assertEquals(list, replayService.replayBackdatedCollateralForDateRange(requests, request.getRegulatoryName(), request.getRegulatoryAuthority()));
     }
 
     @Test
-    public void replayBackdateCollateral_Mas() throws JsonProcessingException{
+    public void replayBackdateCollateral_Mas() throws JsonProcessingException {
         List<ReplayCollateralForDateRange> requests = new ArrayList<>();
         ReplayCollateralForDateRange request = new ReplayCollateralForDateRange();
         request.setStartDate("2024-05-15");
@@ -1650,9 +1195,9 @@ public class ReplayServiceImplTest {
                 requests.get(0).getEntity(),
                 idList);
 
-        String reUrl = reHost+masCol;
+        String reUrl = reHost + masCol;
 
-        ArgumentMatcher<HttpEntity> httpEntityMatcher=
+        ArgumentMatcher<HttpEntity> httpEntityMatcher =
                 new ArgumentMatcher<HttpEntity>() {
                     @Override
                     public boolean matches(Object o) {
@@ -1667,7 +1212,7 @@ public class ReplayServiceImplTest {
                                 argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON);
                         boolean headerHasApplicationSsoToken
                                 = argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
-                        return  isBodyAsExpected
+                        return isBodyAsExpected
                                 && isHeaderMediaTypeJson
                                 && headerHasApplicationSsoToken;
                     }
@@ -1677,88 +1222,30 @@ public class ReplayServiceImplTest {
                 new ParameterizedTypeReference<List<String>>() {
                 };
 
-        String res = "Request for "+request.getEntity()+" for "+request.getReportSubmissionType()+" was "+"Successful";
+        String res = "Request for " + request.getEntity() + " for " + request.getReportSubmissionType() + " was " + "Successful";
         List<String> list = Arrays.asList(res);
         Mockito.when(
                         restTemplate.exchange(
                                 Mockito.eq(reUrl),
                                 Mockito.eq(HttpMethod.POST),
                                 Mockito.argThat(httpEntityMatcher),
-                                Mockito.any(parameterizedTypeReference.getClass()) ))
+                                Mockito.any(parameterizedTypeReference.getClass())))
                 .thenReturn(new ResponseEntity<String>(
                         res,
                         HttpStatus.OK));
 
-        Assert.assertEquals(list,replayService.replayBackdatedCollateralForDateRange(requests,request.getRegulatoryName(),request.getRegulatoryAuthority()));
-
-
-    }
-
-    private CorrectiveReportingForTrade getCrTradeAsPrimaryKey(String issueType, String assetClass, String sourceSystem){
-        CorrectiveReportingForTrade request = new CorrectiveReportingForTrade();
-        request.setAction(CRAction.CR_TRADE);
-        request.setSourceSystem(sourceSystem);
-        request.setIssueType(issueType);
-        request.setAssetClass(assetClass);
-        request.setRegime(ReportingRegime.DODD_FRANK_ACT_US);
-        return request;
+        Assert.assertEquals(list, replayService.replayBackdatedCollateralForDateRange(requests, request.getRegulatoryName(), request.getRegulatoryAuthority()));
     }
 
     @Test
-    public void corrective_For_Trade(){
+    public void corrective_For_Trade() {
         CorrectiveReportingForTrade request = getCrTradeAsPrimaryKey("Mis Reporting", "ForeignExchange", "SystemX");
 
         TntrCRTradeRequest tradeRequest = new TntrCRTradeRequest(request.getSourceSystem(), "username", "MIS_REPORTING");
 
         String reUrl = reHost + noaCrTrade;
 
-        ArgumentMatcher<HttpEntity> httpEntityMatcher=
-                new ArgumentMatcher<HttpEntity>() {
-                    @Override
-                    public boolean matches(Object o) {
-                        HttpEntity argument = (HttpEntity) o;
-                        TntrCRTradeRequest t = (TntrCRTradeRequest) argument.getBody();
-                        boolean isBodyAsExpected =
-                                        t.getSourceSystemId().equals(tradeRequest.getSourceSystemId()) &&
-                                        t.getActionBy().equals(tradeRequest.getActionBy()) &&
-                                        t.getReportingType().equals(tradeRequest.getReportingType());
-                        boolean isHeaderMediaTypeJson =
-                                argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON);
-                        boolean headerHasApplicationSsoToken
-                                = argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
-                        return  isBodyAsExpected
-                                && isHeaderMediaTypeJson
-                                && headerHasApplicationSsoToken;
-                    }
-                };
-
-        ParameterizedTypeReference<List<String>> parameterizedTypeReference =
-                new ParameterizedTypeReference<List<String>>() {
-                };
-
-        String res = "Request for "+request.getRegime().value()+" for "+request.getAssetClass()+" was "+"Successful";
-        Mockito.when(
-                        restTemplate.exchange(
-                                Mockito.eq(reUrl),
-                                Mockito.eq(HttpMethod.POST),
-                                Mockito.argThat(httpEntityMatcher),
-                                Mockito.any(parameterizedTypeReference.getClass()) ))
-                .thenReturn(new ResponseEntity<String>(
-                        res,
-                        HttpStatus.OK));
-
-        Assert.assertEquals(res,replayService.replayCRTrades(request));
-    }
-
-    @Test
-    public void corrective_For_Trade_For_Exception(){
-        CorrectiveReportingForTrade request = getCrTradeAsPrimaryKey("Mis Reporting", "Exotic", "SystemX");
-
-        TntrCRTradeRequest tradeRequest = new TntrCRTradeRequest(request.getSourceSystem(), "username", "MIS_REPORTING");
-
-        String reUrl = reHost + noaCrTrade;
-
-        ArgumentMatcher<HttpEntity> httpEntityMatcher=
+        ArgumentMatcher<HttpEntity> httpEntityMatcher =
                 new ArgumentMatcher<HttpEntity>() {
                     @Override
                     public boolean matches(Object o) {
@@ -1772,7 +1259,7 @@ public class ReplayServiceImplTest {
                                 argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON);
                         boolean headerHasApplicationSsoToken
                                 = argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
-                        return  isBodyAsExpected
+                        return isBodyAsExpected
                                 && isHeaderMediaTypeJson
                                 && headerHasApplicationSsoToken;
                     }
@@ -1782,20 +1269,66 @@ public class ReplayServiceImplTest {
                 new ParameterizedTypeReference<List<String>>() {
                 };
 
-        String res = "Request for "+request.getRegime().value()+" for "+request.getAssetClass()+" was submitted successfully";
+        String res = "Request for " + request.getRegime().value() + " for " + request.getAssetClass() + " was " + "Successful";
         Mockito.when(
                         restTemplate.exchange(
                                 Mockito.eq(reUrl),
                                 Mockito.eq(HttpMethod.POST),
                                 Mockito.argThat(httpEntityMatcher),
-                                Mockito.any(parameterizedTypeReference.getClass()) ))
-                .thenThrow(new ResourceAccessException("Timeout Occurred", new SocketTimeoutException("Read timed out")));
+                                Mockito.any(parameterizedTypeReference.getClass())))
+                .thenReturn(new ResponseEntity<String>(
+                        res,
+                        HttpStatus.OK));
 
-        Assert.assertEquals(res,replayService.replayCRTrades(request));
+        Assert.assertEquals(res, replayService.replayCRTrades(request));
     }
 
     @Test
-    public void corrective_For_Valuation(){
+    public void corrective_For_Trade_For_Exception() {
+        CorrectiveReportingForTrade request = getCrTradeAsPrimaryKey("Mis Reporting", "Exotic", "SystemX");
+
+        TntrCRTradeRequest tradeRequest = new TntrCRTradeRequest(request.getSourceSystem(), "username", "MIS_REPORTING");
+
+        String reUrl = reHost + noaCrTrade;
+
+        ArgumentMatcher<HttpEntity> httpEntityMatcher =
+                new ArgumentMatcher<HttpEntity>() {
+                    @Override
+                    public boolean matches(Object o) {
+                        HttpEntity argument = (HttpEntity) o;
+                        TntrCRTradeRequest t = (TntrCRTradeRequest) argument.getBody();
+                        boolean isBodyAsExpected =
+                                t.getSourceSystemId().equals(tradeRequest.getSourceSystemId()) &&
+                                        t.getActionBy().equals(tradeRequest.getActionBy()) &&
+                                        t.getReportingType().equals(tradeRequest.getReportingType());
+                        boolean isHeaderMediaTypeJson =
+                                argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON);
+                        boolean headerHasApplicationSsoToken
+                                = argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
+                        return isBodyAsExpected
+                                && isHeaderMediaTypeJson
+                                && headerHasApplicationSsoToken;
+                    }
+                };
+
+        ParameterizedTypeReference<List<String>> parameterizedTypeReference =
+                new ParameterizedTypeReference<List<String>>() {
+                };
+
+        String res = "Request for " + request.getRegime().value() + " for " + request.getAssetClass() + " was submitted successfully";
+        Mockito.when(
+                        restTemplate.exchange(
+                                Mockito.eq(reUrl),
+                                Mockito.eq(HttpMethod.POST),
+                                Mockito.argThat(httpEntityMatcher),
+                                Mockito.any(parameterizedTypeReference.getClass())))
+                .thenThrow(new ResourceAccessException("Timeout Occurred", new SocketTimeoutException("Read timed out")));
+
+        Assert.assertEquals(res, replayService.replayCRTrades(request));
+    }
+
+    @Test
+    public void corrective_For_Valuation() {
         CorrectiveReportingForValuation request = new CorrectiveReportingForValuation();
         request.setPrimaryKey(getCrTradeAsPrimaryKey("Mis Reporting", "InterestRate", "GDS GBLO"));
         request.getPrimaryKey().setAction(CRAction.CR_VALUATION);
@@ -1808,7 +1341,7 @@ public class ReplayServiceImplTest {
 
         String reUrl = reHost + noaCrValPath;
 
-        ArgumentMatcher<HttpEntity> httpEntityMatcher=
+        ArgumentMatcher<HttpEntity> httpEntityMatcher =
                 new ArgumentMatcher<HttpEntity>() {
                     @Override
                     public boolean matches(Object o) {
@@ -1822,7 +1355,7 @@ public class ReplayServiceImplTest {
                                 argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON);
                         boolean headerHasApplicationSsoToken
                                 = argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
-                        return  isBodyAsExpected
+                        return isBodyAsExpected
                                 && isHeaderMediaTypeJson
                                 && headerHasApplicationSsoToken;
                     }
@@ -1832,22 +1365,22 @@ public class ReplayServiceImplTest {
                 new ParameterizedTypeReference<List<String>>() {
                 };
 
-        String res = "Request for "+request.getPrimaryKey().getRegime().value()+" for "+request.getPrimaryKey().getAssetClass()+" was "+"Successful";
+        String res = "Request for " + request.getPrimaryKey().getRegime().value() + " for " + request.getPrimaryKey().getAssetClass() + " was " + "Successful";
         Mockito.when(
                         restTemplate.exchange(
                                 Mockito.eq(reUrl),
                                 Mockito.eq(HttpMethod.POST),
                                 Mockito.argThat(httpEntityMatcher),
-                                Mockito.any(parameterizedTypeReference.getClass()) ))
+                                Mockito.any(parameterizedTypeReference.getClass())))
                 .thenReturn(new ResponseEntity<String>(
                         res,
                         HttpStatus.OK));
 
-        Assert.assertEquals(res,replayService.replayCRValuation(request));
+        Assert.assertEquals(res, replayService.replayCRValuation(request));
     }
 
     @Test
-    public void corrective_For_Valuation_DateRange(){
+    public void corrective_For_Valuation_DateRange() {
         CorrectiveReportingForValuation request = new CorrectiveReportingForValuation();
         request.setPrimaryKey(getCrTradeAsPrimaryKey("Mis Reporting", "InterestRate", "GDS GBLO"));
         request.getPrimaryKey().setAction(CRAction.CR_VALUATION_DATE_RANGE);
@@ -1865,7 +1398,7 @@ public class ReplayServiceImplTest {
                 .queryParam("valuationDateTo", request.getValuationDateTo())
                 .build().encode().toUri().toString();
         System.out.println(reUrl);
-        ArgumentMatcher<HttpEntity> httpEntityMatcher=
+        ArgumentMatcher<HttpEntity> httpEntityMatcher =
                 new ArgumentMatcher<HttpEntity>() {
                     @Override
                     public boolean matches(Object o) {
@@ -1874,7 +1407,7 @@ public class ReplayServiceImplTest {
                                 argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON);
                         boolean headerHasApplicationSsoToken
                                 = argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
-                        return  isHeaderMediaTypeJson
+                        return isHeaderMediaTypeJson
                                 && headerHasApplicationSsoToken;
                     }
                 };
@@ -1883,22 +1416,22 @@ public class ReplayServiceImplTest {
                 new ParameterizedTypeReference<List<String>>() {
                 };
 
-        String res = "Request for "+request.getPrimaryKey().getRegime().value()+" for "+request.getPrimaryKey().getAssetClass()+" was "+"Successful";
+        String res = "Request for " + request.getPrimaryKey().getRegime().value() + " for " + request.getPrimaryKey().getAssetClass() + " was " + "Successful";
         Mockito.when(
                         restTemplate.exchange(
                                 Mockito.eq(reUrl),
                                 Mockito.eq(HttpMethod.POST),
                                 Mockito.argThat(httpEntityMatcher),
-                                Mockito.any(parameterizedTypeReference.getClass()) ))
+                                Mockito.any(parameterizedTypeReference.getClass())))
                 .thenReturn(new ResponseEntity<String>(
                         res,
                         HttpStatus.OK));
 
-        Assert.assertEquals(res,replayService.replayCRValuation(request));
+        Assert.assertEquals(res, replayService.replayCRValuation(request));
     }
 
     @Test
-    public void corrective_For_Valuation_DateRange_Ex(){
+    public void corrective_For_Valuation_DateRange_Ex() {
         CorrectiveReportingForValuation request = new CorrectiveReportingForValuation();
         request.setPrimaryKey(getCrTradeAsPrimaryKey("Mis Reporting", "InterestRate", "GDS GBLO"));
         request.getPrimaryKey().setAction(CRAction.CR_VALUATION_DATE_RANGE);
@@ -1916,7 +1449,7 @@ public class ReplayServiceImplTest {
                 .queryParam("valuationDateTo", request.getValuationDateTo())
                 .build().encode().toUri().toString();
         System.out.println(reUrl);
-        ArgumentMatcher<HttpEntity> httpEntityMatcher=
+        ArgumentMatcher<HttpEntity> httpEntityMatcher =
                 new ArgumentMatcher<HttpEntity>() {
                     @Override
                     public boolean matches(Object o) {
@@ -1925,7 +1458,7 @@ public class ReplayServiceImplTest {
                                 argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON);
                         boolean headerHasApplicationSsoToken
                                 = argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
-                        return  isHeaderMediaTypeJson
+                        return isHeaderMediaTypeJson
                                 && headerHasApplicationSsoToken;
                     }
                 };
@@ -1934,24 +1467,24 @@ public class ReplayServiceImplTest {
                 new ParameterizedTypeReference<List<String>>() {
                 };
 
-        String res = "Request for "+request.getPrimaryKey().getRegime().value()+" for "+request.getPrimaryKey().getAssetClass()+" was submitted to RE Service";
+        String res = "Request for " + request.getPrimaryKey().getRegime().value() + " for " + request.getPrimaryKey().getAssetClass() + " was submitted to RE Service";
         Mockito.when(
                         restTemplate.exchange(
                                 Mockito.eq(reUrl),
                                 Mockito.eq(HttpMethod.POST),
                                 Mockito.argThat(httpEntityMatcher),
-                                Mockito.any(parameterizedTypeReference.getClass()) ))
+                                Mockito.any(parameterizedTypeReference.getClass())))
                 .thenThrow(new RestClientException("Test"));
 
-        Assert.assertEquals(res,replayService.replayCRValuation(request));
+        Assert.assertEquals(res, replayService.replayCRValuation(request));
     }
 
     @Test
-    public void corrective_For_collateral(){
+    public void corrective_For_collateral() {
         CorrectiveReportingForCollateral request = new CorrectiveReportingForCollateral();
         request.setPrimaryKey(getCrTradeAsPrimaryKey("Mis Reporting", "Collateral", "GDS GBLO"));
         request.getPrimaryKey().setAction(CRAction.CR_COLLATERAL);
-        request.setFlow("Collateral");;
+        request.setFlow("Collateral");
         request.setOverrideFields("field");
 
         String baseUrl = reHost + noaCrColPath;
@@ -1961,7 +1494,7 @@ public class ReplayServiceImplTest {
                 .build().encode().toUri().toString();
 
         System.out.println(reUrl);
-        ArgumentMatcher<HttpEntity> httpEntityMatcher=
+        ArgumentMatcher<HttpEntity> httpEntityMatcher =
                 new ArgumentMatcher<HttpEntity>() {
                     @Override
                     public boolean matches(Object o) {
@@ -1970,7 +1503,7 @@ public class ReplayServiceImplTest {
                                 argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON);
                         boolean headerHasApplicationSsoToken
                                 = argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
-                        return  isHeaderMediaTypeJson
+                        return isHeaderMediaTypeJson
                                 && headerHasApplicationSsoToken;
                     }
                 };
@@ -1979,22 +1512,22 @@ public class ReplayServiceImplTest {
                 new ParameterizedTypeReference<List<String>>() {
                 };
 
-        String res = "Request for "+request.getPrimaryKey().getRegime().value()+" for "+request.getPrimaryKey().getAssetClass()+" was "+"Successful";
+        String res = "Request for " + request.getPrimaryKey().getRegime().value() + " for " + request.getPrimaryKey().getAssetClass() + " was " + "Successful";
         Mockito.when(
                         restTemplate.exchange(
                                 Mockito.eq(reUrl),
                                 Mockito.eq(HttpMethod.POST),
                                 Mockito.argThat(httpEntityMatcher),
-                                Mockito.any(parameterizedTypeReference.getClass()) ))
+                                Mockito.any(parameterizedTypeReference.getClass())))
                 .thenReturn(new ResponseEntity<String>(
                         res,
                         HttpStatus.OK));
 
-        Assert.assertEquals(res,replayService.replayCRCollateral(request));
+        Assert.assertEquals(res, replayService.replayCRCollateral(request));
     }
 
     @Test
-    public void corrective_For_collateral_DateRange(){
+    public void corrective_For_collateral_DateRange() {
         CorrectiveReportingForCollateral request = new CorrectiveReportingForCollateral();
         request.setPrimaryKey(getCrTradeAsPrimaryKey("Mis Reporting", "Collateral", "GDS GBLO"));
         request.getPrimaryKey().setAction(CRAction.CR_COLLATERAL_DATE_RANGE);
@@ -2012,7 +1545,7 @@ public class ReplayServiceImplTest {
                 .build().encode().toUri().toString();
 
         System.out.println(reUrl);
-        ArgumentMatcher<HttpEntity> httpEntityMatcher=
+        ArgumentMatcher<HttpEntity> httpEntityMatcher =
                 new ArgumentMatcher<HttpEntity>() {
                     @Override
                     public boolean matches(Object o) {
@@ -2021,7 +1554,7 @@ public class ReplayServiceImplTest {
                                 argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON);
                         boolean headerHasApplicationSsoToken
                                 = argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
-                        return  isHeaderMediaTypeJson
+                        return isHeaderMediaTypeJson
                                 && headerHasApplicationSsoToken;
                     }
                 };
@@ -2030,22 +1563,22 @@ public class ReplayServiceImplTest {
                 new ParameterizedTypeReference<List<String>>() {
                 };
 
-        String res = "Request for "+request.getPrimaryKey().getRegime().value()+" for "+request.getPrimaryKey().getAssetClass()+" was "+"Successful";
+        String res = "Request for " + request.getPrimaryKey().getRegime().value() + " for " + request.getPrimaryKey().getAssetClass() + " was " + "Successful";
         Mockito.when(
                         restTemplate.exchange(
                                 Mockito.eq(reUrl),
                                 Mockito.eq(HttpMethod.POST),
                                 Mockito.argThat(httpEntityMatcher),
-                                Mockito.any(parameterizedTypeReference.getClass()) ))
+                                Mockito.any(parameterizedTypeReference.getClass())))
                 .thenReturn(new ResponseEntity<String>(
                         res,
                         HttpStatus.OK));
 
-        Assert.assertEquals(res,replayService.replayCRCollateral(request));
+        Assert.assertEquals(res, replayService.replayCRCollateral(request));
     }
 
     @Test
-    public void corrective_For_collateral_Both_DateRange(){
+    public void corrective_For_collateral_Both_DateRange() {
         CorrectiveReportingForCollateral request = new CorrectiveReportingForCollateral();
         request.setPrimaryKey(getCrTradeAsPrimaryKey("Mis Reporting", "Collateral", "GDS GBLO"));
         request.getPrimaryKey().setAction(CRAction.CR_COLLATERAL_DATE_RANGE);
@@ -2062,7 +1595,7 @@ public class ReplayServiceImplTest {
                 .build().encode().toUri().toString();
 
         System.out.println(reUrl);
-        ArgumentMatcher<HttpEntity> httpEntityMatcher=
+        ArgumentMatcher<HttpEntity> httpEntityMatcher =
                 new ArgumentMatcher<HttpEntity>() {
                     @Override
                     public boolean matches(Object o) {
@@ -2071,7 +1604,7 @@ public class ReplayServiceImplTest {
                                 argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON);
                         boolean headerHasApplicationSsoToken
                                 = argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
-                        return  isHeaderMediaTypeJson
+                        return isHeaderMediaTypeJson
                                 && headerHasApplicationSsoToken;
                     }
                 };
@@ -2080,22 +1613,22 @@ public class ReplayServiceImplTest {
                 new ParameterizedTypeReference<List<String>>() {
                 };
 
-        String res = "Request for "+request.getPrimaryKey().getRegime().value()+" for "+request.getPrimaryKey().getAssetClass()+" was "+"Successful";
+        String res = "Request for " + request.getPrimaryKey().getRegime().value() + " for " + request.getPrimaryKey().getAssetClass() + " was " + "Successful";
         Mockito.when(
                         restTemplate.exchange(
                                 Mockito.eq(reUrl),
                                 Mockito.eq(HttpMethod.POST),
                                 Mockito.argThat(httpEntityMatcher),
-                                Mockito.any(parameterizedTypeReference.getClass()) ))
+                                Mockito.any(parameterizedTypeReference.getClass())))
                 .thenReturn(new ResponseEntity<String>(
                         res,
                         HttpStatus.OK));
 
-        Assert.assertEquals(res,replayService.replayCRCollateral(request));
+        Assert.assertEquals(res, replayService.replayCRCollateral(request));
     }
 
     @Test
-    public void replayTradesForUpstream_EMIR_TMS_GBLO_Fx() throws JsonProcessingException{
+    public void replayTradesForUpstream_EMIR_TMS_GBLO_Fx() throws JsonProcessingException {
         List<ReplayTrade> requests = new ArrayList<>();
         ReplayTrade replayTrade = new ReplayTrade();
         replayTrade.setTradeId("tradeId1");
@@ -2108,15 +1641,15 @@ public class ReplayServiceImplTest {
         requests.add(replayTrade);
 
         List<String> tradeIds = Arrays.asList(requests.get(0).getTradeId());
-        TntrReplayTradesRequest tntrReplayTradesRequest = new TntrReplayTradesRequest(tradeIds,requests.get(0).getSourceSystemId(),"username");
-        String reUrl = reHost+upStreamTradeReplay;
+        TntrReplayTradesRequest tntrReplayTradesRequest = new TntrReplayTradesRequest(tradeIds, requests.get(0).getSourceSystemId(), "username");
+        String reUrl = reHost + upStreamTradeReplay;
 
-        ArgumentMatcher<HttpEntity> httpEntityMatcher=
+        ArgumentMatcher<HttpEntity> httpEntityMatcher =
                 new ArgumentMatcher<HttpEntity>() {
                     @Override
                     public boolean matches(Object o) {
                         HttpEntity argument = (HttpEntity) o;
-                        TntrReplayTradesRequest t = (TntrReplayTradesRequest)argument.getBody();
+                        TntrReplayTradesRequest t = (TntrReplayTradesRequest) argument.getBody();
                         boolean isBodyAsExpected =
                                 (t.getTradeIds().containsAll(tntrReplayTradesRequest.getTradeIds()) &&
                                         t.getSourceSystem().equals(tntrReplayTradesRequest.getSourceSystem()) &&
@@ -2125,7 +1658,7 @@ public class ReplayServiceImplTest {
                                 argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON);
                         boolean headerHasApplicationSsoToken
                                 = argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
-                        return  isBodyAsExpected
+                        return isBodyAsExpected
                                 && isHeaderMediaTypeJson
                                 && headerHasApplicationSsoToken;
                     }
@@ -2135,25 +1668,23 @@ public class ReplayServiceImplTest {
                 new ParameterizedTypeReference<List<String>>() {
                 };
 
-        String res = "Request for "+replayTrade.getRegime().value()+" for "+replayTrade.getSourceSystemId()+" was "+"Successful";
+        String res = "Request for " + replayTrade.getRegime().value() + " for " + replayTrade.getSourceSystemId() + " was " + "Successful";
         List<String> list = Arrays.asList(res);
         Mockito.when(
                         restTemplate.exchange(
                                 Mockito.eq(reUrl),
                                 Mockito.eq(HttpMethod.POST),
                                 Mockito.argThat(httpEntityMatcher),
-                                Mockito.any(parameterizedTypeReference.getClass()) ))
+                                Mockito.any(parameterizedTypeReference.getClass())))
                 .thenReturn(new ResponseEntity<String>(
                         res,
                         HttpStatus.OK));
 
-        Assert.assertEquals(list,replayService.replayTradesForUpstream(requests,replayTrade.getRegime()));
-
-
+        Assert.assertEquals(list, replayService.replayTradesForUpstream(requests, replayTrade.getRegime()));
     }
 
     @Test
-    public void replayTradesForUpstream_EMIR_ICE() throws JsonProcessingException{
+    public void replayTradesForUpstream_EMIR_ICE() throws JsonProcessingException {
         List<ReplayTrade> requests = new ArrayList<>();
         ReplayTrade replayTrade = new ReplayTrade();
         replayTrade.setTradeId("tradeId1");
@@ -2166,15 +1697,15 @@ public class ReplayServiceImplTest {
         requests.add(replayTrade);
 
         List<String> tradeIds = Arrays.asList(requests.get(0).getTradeId());
-        TntrReplayTradesRequest tntrReplayTradesRequest = new TntrReplayTradesRequest(tradeIds,requests.get(0).getSourceSystemId(),"username");
-        String reUrl = reHost+upStreamCreditReplay;
+        TntrReplayTradesRequest tntrReplayTradesRequest = new TntrReplayTradesRequest(tradeIds, requests.get(0).getSourceSystemId(), "username");
+        String reUrl = reHost + upStreamCreditReplay;
 
-        ArgumentMatcher<HttpEntity> httpEntityMatcher=
+        ArgumentMatcher<HttpEntity> httpEntityMatcher =
                 new ArgumentMatcher<HttpEntity>() {
                     @Override
                     public boolean matches(Object o) {
                         HttpEntity argument = (HttpEntity) o;
-                        TntrReplayTradesRequest t = (TntrReplayTradesRequest)argument.getBody();
+                        TntrReplayTradesRequest t = (TntrReplayTradesRequest) argument.getBody();
                         boolean isBodyAsExpected =
                                 (t.getTradeIds().containsAll(tntrReplayTradesRequest.getTradeIds()) &&
                                         t.getSourceSystem().equals(tntrReplayTradesRequest.getSourceSystem()) &&
@@ -2183,7 +1714,7 @@ public class ReplayServiceImplTest {
                                 argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON);
                         boolean headerHasApplicationSsoToken
                                 = argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
-                        return  isBodyAsExpected
+                        return isBodyAsExpected
                                 && isHeaderMediaTypeJson
                                 && headerHasApplicationSsoToken;
                     }
@@ -2193,23 +1724,23 @@ public class ReplayServiceImplTest {
                 new ParameterizedTypeReference<List<String>>() {
                 };
 
-        String res = "Request for "+replayTrade.getRegime().value()+" for "+replayTrade.getSourceSystemId()+" was "+"Successful";
+        String res = "Request for " + replayTrade.getRegime().value() + " for " + replayTrade.getSourceSystemId() + " was " + "Successful";
         List<String> list = Arrays.asList(res);
         Mockito.when(
                         restTemplate.exchange(
                                 Mockito.eq(reUrl),
                                 Mockito.eq(HttpMethod.POST),
                                 Mockito.argThat(httpEntityMatcher),
-                                Mockito.any(parameterizedTypeReference.getClass()) ))
+                                Mockito.any(parameterizedTypeReference.getClass())))
                 .thenReturn(new ResponseEntity<String>(
                         res,
                         HttpStatus.OK));
 
-        Assert.assertEquals(list,replayService.replayTradesForUpstream(requests,replayTrade.getRegime()));
+        Assert.assertEquals(list, replayService.replayTradesForUpstream(requests, replayTrade.getRegime()));
     }
 
     @Test
-    public void replayTradesForUpstream_EMIR_ROLFE_NOLAN() throws JsonProcessingException{
+    public void replayTradesForUpstream_EMIR_ROLFE_NOLAN() throws JsonProcessingException {
         List<ReplayTrade> requests = new ArrayList<>();
         ReplayTrade replayTrade = new ReplayTrade();
         replayTrade.setTradeId("tradeId1");
@@ -2221,15 +1752,15 @@ public class ReplayServiceImplTest {
         requests.add(replayTrade);
 
         List<String> tradeIds = Arrays.asList(requests.get(0).getTradeId());
-        TntrReplayTradesRequest tntrReplayTradesRequest = new TntrReplayTradesRequest(tradeIds,requests.get(0).getSourceSystemId(),"username");
-        String reUrl = reHost+etdTransaction;
+        TntrReplayTradesRequest tntrReplayTradesRequest = new TntrReplayTradesRequest(tradeIds, requests.get(0).getSourceSystemId(), "username");
+        String reUrl = reHost + etdTransaction;
 
-        ArgumentMatcher<HttpEntity> httpEntityMatcher=
+        ArgumentMatcher<HttpEntity> httpEntityMatcher =
                 new ArgumentMatcher<HttpEntity>() {
                     @Override
                     public boolean matches(Object o) {
                         HttpEntity argument = (HttpEntity) o;
-                        TntrReplayTradesRequest t = (TntrReplayTradesRequest)argument.getBody();
+                        TntrReplayTradesRequest t = (TntrReplayTradesRequest) argument.getBody();
                         boolean isBodyAsExpected =
                                 (t.getTradeIds().containsAll(tntrReplayTradesRequest.getTradeIds()) &&
                                         t.getSourceSystem().equals(tntrReplayTradesRequest.getSourceSystem()) &&
@@ -2238,7 +1769,7 @@ public class ReplayServiceImplTest {
                                 argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON);
                         boolean headerHasApplicationSsoToken
                                 = argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
-                        return  isBodyAsExpected
+                        return isBodyAsExpected
                                 && isHeaderMediaTypeJson
                                 && headerHasApplicationSsoToken;
                     }
@@ -2248,23 +1779,23 @@ public class ReplayServiceImplTest {
                 new ParameterizedTypeReference<List<String>>() {
                 };
 
-        String res = "Request for "+replayTrade.getRegime().value()+" for "+replayTrade.getSourceSystemId()+" was "+"Successful";
+        String res = "Request for " + replayTrade.getRegime().value() + " for " + replayTrade.getSourceSystemId() + " was " + "Successful";
         List<String> list = Arrays.asList(res);
         Mockito.when(
                         restTemplate.exchange(
                                 Mockito.eq(reUrl),
                                 Mockito.eq(HttpMethod.POST),
                                 Mockito.argThat(httpEntityMatcher),
-                                Mockito.any(parameterizedTypeReference.getClass()) ))
+                                Mockito.any(parameterizedTypeReference.getClass())))
                 .thenReturn(new ResponseEntity<String>(
                         res,
                         HttpStatus.OK));
 
-        Assert.assertEquals(list,replayService.replayTradesForUpstream(requests,replayTrade.getRegime()));
+        Assert.assertEquals(list, replayService.replayTradesForUpstream(requests, replayTrade.getRegime()));
     }
 
     @Test
-    public void replayTradesForUpstream_EMIR_GDS_USNY() throws JsonProcessingException{
+    public void replayTradesForUpstream_EMIR_GDS_USNY() throws JsonProcessingException {
         List<ReplayTrade> requests = new ArrayList<>();
         ReplayTrade replayTrade = new ReplayTrade();
         replayTrade.setTradeId("tradeId1");
@@ -2276,15 +1807,15 @@ public class ReplayServiceImplTest {
         requests.add(replayTrade);
 
         List<String> tradeIds = Arrays.asList(requests.get(0).getTradeId());
-        TntrReplayTradesRequest tntrReplayTradesRequest = new TntrReplayTradesRequest(tradeIds,requests.get(0).getSourceSystemId(),"username");
-        String reUrl = reHost+emirTrade;
+        TntrReplayTradesRequest tntrReplayTradesRequest = new TntrReplayTradesRequest(tradeIds, requests.get(0).getSourceSystemId(), "username");
+        String reUrl = reHost + emirTrade;
 
-        ArgumentMatcher<HttpEntity> httpEntityMatcher=
+        ArgumentMatcher<HttpEntity> httpEntityMatcher =
                 new ArgumentMatcher<HttpEntity>() {
                     @Override
                     public boolean matches(Object o) {
                         HttpEntity argument = (HttpEntity) o;
-                        TntrReplayTradesRequest t = (TntrReplayTradesRequest)argument.getBody();
+                        TntrReplayTradesRequest t = (TntrReplayTradesRequest) argument.getBody();
                         boolean isBodyAsExpected =
                                 (t.getTradeIds().containsAll(tntrReplayTradesRequest.getTradeIds()) &&
                                         t.getSourceSystem().equals(tntrReplayTradesRequest.getSourceSystem()) &&
@@ -2293,7 +1824,7 @@ public class ReplayServiceImplTest {
                                 argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON);
                         boolean headerHasApplicationSsoToken
                                 = argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
-                        return  isBodyAsExpected
+                        return isBodyAsExpected
                                 && isHeaderMediaTypeJson
                                 && headerHasApplicationSsoToken;
                     }
@@ -2303,23 +1834,23 @@ public class ReplayServiceImplTest {
                 new ParameterizedTypeReference<List<String>>() {
                 };
 
-        String res = "Request for "+replayTrade.getRegime().value()+" for "+replayTrade.getSourceSystemId()+" was "+"Successful";
+        String res = "Request for " + replayTrade.getRegime().value() + " for " + replayTrade.getSourceSystemId() + " was " + "Successful";
         List<String> list = Arrays.asList(res);
         Mockito.when(
                         restTemplate.exchange(
                                 Mockito.eq(reUrl),
                                 Mockito.eq(HttpMethod.POST),
                                 Mockito.argThat(httpEntityMatcher),
-                                Mockito.any(parameterizedTypeReference.getClass()) ))
+                                Mockito.any(parameterizedTypeReference.getClass())))
                 .thenReturn(new ResponseEntity<String>(
                         res,
                         HttpStatus.OK));
 
-        Assert.assertEquals(list,replayService.replayTradesForUpstream(requests,replayTrade.getRegime()));
+        Assert.assertEquals(list, replayService.replayTradesForUpstream(requests, replayTrade.getRegime()));
     }
 
     @Test
-    public void replayTradesForUpstream_DODD_FRANK_ACT_US_GDS_USNY() throws JsonProcessingException{
+    public void replayTradesForUpstream_DODD_FRANK_ACT_US_GDS_USNY() throws JsonProcessingException {
         List<ReplayTrade> requests = new ArrayList<>();
         ReplayTrade replayTrade = new ReplayTrade();
         replayTrade.setTradeId("tradeId1");
@@ -2331,15 +1862,15 @@ public class ReplayServiceImplTest {
         requests.add(replayTrade);
 
         List<String> tradeIds = Arrays.asList(requests.get(0).getTradeId());
-        TntrReplayTradesRequest tntrReplayTradesRequest = new TntrReplayTradesRequest(tradeIds,requests.get(0).getSourceSystemId(),"username");
-        String reUrl = reHost+upStreamTradeReplay;
+        TntrReplayTradesRequest tntrReplayTradesRequest = new TntrReplayTradesRequest(tradeIds, requests.get(0).getSourceSystemId(), "username");
+        String reUrl = reHost + upStreamTradeReplay;
 
-        ArgumentMatcher<HttpEntity> httpEntityMatcher=
+        ArgumentMatcher<HttpEntity> httpEntityMatcher =
                 new ArgumentMatcher<HttpEntity>() {
                     @Override
                     public boolean matches(Object o) {
                         HttpEntity argument = (HttpEntity) o;
-                        TntrReplayTradesRequest t = (TntrReplayTradesRequest)argument.getBody();
+                        TntrReplayTradesRequest t = (TntrReplayTradesRequest) argument.getBody();
                         boolean isBodyAsExpected =
                                 (t.getTradeIds().containsAll(tntrReplayTradesRequest.getTradeIds()) &&
                                         t.getSourceSystem().equals(tntrReplayTradesRequest.getSourceSystem()) &&
@@ -2348,7 +1879,7 @@ public class ReplayServiceImplTest {
                                 argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON);
                         boolean headerHasApplicationSsoToken
                                 = argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
-                        return  isBodyAsExpected
+                        return isBodyAsExpected
                                 && isHeaderMediaTypeJson
                                 && headerHasApplicationSsoToken;
                     }
@@ -2358,23 +1889,23 @@ public class ReplayServiceImplTest {
                 new ParameterizedTypeReference<List<String>>() {
                 };
 
-        String res = "Request for "+replayTrade.getRegime().value()+" for "+replayTrade.getSourceSystemId()+" was "+"Successful";
+        String res = "Request for " + replayTrade.getRegime().value() + " for " + replayTrade.getSourceSystemId() + " was " + "Successful";
         List<String> list = Arrays.asList(res);
         Mockito.when(
                         restTemplate.exchange(
                                 Mockito.eq(reUrl),
                                 Mockito.eq(HttpMethod.POST),
                                 Mockito.argThat(httpEntityMatcher),
-                                Mockito.any(parameterizedTypeReference.getClass()) ))
+                                Mockito.any(parameterizedTypeReference.getClass())))
                 .thenReturn(new ResponseEntity<String>(
                         res,
                         HttpStatus.OK));
 
-        Assert.assertEquals(list,replayService.replayTradesForUpstream(requests,replayTrade.getRegime()));
+        Assert.assertEquals(list, replayService.replayTradesForUpstream(requests, replayTrade.getRegime()));
     }
 
     @Test
-    public void replayTradesForUpstream_CANADA_RULE_91_507_SYSTEM_X() throws JsonProcessingException{
+    public void replayTradesForUpstream_CANADA_RULE_91_507_SYSTEM_X() throws JsonProcessingException {
         List<ReplayTrade> requests = new ArrayList<>();
         ReplayTrade replayTrade = new ReplayTrade();
         replayTrade.setTradeId("tradeId1");
@@ -2386,15 +1917,15 @@ public class ReplayServiceImplTest {
         requests.add(replayTrade);
 
         List<String> tradeIds = Arrays.asList(requests.get(0).getTradeId());
-        TntrReplayTradesRequest tntrReplayTradesRequest = new TntrReplayTradesRequest(tradeIds,requests.get(0).getSourceSystemId(),"username");
-        String reUrl = reHost+upStreamTradeReplay;
+        TntrReplayTradesRequest tntrReplayTradesRequest = new TntrReplayTradesRequest(tradeIds, requests.get(0).getSourceSystemId(), "username");
+        String reUrl = reHost + upStreamTradeReplay;
 
-        ArgumentMatcher<HttpEntity> httpEntityMatcher=
+        ArgumentMatcher<HttpEntity> httpEntityMatcher =
                 new ArgumentMatcher<HttpEntity>() {
                     @Override
                     public boolean matches(Object o) {
                         HttpEntity argument = (HttpEntity) o;
-                        TntrReplayTradesRequest t = (TntrReplayTradesRequest)argument.getBody();
+                        TntrReplayTradesRequest t = (TntrReplayTradesRequest) argument.getBody();
                         boolean isBodyAsExpected =
                                 (t.getTradeIds().containsAll(tntrReplayTradesRequest.getTradeIds()) &&
                                         t.getSourceSystem().equals(tntrReplayTradesRequest.getSourceSystem()) &&
@@ -2403,7 +1934,7 @@ public class ReplayServiceImplTest {
                                 argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON);
                         boolean headerHasApplicationSsoToken
                                 = argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
-                        return  isBodyAsExpected
+                        return isBodyAsExpected
                                 && isHeaderMediaTypeJson
                                 && headerHasApplicationSsoToken;
                     }
@@ -2413,23 +1944,23 @@ public class ReplayServiceImplTest {
                 new ParameterizedTypeReference<List<String>>() {
                 };
 
-        String res = "Request for "+replayTrade.getRegime().value()+" for "+replayTrade.getSourceSystemId()+" was "+"Successful";
+        String res = "Request for " + replayTrade.getRegime().value() + " for " + replayTrade.getSourceSystemId() + " was " + "Successful";
         List<String> list = Arrays.asList(res);
         Mockito.when(
                         restTemplate.exchange(
                                 Mockito.eq(reUrl),
                                 Mockito.eq(HttpMethod.POST),
                                 Mockito.argThat(httpEntityMatcher),
-                                Mockito.any(parameterizedTypeReference.getClass()) ))
+                                Mockito.any(parameterizedTypeReference.getClass())))
                 .thenReturn(new ResponseEntity<String>(
                         res,
                         HttpStatus.OK));
 
-        Assert.assertEquals(list,replayService.replayTradesForUpstream(requests,replayTrade.getRegime()));
+        Assert.assertEquals(list, replayService.replayTradesForUpstream(requests, replayTrade.getRegime()));
     }
 
     @Test
-    public void replayTradesForUpstream_MARKETS_IN_FINANCIAL_INSTRUMENTS_DIRECTIVE_GDS_GBLO() throws JsonProcessingException{
+    public void replayTradesForUpstream_MARKETS_IN_FINANCIAL_INSTRUMENTS_DIRECTIVE_GDS_GBLO() throws JsonProcessingException {
         List<ReplayTrade> requests = new ArrayList<>();
         ReplayTrade replayTrade = new ReplayTrade();
         replayTrade.setTradeId("tradeId1");
@@ -2441,15 +1972,15 @@ public class ReplayServiceImplTest {
         requests.add(replayTrade);
 
         List<String> tradeIds = Arrays.asList(requests.get(0).getTradeId());
-        TntrReplayTradesRequest tntrReplayTradesRequest = new TntrReplayTradesRequest(tradeIds,requests.get(0).getSourceSystemId(),"username");
-        String reUrl = reHost+mifidTrade;
+        TntrReplayTradesRequest tntrReplayTradesRequest = new TntrReplayTradesRequest(tradeIds, requests.get(0).getSourceSystemId(), "username");
+        String reUrl = reHost + mifidTrade;
 
-        ArgumentMatcher<HttpEntity> httpEntityMatcher=
+        ArgumentMatcher<HttpEntity> httpEntityMatcher =
                 new ArgumentMatcher<HttpEntity>() {
                     @Override
                     public boolean matches(Object o) {
                         HttpEntity argument = (HttpEntity) o;
-                        TntrReplayTradesRequest t = (TntrReplayTradesRequest)argument.getBody();
+                        TntrReplayTradesRequest t = (TntrReplayTradesRequest) argument.getBody();
                         boolean isBodyAsExpected =
                                 (t.getTradeIds().containsAll(tntrReplayTradesRequest.getTradeIds()) &&
                                         t.getSourceSystem().equals(tntrReplayTradesRequest.getSourceSystem()) &&
@@ -2458,7 +1989,7 @@ public class ReplayServiceImplTest {
                                 argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON);
                         boolean headerHasApplicationSsoToken
                                 = argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
-                        return  isBodyAsExpected
+                        return isBodyAsExpected
                                 && isHeaderMediaTypeJson
                                 && headerHasApplicationSsoToken;
                     }
@@ -2468,23 +1999,23 @@ public class ReplayServiceImplTest {
                 new ParameterizedTypeReference<List<String>>() {
                 };
 
-        String res = "Request for "+replayTrade.getRegime().value()+" for "+replayTrade.getSourceSystemId()+" was "+"Successful";
+        String res = "Request for " + replayTrade.getRegime().value() + " for " + replayTrade.getSourceSystemId() + " was " + "Successful";
         List<String> list = Arrays.asList(res);
         Mockito.when(
                         restTemplate.exchange(
                                 Mockito.eq(reUrl),
                                 Mockito.eq(HttpMethod.POST),
                                 Mockito.argThat(httpEntityMatcher),
-                                Mockito.any(parameterizedTypeReference.getClass()) ))
+                                Mockito.any(parameterizedTypeReference.getClass())))
                 .thenReturn(new ResponseEntity<String>(
                         res,
                         HttpStatus.OK));
 
-        Assert.assertEquals(list,replayService.replayTradesForUpstream(requests,replayTrade.getRegime()));
+        Assert.assertEquals(list, replayService.replayTradesForUpstream(requests, replayTrade.getRegime()));
     }
 
     @Test
-    public void replayTradesForUpstream_MARKETS_IN_FINANCIAL_INSTRUMENTS_DIRECTIVE_GLOBAL_FX_GBLO() throws JsonProcessingException{
+    public void replayTradesForUpstream_MARKETS_IN_FINANCIAL_INSTRUMENTS_DIRECTIVE_GLOBAL_FX_GBLO() throws JsonProcessingException {
         List<ReplayTrade> requests = new ArrayList<>();
         ReplayTrade replayTrade = new ReplayTrade();
         replayTrade.setTradeId("tradeId1");
@@ -2496,15 +2027,15 @@ public class ReplayServiceImplTest {
         requests.add(replayTrade);
 
         List<String> tradeIds = Arrays.asList(requests.get(0).getTradeId());
-        TntrReplayTradesRequest tntrReplayTradesRequest = new TntrReplayTradesRequest(tradeIds,requests.get(0).getSourceSystemId(),"username");
-        String reUrl = reHost+mifidFx;
+        TntrReplayTradesRequest tntrReplayTradesRequest = new TntrReplayTradesRequest(tradeIds, requests.get(0).getSourceSystemId(), "username");
+        String reUrl = reHost + mifidFx;
 
-        ArgumentMatcher<HttpEntity> httpEntityMatcher=
+        ArgumentMatcher<HttpEntity> httpEntityMatcher =
                 new ArgumentMatcher<HttpEntity>() {
                     @Override
                     public boolean matches(Object o) {
                         HttpEntity argument = (HttpEntity) o;
-                        TntrReplayTradesRequest t = (TntrReplayTradesRequest)argument.getBody();
+                        TntrReplayTradesRequest t = (TntrReplayTradesRequest) argument.getBody();
                         boolean isBodyAsExpected =
                                 (t.getTradeIds().containsAll(tntrReplayTradesRequest.getTradeIds()) &&
                                         t.getSourceSystem().equals(tntrReplayTradesRequest.getSourceSystem()) &&
@@ -2513,7 +2044,7 @@ public class ReplayServiceImplTest {
                                 argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON);
                         boolean headerHasApplicationSsoToken
                                 = argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
-                        return  isBodyAsExpected
+                        return isBodyAsExpected
                                 && isHeaderMediaTypeJson
                                 && headerHasApplicationSsoToken;
                     }
@@ -2523,23 +2054,23 @@ public class ReplayServiceImplTest {
                 new ParameterizedTypeReference<List<String>>() {
                 };
 
-        String res = "Request for "+replayTrade.getRegime().value()+" for "+replayTrade.getSourceSystemId()+" was "+"Successful";
+        String res = "Request for " + replayTrade.getRegime().value() + " for " + replayTrade.getSourceSystemId() + " was " + "Successful";
         List<String> list = Arrays.asList(res);
         Mockito.when(
                         restTemplate.exchange(
                                 Mockito.eq(reUrl),
                                 Mockito.eq(HttpMethod.POST),
                                 Mockito.argThat(httpEntityMatcher),
-                                Mockito.any(parameterizedTypeReference.getClass()) ))
+                                Mockito.any(parameterizedTypeReference.getClass())))
                 .thenReturn(new ResponseEntity<String>(
                         res,
                         HttpStatus.OK));
 
-        Assert.assertEquals(list,replayService.replayTradesForUpstream(requests,replayTrade.getRegime()));
+        Assert.assertEquals(list, replayService.replayTradesForUpstream(requests, replayTrade.getRegime()));
     }
 
     @Test
-    public void replayTradesForUpstream_MARKETS_IN_FINANCIAL_INSTRUMENTS_DIRECTIVE_ICE() throws JsonProcessingException{
+    public void replayTradesForUpstream_MARKETS_IN_FINANCIAL_INSTRUMENTS_DIRECTIVE_ICE() throws JsonProcessingException {
         List<ReplayTrade> requests = new ArrayList<>();
         ReplayTrade replayTrade = new ReplayTrade();
         replayTrade.setTradeId("tradeId1");
@@ -2551,15 +2082,15 @@ public class ReplayServiceImplTest {
         requests.add(replayTrade);
 
         List<String> tradeIds = Arrays.asList(requests.get(0).getTradeId());
-        TntrReplayTradesRequest tntrReplayTradesRequest = new TntrReplayTradesRequest(tradeIds,requests.get(0).getSourceSystemId(),"username");
-        String reUrl = reHost+mifidCredit;
+        TntrReplayTradesRequest tntrReplayTradesRequest = new TntrReplayTradesRequest(tradeIds, requests.get(0).getSourceSystemId(), "username");
+        String reUrl = reHost + mifidCredit;
 
-        ArgumentMatcher<HttpEntity> httpEntityMatcher=
+        ArgumentMatcher<HttpEntity> httpEntityMatcher =
                 new ArgumentMatcher<HttpEntity>() {
                     @Override
                     public boolean matches(Object o) {
                         HttpEntity argument = (HttpEntity) o;
-                        TntrReplayTradesRequest t = (TntrReplayTradesRequest)argument.getBody();
+                        TntrReplayTradesRequest t = (TntrReplayTradesRequest) argument.getBody();
                         boolean isBodyAsExpected =
                                 (t.getTradeIds().containsAll(tntrReplayTradesRequest.getTradeIds()) &&
                                         t.getSourceSystem().equals(tntrReplayTradesRequest.getSourceSystem()) &&
@@ -2568,7 +2099,7 @@ public class ReplayServiceImplTest {
                                 argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON);
                         boolean headerHasApplicationSsoToken
                                 = argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
-                        return  isBodyAsExpected
+                        return isBodyAsExpected
                                 && isHeaderMediaTypeJson
                                 && headerHasApplicationSsoToken;
                     }
@@ -2578,23 +2109,23 @@ public class ReplayServiceImplTest {
                 new ParameterizedTypeReference<List<String>>() {
                 };
 
-        String res = "Request for "+replayTrade.getRegime().value()+" for "+replayTrade.getSourceSystemId()+" was "+"Successful";
+        String res = "Request for " + replayTrade.getRegime().value() + " for " + replayTrade.getSourceSystemId() + " was " + "Successful";
         List<String> list = Arrays.asList(res);
         Mockito.when(
                         restTemplate.exchange(
                                 Mockito.eq(reUrl),
                                 Mockito.eq(HttpMethod.POST),
                                 Mockito.argThat(httpEntityMatcher),
-                                Mockito.any(parameterizedTypeReference.getClass()) ))
+                                Mockito.any(parameterizedTypeReference.getClass())))
                 .thenReturn(new ResponseEntity<String>(
                         res,
                         HttpStatus.OK));
 
-        Assert.assertEquals(list,replayService.replayTradesForUpstream(requests,replayTrade.getRegime()));
+        Assert.assertEquals(list, replayService.replayTradesForUpstream(requests, replayTrade.getRegime()));
     }
 
     @Test
-    public void replayTradesForUpstream_MARKETS_IN_FINANCIAL_INSTRUMENTS_DIRECTIVE_HERMES() throws JsonProcessingException{
+    public void replayTradesForUpstream_MARKETS_IN_FINANCIAL_INSTRUMENTS_DIRECTIVE_HERMES() throws JsonProcessingException {
         List<ReplayTrade> requests = new ArrayList<>();
         ReplayTrade replayTrade = new ReplayTrade();
         replayTrade.setTradeId("tradeId1");
@@ -2606,15 +2137,15 @@ public class ReplayServiceImplTest {
         requests.add(replayTrade);
 
         List<String> tradeIds = Arrays.asList(requests.get(0).getTradeId());
-        TntrReplayTradesRequest tntrReplayTradesRequest = new TntrReplayTradesRequest(tradeIds,requests.get(0).getSourceSystemId(),"username");
-        String reUrl = reHost+mifidTrade;
+        TntrReplayTradesRequest tntrReplayTradesRequest = new TntrReplayTradesRequest(tradeIds, requests.get(0).getSourceSystemId(), "username");
+        String reUrl = reHost + mifidTrade;
 
-        ArgumentMatcher<HttpEntity> httpEntityMatcher=
+        ArgumentMatcher<HttpEntity> httpEntityMatcher =
                 new ArgumentMatcher<HttpEntity>() {
                     @Override
                     public boolean matches(Object o) {
                         HttpEntity argument = (HttpEntity) o;
-                        TntrReplayTradesRequest t = (TntrReplayTradesRequest)argument.getBody();
+                        TntrReplayTradesRequest t = (TntrReplayTradesRequest) argument.getBody();
                         boolean isBodyAsExpected =
                                 (t.getTradeIds().containsAll(tntrReplayTradesRequest.getTradeIds()) &&
                                         t.getSourceSystem().equals(tntrReplayTradesRequest.getSourceSystem()) &&
@@ -2623,7 +2154,7 @@ public class ReplayServiceImplTest {
                                 argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON);
                         boolean headerHasApplicationSsoToken
                                 = argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
-                        return  isBodyAsExpected
+                        return isBodyAsExpected
                                 && isHeaderMediaTypeJson
                                 && headerHasApplicationSsoToken;
                     }
@@ -2633,23 +2164,23 @@ public class ReplayServiceImplTest {
                 new ParameterizedTypeReference<List<String>>() {
                 };
 
-        String res = "Request for "+replayTrade.getRegime().value()+" for "+replayTrade.getSourceSystemId()+" was "+"Successful";
+        String res = "Request for " + replayTrade.getRegime().value() + " for " + replayTrade.getSourceSystemId() + " was " + "Successful";
         List<String> list = Arrays.asList(res);
         Mockito.when(
                         restTemplate.exchange(
                                 Mockito.eq(reUrl),
                                 Mockito.eq(HttpMethod.POST),
                                 Mockito.argThat(httpEntityMatcher),
-                                Mockito.any(parameterizedTypeReference.getClass()) ))
+                                Mockito.any(parameterizedTypeReference.getClass())))
                 .thenReturn(new ResponseEntity<String>(
                         res,
                         HttpStatus.OK));
 
-        Assert.assertEquals(list,replayService.replayTradesForUpstream(requests,replayTrade.getRegime()));
+        Assert.assertEquals(list, replayService.replayTradesForUpstream(requests, replayTrade.getRegime()));
     }
 
     @Test
-    public void replayTradesForUpstream_MARKETS_IN_FINANCIAL_INSTRUMENTS_DIRECTIVE_IGNITE() throws JsonProcessingException{
+    public void replayTradesForUpstream_MARKETS_IN_FINANCIAL_INSTRUMENTS_DIRECTIVE_IGNITE() throws JsonProcessingException {
         List<ReplayTrade> requests = new ArrayList<>();
         ReplayTrade replayTrade = new ReplayTrade();
         replayTrade.setTradeId("tradeId1");
@@ -2661,46 +2192,12 @@ public class ReplayServiceImplTest {
         requests.add(replayTrade);
 
         List<String> tradeIds = Arrays.asList(requests.get(0).getTradeId());
-        TntrReplayTradesRequest tntrReplayTradesRequest = new TntrReplayTradesRequest(tradeIds,requests.get(0).getSourceSystemId(),"username");
-        String reUrl = reHost+mifidTrade;
+        TntrReplayTradesRequest tntrReplayTradesRequest = new TntrReplayTradesRequest(tradeIds, requests.get(0).getSourceSystemId(), "username");
+        String reUrl = reHost + mifidTrade;
 
-        ArgumentMatcher<HttpEntity> httpEntityMatcher=
+        ArgumentMatcher<HttpEntity> httpEntityMatcher =
                 new ArgumentMatcher<HttpEntity>() {
                     @Override
                     public boolean matches(Object o) {
                         HttpEntity argument = (HttpEntity) o;
-                        TntrReplayTradesRequest t = (TntrReplayTradesRequest)argument.getBody();
-                        boolean isBodyAsExpected =
-                                (t.getTradeIds().containsAll(tntrReplayTradesRequest.getTradeIds()) &&
-                                        t.getSourceSystem().equals(tntrReplayTradesRequest.getSourceSystem()) &&
-                                        t.getActionBy().equals(tntrReplayTradesRequest.getActionBy()));
-                        boolean isHeaderMediaTypeJson =
-                                argument.getHeaders().getContentType().equals(MediaType.APPLICATION_JSON);
-                        boolean headerHasApplicationSsoToken
-                                = argument.getHeaders().get("sso-token").get(0).equals("ApplicationSsoToken");
-                        return  isBodyAsExpected
-                                && isHeaderMediaTypeJson
-                                && headerHasApplicationSsoToken;
-                    }
-                };
-
-        ParameterizedTypeReference<List<String>> parameterizedTypeReference =
-                new ParameterizedTypeReference<List<String>>() {
-                };
-
-        String res = "Request for "+replayTrade.getRegime().value()+" for "+replayTrade.getSourceSystemId()+" was "+"Successful";
-        List<String> list = Arrays.asList(res);
-        Mockito.when(
-                        restTemplate.exchange(
-                                Mockito.eq(reUrl),
-                                Mockito.eq(HttpMethod.POST),
-                                Mockito.argThat(httpEntityMatcher),
-                                Mockito.any(parameterizedTypeReference.getClass()) ))
-                .thenReturn(new ResponseEntity<String>(
-                        res,
-                        HttpStatus.OK));
-
-        Assert.assertEquals(list,replayService.replayTradesForUpstream(requests,replayTrade.getRegime()));
-    }
-}
-
+                        TntrReplayTradesRequest t = (TntrReplayTradesRequest) argument.getBody();
