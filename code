@@ -1,149 +1,3 @@
-Could you write all the additional test cases for below java class to cover all the remaining scenarios or methods and make the test coverage or code coverage as 100% using junit 4 and old mockito version and java 8. Also don't use power mockito as i m using older mockito version and for private methods try to use reflection. Plus we can't change any file other than the above test class. 
-
-/**
- * 
- */
-package com.rbs.tntr.business.blotter.utility;
-
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.util.List;
-
-import org.apache.poi.ss.usermodel.Cell;
-import org.apache.poi.ss.usermodel.CellStyle;
-import org.apache.poi.ss.usermodel.CellType;
-import org.apache.poi.ss.usermodel.HorizontalAlignment;
-import org.apache.poi.ss.usermodel.Row;
-import org.apache.poi.ss.usermodel.Sheet;
-import org.apache.poi.xssf.streaming.SXSSFWorkbook;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Component;
-
-import com.rbs.tntr.domain.blotter.exceptions.BlotterRunTimeException;
-
-/**
- * Description : Class to export data into Excel File
- *
- * @author agrakit
- * 
- * Created By: Niket Agrawal
- * 
- * Created On 25-10-2021
- * 
- */
-@Component
-public class ExcelWriterImpl {
-	private SXSSFWorkbook workBook;
-	private Sheet excelSheet;
-	private final Logger LOGGER = LoggerFactory.getLogger(ExcelWriterImpl.class);
-
-	/**
-	 * Description : Method to get styling for cells
-	 * @author agrakit
-	 * Created By: Niket Agrawal
-	 * Created On 25-10-2021
-	 * @return
-	 */
-	private CellStyle getCellStyle() {
-		CellStyle style = workBook.createCellStyle();
-		style.setAlignment(HorizontalAlignment.CENTER);
-		return style;
-	}
-
-	/**
-	 * Description : set headers into excel file
-	 * @author agrakit
-	 * Created By: Niket Agrawal
-	 * Created On 25-10-2021
-	 * @param columns
-	 * @param sheetName
-	 */
-	private void fillHeader(String[] columns, String sheetName) {
-		// keep 100 rows in memory, exceeding rows will be flushed to disk
-		workBook = new SXSSFWorkbook(100);
-		excelSheet = workBook.createSheet(sheetName);
-		CellStyle headerStle = getCellStyle();
-
-		Row row = excelSheet.createRow(0);
-
-		for (int cellnum = 0; cellnum < columns.length; cellnum++) {
-			Cell cell = row.createCell(cellnum);
-			cell.setCellValue(columns[cellnum]);
-			cell.setCellStyle(headerStle);
-		}
-	}
-
-	/**
-	 * Description : Method to export data into excel file
-	 * @author agrakit
-	 * Created By: Niket Agrawal
-	 * Created On 25-10-2021
-	 * @param rows
-	 * @param fileName
-	 * @param sheetName
-	 * @return
-	 */
-	public boolean exportExcel(List<String[]> rows, String fileName, String sheetName) {
-		try {
-			fillHeader(rows.get(0), sheetName);
-			fillData(rows);
-			writeExcelFile(fileName);
-			LOGGER.info("Data exported in excel successful at {}", fileName);
-		} catch (Exception e) {
-			LOGGER.error("Exception while writing excel file {}", e);
-			throw new BlotterRunTimeException("Exception while writing excel file", e);
-		}
-		return true;
-	}
-
-	/**
-	 * Description : Populate records into Excel
-	 * @author agrakit
-	 * Created By: Niket Agrawal
-	 * Created On 25-10-2021
-	 * @param rows
-	 */
-	private void fillData(List<String[]> rows) {
-		CellStyle normalStyle = getCellStyle();
-
-		for (int rowNum = 1; rowNum < rows.size(); rowNum++) {
-			Row row = excelSheet.createRow(rowNum);
-			String[] data = rows.get(rowNum);
-			for (int colNum = 0; colNum < data.length; colNum++) {
-				Cell cell = row.createCell(colNum, CellType.STRING);
-				cell.setCellStyle(normalStyle);
-				cell.setCellValue(data[colNum]);
-			}
-
-		}
-	}
-
-	/**
-	 * Description : Exporting file on shared location
-	 * @author agrakit
-	 * Created By: Niket Agrawal
-	 * Created On 25-10-2021
-	 * @param fileName
-	 */
-	private void writeExcelFile(String fileName) {
-		try {
-			File myFile = new File(fileName);
-			FileOutputStream fileOut = new FileOutputStream(myFile);
-			workBook.write(fileOut);
-			fileOut.close();
-			workBook.dispose();
-			workBook.close();
-		} catch (IOException e) {
-			LOGGER.error("Exception while writing excel file");
-			throw new BlotterRunTimeException("Exception while writing excel file", e);
-		}
-	}
-}
-
-Existing test class:
-
 package com.rbs.tntr.business.blotter.utility;
 
 import static org.mockito.Mockito.*;
@@ -158,6 +12,14 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.mockito.runners.MockitoJUnitRunner;
+import org.slf4j.Logger;
+
+import com.rbs.tntr.domain.blotter.exceptions.BlotterRunTimeException;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.List;
@@ -174,6 +36,9 @@ public class ExcelWriterImplTest {
     @Mock
     private Sheet excelSheet;
 
+    @Mock
+    private Logger logger;
+
     @Before
     public void setUp() {
         MockitoAnnotations.initMocks(this);
@@ -181,6 +46,9 @@ public class ExcelWriterImplTest {
 
     @Test
     public void testGetCellStyle() throws Exception {
+        // Set up mock workbook in the instance
+        setPrivateField("workBook", workBook);
+        
         Method method = ExcelWriterImpl.class.getDeclaredMethod("getCellStyle");
         method.setAccessible(true);
 
@@ -194,31 +62,288 @@ public class ExcelWriterImplTest {
     }
 
     @Test
+    public void testFillHeader() throws Exception {
+        Method method = ExcelWriterImpl.class.getDeclaredMethod("fillHeader", String[].class, String.class);
+        method.setAccessible(true);
+
+        String[] columns = {"Column1", "Column2", "Column3"};
+        String sheetName = "TestSheet";
+
+        // Mock the workbook creation behavior
+        SXSSFWorkbook realWorkbook = mock(SXSSFWorkbook.class);
+        Sheet realSheet = mock(Sheet.class);
+        Row headerRow = mock(Row.class);
+        CellStyle headerStyle = mock(CellStyle.class);
+        
+        // Create mock cells for each column
+        Cell cell1 = mock(Cell.class);
+        Cell cell2 = mock(Cell.class);
+        Cell cell3 = mock(Cell.class);
+        
+        when(realWorkbook.createSheet(sheetName)).thenReturn(realSheet);
+        when(realWorkbook.createCellStyle()).thenReturn(headerStyle);
+        when(realSheet.createRow(0)).thenReturn(headerRow);
+        when(headerRow.createCell(0)).thenReturn(cell1);
+        when(headerRow.createCell(1)).thenReturn(cell2);
+        when(headerRow.createCell(2)).thenReturn(cell3);
+
+        // Use PowerMockito alternative - create a new instance for testing
+        ExcelWriterImpl testWriter = new ExcelWriterImpl();
+        method.invoke(testWriter, columns, sheetName);
+
+        // Verify that workBook and excelSheet fields are set
+        Field workBookField = ExcelWriterImpl.class.getDeclaredField("workBook");
+        workBookField.setAccessible(true);
+        SXSSFWorkbook workBookValue = (SXSSFWorkbook) workBookField.get(testWriter);
+        assertNotNull(workBookValue);
+
+        Field excelSheetField = ExcelWriterImpl.class.getDeclaredField("excelSheet");
+        excelSheetField.setAccessible(true);
+        Sheet excelSheetValue = (Sheet) excelSheetField.get(testWriter);
+        assertNotNull(excelSheetValue);
+    }
+
+    @Test
     public void testFillData() throws Exception {
+        // Set up mock objects in the instance
+        setPrivateField("workBook", workBook);
+        setPrivateField("excelSheet", excelSheet);
+        
         Method method = ExcelWriterImpl.class.getDeclaredMethod("fillData", List.class);
         method.setAccessible(true);
 
         String[] header = {"Column1", "Column2"};
         String[] row1 = {"Data1", "Data2"};
+        String[] row2 = {"Data3", "Data4"};
+        List<String[]> rows = Arrays.asList(header, row1, row2);
+
+        CellStyle normalStyle = mock(CellStyle.class);
+        when(workBook.createCellStyle()).thenReturn(normalStyle);
+
+        // Mock rows
+        Row mockRow1 = mock(Row.class);
+        Row mockRow2 = mock(Row.class);
+        when(excelSheet.createRow(1)).thenReturn(mockRow1);
+        when(excelSheet.createRow(2)).thenReturn(mockRow2);
+
+        // Mock cells for row 1
+        Cell cell1_1 = mock(Cell.class);
+        Cell cell1_2 = mock(Cell.class);
+        when(mockRow1.createCell(0, CellType.STRING)).thenReturn(cell1_1);
+        when(mockRow1.createCell(1, CellType.STRING)).thenReturn(cell1_2);
+
+        // Mock cells for row 2
+        Cell cell2_1 = mock(Cell.class);
+        Cell cell2_2 = mock(Cell.class);
+        when(mockRow2.createCell(0, CellType.STRING)).thenReturn(cell2_1);
+        when(mockRow2.createCell(1, CellType.STRING)).thenReturn(cell2_2);
+
+        method.invoke(excelWriter, rows);
+
+        // Verify row 1
+        verify(cell1_1).setCellValue("Data1");
+        verify(cell1_1).setCellStyle(normalStyle);
+        verify(cell1_2).setCellValue("Data2");
+        verify(cell1_2).setCellStyle(normalStyle);
+
+        // Verify row 2
+        verify(cell2_1).setCellValue("Data3");
+        verify(cell2_1).setCellStyle(normalStyle);
+        verify(cell2_2).setCellValue("Data4");
+        verify(cell2_2).setCellStyle(normalStyle);
+    }
+
+    @Test
+    public void testWriteExcelFile_Success() throws Exception {
+        // Set up mock objects
+        setPrivateField("workBook", workBook);
+        setPrivateField("logger", logger);
+        
+        Method method = ExcelWriterImpl.class.getDeclaredMethod("writeExcelFile", String.class);
+        method.setAccessible(true);
+
+        String fileName = "test.xlsx";
+
+        // Mock file operations - we can't really mock File and FileOutputStream easily
+        // So we'll test the exception path instead
+        method.invoke(excelWriter, fileName);
+
+        verify(workBook).dispose();
+        verify(workBook).close();
+    }
+
+    @Test(expected = BlotterRunTimeException.class)
+    public void testWriteExcelFile_IOException() throws Exception {
+        // Set up mock objects
+        setPrivateField("workBook", workBook);
+        setPrivateField("logger", logger);
+        
+        Method method = ExcelWriterImpl.class.getDeclaredMethod("writeExcelFile", String.class);
+        method.setAccessible(true);
+
+        String fileName = "/invalid/path/test.xlsx"; // Invalid path to trigger IOException
+
+        doThrow(new IOException("Test exception")).when(workBook).write(any(FileOutputStream.class));
+
+        method.invoke(excelWriter, fileName);
+    }
+
+    @Test
+    public void testExportExcel_Success() {
+        String[] header = {"Column1", "Column2"};
+        String[] row1 = {"Data1", "Data2"};
+        List<String[]> rows = Arrays.asList(header, row1);
+        String fileName = "test.xlsx";
+        String sheetName = "TestSheet";
+
+        boolean result = excelWriter.exportExcel(rows, fileName, sheetName);
+
+        assertTrue(result);
+    }
+
+    @Test(expected = BlotterRunTimeException.class)
+    public void testExportExcel_Exception() {
+        // Test with null rows to trigger exception
+        List<String[]> rows = null;
+        String fileName = "test.xlsx";
+        String sheetName = "TestSheet";
+
+        excelWriter.exportExcel(rows, fileName, sheetName);
+    }
+
+    @Test(expected = BlotterRunTimeException.class)
+    public void testExportExcel_EmptyRows() {
+        // Test with empty rows list
+        List<String[]> rows = Arrays.asList();
+        String fileName = "test.xlsx";
+        String sheetName = "TestSheet";
+
+        excelWriter.exportExcel(rows, fileName, sheetName);
+    }
+
+    @Test
+    public void testExportExcel_SingleRow() {
+        String[] header = {"Column1", "Column2"};
+        List<String[]> rows = Arrays.asList(header);
+        String fileName = "test.xlsx";
+        String sheetName = "TestSheet";
+
+        boolean result = excelWriter.exportExcel(rows, fileName, sheetName);
+
+        assertTrue(result);
+    }
+
+    @Test
+    public void testFillData_EmptyDataCells() throws Exception {
+        // Set up mock objects in the instance
+        setPrivateField("workBook", workBook);
+        setPrivateField("excelSheet", excelSheet);
+        
+        Method method = ExcelWriterImpl.class.getDeclaredMethod("fillData", List.class);
+        method.setAccessible(true);
+
+        String[] header = {"Column1", "Column2"};
+        String[] row1 = {"", null}; // Test empty and null values
         List<String[]> rows = Arrays.asList(header, row1);
 
         CellStyle normalStyle = mock(CellStyle.class);
         when(workBook.createCellStyle()).thenReturn(normalStyle);
 
-        Row row = mock(Row.class);
-        when(excelSheet.createRow(1)).thenReturn(row);
+        Row mockRow1 = mock(Row.class);
+        when(excelSheet.createRow(1)).thenReturn(mockRow1);
 
         Cell cell1 = mock(Cell.class);
         Cell cell2 = mock(Cell.class);
-        when(row.createCell(0, CellType.STRING)).thenReturn(cell1);
-        when(row.createCell(1, CellType.STRING)).thenReturn(cell2);
+        when(mockRow1.createCell(0, CellType.STRING)).thenReturn(cell1);
+        when(mockRow1.createCell(1, CellType.STRING)).thenReturn(cell2);
+
+        method.invoke(excelWriter, rows);
+
+        verify(cell1).setCellValue("");
+        verify(cell2).setCellValue((String) null);
+    }
+
+    @Test
+    public void testFillData_SingleColumnData() throws Exception {
+        // Set up mock objects in the instance
+        setPrivateField("workBook", workBook);
+        setPrivateField("excelSheet", excelSheet);
+        
+        Method method = ExcelWriterImpl.class.getDeclaredMethod("fillData", List.class);
+        method.setAccessible(true);
+
+        String[] header = {"Column1"};
+        String[] row1 = {"Data1"};
+        List<String[]> rows = Arrays.asList(header, row1);
+
+        CellStyle normalStyle = mock(CellStyle.class);
+        when(workBook.createCellStyle()).thenReturn(normalStyle);
+
+        Row mockRow1 = mock(Row.class);
+        when(excelSheet.createRow(1)).thenReturn(mockRow1);
+
+        Cell cell1 = mock(Cell.class);
+        when(mockRow1.createCell(0, CellType.STRING)).thenReturn(cell1);
 
         method.invoke(excelWriter, rows);
 
         verify(cell1).setCellValue("Data1");
         verify(cell1).setCellStyle(normalStyle);
-        verify(cell2).setCellValue("Data2");
-        verify(cell2).setCellStyle(normalStyle);
     }
 
+    @Test
+    public void testFillHeader_SingleColumn() throws Exception {
+        Method method = ExcelWriterImpl.class.getDeclaredMethod("fillHeader", String[].class, String.class);
+        method.setAccessible(true);
+
+        String[] columns = {"SingleColumn"};
+        String sheetName = "SingleColumnSheet";
+
+        ExcelWriterImpl testWriter = new ExcelWriterImpl();
+        method.invoke(testWriter, columns, sheetName);
+
+        // Verify that workBook and excelSheet fields are set
+        Field workBookField = ExcelWriterImpl.class.getDeclaredField("workBook");
+        workBookField.setAccessible(true);
+        SXSSFWorkbook workBookValue = (SXSSFWorkbook) workBookField.get(testWriter);
+        assertNotNull(workBookValue);
+    }
+
+    @Test
+    public void testFillHeader_EmptyColumns() throws Exception {
+        Method method = ExcelWriterImpl.class.getDeclaredMethod("fillHeader", String[].class, String.class);
+        method.setAccessible(true);
+
+        String[] columns = {};
+        String sheetName = "EmptySheet";
+
+        ExcelWriterImpl testWriter = new ExcelWriterImpl();
+        method.invoke(testWriter, columns, sheetName);
+
+        // Verify that workBook and excelSheet fields are set even with empty columns
+        Field workBookField = ExcelWriterImpl.class.getDeclaredField("workBook");
+        workBookField.setAccessible(true);
+        SXSSFWorkbook workBookValue = (SXSSFWorkbook) workBookField.get(testWriter);
+        assertNotNull(workBookValue);
+    }
+
+    @Test
+    public void testExportExcel_WithSpecialCharacters() {
+        String[] header = {"Column with spaces", "Column@#$%"};
+        String[] row1 = {"Data with spaces", "Special@#$%Data"};
+        List<String[]> rows = Arrays.asList(header, row1);
+        String fileName = "special_chars_test.xlsx";
+        String sheetName = "Special Characters Sheet";
+
+        boolean result = excelWriter.exportExcel(rows, fileName, sheetName);
+
+        assertTrue(result);
+    }
+
+    // Helper method to set private fields using reflection
+    private void setPrivateField(String fieldName, Object value) throws Exception {
+        Field field = ExcelWriterImpl.class.getDeclaredField(fieldName);
+        field.setAccessible(true);
+        field.set(excelWriter, value);
+    }
 }
