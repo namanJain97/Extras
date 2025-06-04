@@ -1,251 +1,560 @@
-expected json
-{
-  "subjectIdentifier": {
-    "transactionId": "MX_12040253",
-    "sourceSystem": "TMS GBLO",
-    "version": 1,
-    "regulatoryRegimeIdentifier": {
-      "name": "European Markets Infrastructure Regulation",
-      "regulatoryAuthority": "Financial Conduct Authority"
-    },
-    "regimeImpactType": "Transaction Reporting",
-    "reportTriggerType": "Transaction Lifecycle",
-    "reportSubmissionType": "Snapshot Delegated"
-  },
-  "exceptionManagement": {},
-  "transactionReportingStatus": {
-    "sourceSystemIdentifier": "TnTR",
-    "transactionStateValue": "Submitted",
-    "stateTransitionDateTime": "2022-02-04T11:38:43.821Z",
-    "stateTransitionEffectiveDateTime": "2022-02-04T11:38:43.821Z",
-    "commentary": "Trade Submission",
-    "reportSubmissionRepository": "DTCC",
-    "reportSubmissionIssues": []
-  },
-  "reportableData": {
-    "action": "New",
-    "assetClass": "ForeignExchange",
-    "buyer": "S",
-    "clearingStatus": "false",
-    "collateralizedFlag": "UNCOLLATERALIZED",
-    "confirmationDateTime": "1900-01-01T00:00:00.000Z",
-    "confirmationMethod": "Non-Electronic",
-    "compressedTradeIndicator": "false",
-    "contractType": "FW",
-    "currencyOfPrice": "CAD",
-    "exchangeRate": 1.712491222,
-    "executionVenueMicCode": "XXXX",
-    "expirationDate": "2022-03-02T00:00:00.000Z",
-    "forwardExchangeRate": 1.712491222,
-    "implementationVersion": "CA3.0FX5.0",
-    "intraGroupIndicator": "false",
-    "leg1EffectiveDate": "2022-01-31T00:00:00.000Z",
-    "leg1ExchangeRateBasisCurrency": "GBP",
-    "leg1NotionalAmount": 1703.92876597,
-    "leg1NotionalCurrency": "CAD",
-    "leg1Price": 1.712491222,
-    "leg1PriceUnit": "Units",
-    "leg1ScheduledTerminationDate": "2022-03-02T00:00:00.000Z",
-    "leg1SettlementCurrency": "CAD",
-    "leg2ExchangeRateBasisCurrency": "CAD",
-    "leg2NotionalAmount": 995,
-    "leg2NotionalCurrency": "GBP",
-    "leg2SettlementCurrency": "GBP",
-    "level": "T",
-    "lifecycleEvent": "Trade",
-    "mandatoryClearingJurisdiction": "FCA-X",
-    "messageId": "MX_12040253_1_Unknown_1643974722140_uat",
-    "messageType": "Snapshot",
-    "originalExecutionTimestamp": "2022-01-31T10:21:38.000Z",
-    "postTradeEffectiveDate": "2022-02-04T10:21:46.000Z",
-    "priceMultiplier": 1,
-    "productClassification": "JFTXFP",
-    "productClassificationType": "CFI",
-    "productId": "ForeignExchange:Forward",
-    "productIdType": "ISDA",
-    "productIdentification": "EZH4MTX66NG9",
-    "productIdentificationType": "ISIN",
-    "quantity": 1,
-    "reportingTimestamp": "2022-02-04T11:38:41.000Z",
-    "seller": "B",
-    "settlementDate": "2022-03-02T00:00:00.000Z",
-    "settlementType": "Physical",
-    "submittedFor": "party2",
-    "submittingPartyId": "213800IBT39XQ9C4CP71",
-    "submittingPartyIdType": "LEI",
-    "tradeParty1BeneficiaryId": "213800IBT39XQ9C4CP71",
-    "tradeParty1BeneficiaryIdType": "LEI",
-    "tradeParty1CorporateSectorType": "C",
-    "tradeParty1CountryOfOtherCpty": "GB",
-    "tradeParty1CptySide": "S",
-    "tradeParty1Id": "213800IBT39XQ9C4CP71",
-    "tradeParty1IdType": "LEI",
-    "tradeParty1TransactionId": "MX_12040253",
-    "tradeParty2BeneficiaryId": "549300WHU4EIHRP28H10",
-    "tradeParty2BeneficiaryIdType": "LEI",
-    "tradeParty2CptySide": "B",
-    "tradeParty2Id": "549300WHU4EIHRP28H10",
-    "tradeParty2IdType": "LEI",
-    "tradeParty2MandatoryClearing": false,
-    "tradeParty2OriginalActionType": "N",
-    "tradeParty2ReportableActionType": "N",
-    "tradeParty2ReportingDestination": "FCA",
-    "tradeParty2TradingCapacity": "Principal",
-    "transactionType": "TRADE",
-    "utiId": "IBT39XQ9C4FX00112040253uat"
-  },
-  "nonReportableData": {
-    "party1Ciscode": "ENWBKGB",
-    "party2Ciscode": "WBUSTM",
-    "party2NucId": 7087147,
-    "opsBusinessArea": "GlobalCurrenciesMiddleOffice@natwestmarkets.com",
-    "recordType": "Client Trade",
-    "tntrReceivedTimestamp": "2022-02-04T11:38:39.920Z",
-    "utiGenerator": "COUNTERPARTY",
-    "tradeParty2Name": "RBS PLC STMF",
-    "tradeParty1Name": "NAT WESTMINSTER BK PLC, LONDON HO",
-    "submissionKey": "MX_12040253_0_1_8450622838474663_DELEGATED",
-    "isDelegated": true,
-    "eventExecutionTimestamp": "2022-02-04T10:21:46.000Z",
-    "reportingDeadline": "2022-02-07T23:59:59.000Z",
-    "recordClassCode": "RM1800",
-    "recordClassName": "Regulatory Risk",
-    "isLatestVersion": false,
-    "maturityDate": "2022-03-02T00:00:00.000Z",
-    "processTimeInReporting": "3916",
-    "isMandatoryClearing": false,
-    "productSubType": "IE FX Outright",
-    "baseContractId": 12040253,
-    "updatedByApplication": "Reporting Engine",
-    "murexTradeVersion": "1"
-  },
-  "appendix": {},
-  "metadata": {
-    "corpusVersion": "v1.0.5"
-  }
-}
+package com.rbs.tntr.business.blotter.services.actions;
 
-result json
-{
-  "subjectIdentifier": {
-    "transactionId": "MX_12040253",
-    "sourceSystem": "TMS GBLO",
-    "version": 1,
-    "regulatoryRegimeIdentifier": {
-      "name": "European Markets Infrastructure Regulation",
-      "regulatoryAuthority": "Financial Conduct Authority"
-    },
-    "regimeImpactType": "Transaction Reporting",
-    "reportTriggerType": "Transaction Lifecycle",
-    "reportSubmissionType": "Snapshot Delegated"
-  },
-  "exceptionManagement": {},
-  "transactionReportingStatus": {
-    "sourceSystemIdentifier": "TnTR",
-    "transactionStateValue": "Submitted",
-    "stateTransitionDateTime": "2022-02-04T11:38:43.821Z",
-    "stateTransitionEffectiveDateTime": "2022-02-04T11:38:43.821Z",
-    "commentary": "Trade Submission",
-    "reportSubmissionRepository": "DTCC",
-    "reportSubmissionIssues": []
-  },
-  "reportableData": {
-    "action": "New",
-    "assetClass": "ForeignExchange",
-    "buyer": "S",
-    "clearingStatus": "false",
-    "collateralizedFlag": "UNCOLLATERALIZED",
-    "confirmationDateTime": "1900-01-01T00:00:00.000Z",
-    "confirmationMethod": "Non-Electronic",
-    "compressedTradeIndicator": "false",
-    "contractType": "FW",
-    "currencyOfPrice": "CAD",
-    "exchangeRate": 1.712491222,
-    "executionVenueMicCode": "XXXX",
-    "expirationDate": "2022-03-02T00:00:00.000Z",
-    "forwardExchangeRate": 1.712491222,
-    "implementationVersion": "CA3.0FX5.0",
-    "intraGroupIndicator": "false",
-    "leg1EffectiveDate": "2022-01-31T00:00:00.000Z",
-    "leg1ExchangeRateBasisCurrency": "GBP",
-    "leg1NotionalAmount": 1703.92876597,
-    "leg1NotionalCurrency": "CAD",
-    "leg1Price": 1.712491222,
-    "leg1PriceUnit": "Units",
-    "leg1ScheduledTerminationDate": "2022-03-02T00:00:00.000Z",
-    "leg1SettlementCurrency": "CAD",
-    "leg2ExchangeRateBasisCurrency": "CAD",
-    "leg2NotionalAmount": 995,
-    "leg2NotionalCurrency": "GBP",
-    "leg2SettlementCurrency": "GBP",
-    "level": "T",
-    "lifecycleEvent": "Trade",
-    "mandatoryClearingJurisdiction": "FCA-X",
-    "messageId": "MX_12040253_1_Unknown_1643974722140_uat",
-    "messageType": "Snapshot",
-    "originalExecutionTimestamp": "2022-01-31T10:21:38.000Z",
-    "postTradeEffectiveDate": "2022-02-04T10:21:46.000Z",
-    "priceMultiplier": 1,
-    "productClassification": "JFTXFP",
-    "productClassificationType": "CFI",
-    "productId": "ForeignExchange:Forward",
-    "productIdType": "ISDA",
-    "productIdentification": "EZH4MTX66NG9",
-    "productIdentificationType": "ISIN",
-    "quantity": 1,
-    "reportingTimestamp": "2022-02-04T11:38:41.000Z",
-    "seller": "B",
-    "settlementDate": "2022-03-02T00:00:00.000Z",
-    "settlementType": "Physical",
-    "submittedFor": "party2",
-    "submittingPartyId": "213800IBT39XQ9C4CP71",
-    "submittingPartyIdType": "LEI",
-    "tradeParty1BeneficiaryId": "213800IBT39XQ9C4CP71",
-    "tradeParty1BeneficiaryIdType": "LEI",
-    "tradeParty1CorporateSectorType": "C",
-    "tradeParty1CountryOfOtherCpty": "GB",
-    "tradeParty1CptySide": "S",
-    "tradeParty1Id": "213800IBT39XQ9C4CP71",
-    "tradeParty1IdType": "LEI",
-    "tradeParty1TransactionId": "MX_12040253",
-    "tradeParty2BeneficiaryId": "549300WHU4EIHRP28H10",
-    "tradeParty2BeneficiaryIdType": "LEI",
-    "tradeParty2CptySide": "B",
-    "tradeParty2Id": "549300WHU4EIHRP28H10",
-    "tradeParty2IdType": "LEI",
-    "tradeParty2MandatoryClearing": false,
-    "tradeParty2OriginalActionType": "N",
-    "tradeParty2ReportableActionType": "N",
-    "tradeParty2ReportingDestination": "FCA",
-    "tradeParty2TradingCapacity": "Principal",
-    "transactionType": "TRADE",
-    "utiId": "IBT39XQ9C4FX00112040253uat"
-  },
-  "nonReportableData": {
-    "party1Ciscode": "ENWBKGB",
-    "party2Ciscode": "WBUSTM",
-    "party2NucId": 7087147,
-    "opsBusinessArea": "GlobalCurrenciesMiddleOffice@natwestmarkets.com",
-    "recordType": "Client Trade",
-    "tntrReceivedTimestamp": "2022-02-04T11:38:39.920Z",
-    "utiGenerator": "COUNTERPARTY",
-    "tradeParty2Name": "RBS PLC STMF",
-    "tradeParty1Name": "NAT WESTMINSTER BK PLC, LONDON HO",
-    "submissionKey": "MX_12040253_0_1_8450622838474663_DELEGATED",
-    "isDelegated": false,
-    "recordClassCode": "RM1800",
-    "recordClassName": "Regulatory Risk",
-    "isLatestVersion": false,
-    "maturityDate": "2022-03-02T00:00:00.000Z",
-    "processTimeInReporting": "3916",
-    "isMandatoryClearing": false,
-    "productSubType": "IE FX Outright",
-    "baseContractId": 12040253,
-    "updatedByApplication": "Reporting Engine",
-    "murexTradeVersion": "1"
-  },
-  "appendix": {},
-  "metadata": {
-    "corpusVersion": "v1.0.5"
-  }
-}
+import com.google.common.collect.Lists;
+import com.nwm.tntr.commons.domain.persistence.constant.TNTRApplication;
+import com.nwm.tntr.commons.domain.persistence.constant.UserActionType;
+import com.nwm.tntr.commons.domain.persistence.entity.DocumentId;
+import com.nwm.tntr.commons.domain.persistence.entity.ExceptionManagement;
+import com.nwm.tntr.commons.domain.persistence.entity.NonReportableData;
+import com.nwm.tntr.commons.domain.persistence.entity.trade.TradeReport;
+import com.nwm.tntr.commons.domain.persistence.entity.trade.TradeReportDocument;
+import com.nwm.tntr.commons.repository.regreporting.WriteResult;
+import com.rbs.tntr.business.blotter.df.manager.DfTradePersistManager;
+import com.rbs.tntr.business.blotter.df.updater.TradeDataUpdater;
+import com.rbs.tntr.business.blotter.services.validators.ActionRequestValidator;
+import com.rbs.tntr.business.blotter.web.request.regreportingTrade.*;
+import com.rbs.tntr.domain.blotter.enums.ExceptionStatus;
+import com.rbs.tntr.domain.blotter.exceptions.BlotterRunTimeException;
+import com.rbs.tntr.domain.blotter.exceptions.DfRunTimeException;
+import com.rbs.tntr.domain.blotter.tntrBlotterView.ActionDocumentId;
+import org.apache.commons.lang3.tuple.Pair;
+import org.junit.Before;
+import org.junit.Test;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
+
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import static org.junit.Assert.*;
+import static org.mockito.Mockito.*;
+
+public class TradeActionServiceTest {
+
+    @InjectMocks
+    private TradeActionService tradeActionService;
+
+    @Mock
+    private DfTradePersistManager dfTradePersistManager;
+
+    @Mock
+    private TradeDataUpdater dataUpdater;
+
+    @Mock
+    private ActionRequestValidator requestValidator;
+
+    @Mock
+    private TradeReportDocument tradeReportDocument;
+
+    @Mock
+    private TradeReport tradeReport;
+
+    @Mock
+    private ExceptionManagement exceptionManagement;
+
+    @Mock
+    private NonReportableData nonReportableData;
+
+    @Mock
+    private WriteResult<TradeReport> writeResult;
+
+    @Before
+    public void setUp() {
+        MockitoAnnotations.initMocks(this);
+    }
+
+    @Test
+    public void testAddComment_EmptyRequests() {
+        List<AddTradeCommentRequest> requests = new ArrayList<>();
+        List<ActionUpdateResult> results = tradeActionService.addComment(requests, "username");
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    public void testRemoveComment_EmptyRequests() {
+        List<AddTradeCommentRequest> requests = new ArrayList<>();
+        List<ActionUpdateResult> results = tradeActionService.removeComment(requests, "username");
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    public void testAddCommentType_EmptyRequests() {
+        List<AddTradeCommentTypeRequest> requests = new ArrayList<>();
+        List<ActionUpdateResult> results = tradeActionService.addCommentType(requests, "username");
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    public void testRemoveJiraType_EmptyRequests() {
+        List<AddTradeJiraTypeRequest> requests = new ArrayList<>();
+        List<ActionUpdateResult> results = tradeActionService.removeJiraType(requests, "username");
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    public void testAddComment_WithValidRequests() throws Exception {
+        // Setup
+        AddTradeCommentRequest request = mock(AddTradeCommentRequest.class);
+        ActionDocumentId actionDocumentId = new ActionDocumentId("key1", 1L);
+        when(request.getDocumentId()).thenReturn(actionDocumentId);
+        
+        List<AddTradeCommentRequest> requests = Lists.newArrayList(request);
+        DocumentId documentId = DocumentId.from("key1", 1L);
+        
+        when(tradeReportDocument.getDocumentId()).thenReturn(documentId);
+        when(tradeReportDocument.getTradeReport()).thenReturn(tradeReport);
+        when(tradeReport.getExceptionManagement()).thenReturn(exceptionManagement);
+        when(tradeReport.getNonReportableData()).thenReturn(nonReportableData);
+        
+        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Lists.newArrayList(tradeReportDocument));
+        when(requestValidator.validateUser(anyString(), any(ExceptionManagement.class))).thenReturn(true);
+        when(requestValidator.validateApprovalStatus(anyString())).thenReturn(false);
+        when(dataUpdater.addCommentsToException(any(AddTradeCommentRequest.class), any(ExceptionManagement.class), anyString()))
+                .thenReturn(exceptionManagement);
+        
+        when(nonReportableData.newBuilder(any(NonReportableData.class))).thenReturn(mock(NonReportableData.Builder.class));
+        when(tradeReport.newBuilder(any(TradeReport.class))).thenReturn(mock(TradeReport.Builder.class));
+        
+        when(writeResult.isSuccess()).thenReturn(true);
+        when(writeResult.getDocumentId()).thenReturn(documentId);
+        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Lists.newArrayList(writeResult));
+        
+        // Execute
+        List<ActionUpdateResult> results = tradeActionService.addComment(requests, "username");
+        
+        // Verify
+        verify(dfTradePersistManager).getAllRecordsById(anyList());
+        verify(requestValidator).validateMAS755Trades(anyList(), anyList());
+    }
+
+    @Test
+    public void testAddComment_WithException() {
+        // Setup
+        AddTradeCommentRequest request = mock(AddTradeCommentRequest.class);
+        ActionDocumentId actionDocumentId = new ActionDocumentId("key1", 1L);
+        when(request.getDocumentId()).thenReturn(actionDocumentId);
+        
+        List<AddTradeCommentRequest> requests = Lists.newArrayList(request);
+        
+        when(dfTradePersistManager.getAllRecordsById(anyList())).thenThrow(new RuntimeException("Test exception"));
+        
+        // Execute
+        List<ActionUpdateResult> results = tradeActionService.addComment(requests, "username");
+        
+        // Verify
+        assertEquals(1, results.size());
+        assertTrue(results.get(0).getErrorDetail().contains("Error updating trade record"));
+    }
+
+    @Test
+    public void testRemoveComment_WithValidRequests() throws Exception {
+        // Setup
+        AddTradeCommentRequest request = mock(AddTradeCommentRequest.class);
+        ActionDocumentId actionDocumentId = new ActionDocumentId("key1", 1L);
+        when(request.getDocumentId()).thenReturn(actionDocumentId);
+        
+        List<AddTradeCommentRequest> requests = Lists.newArrayList(request);
+        DocumentId documentId = DocumentId.from("key1", 1L);
+        
+        when(tradeReportDocument.getDocumentId()).thenReturn(documentId);
+        when(tradeReportDocument.getTradeReport()).thenReturn(tradeReport);
+        when(tradeReport.getExceptionManagement()).thenReturn(exceptionManagement);
+        when(tradeReport.getNonReportableData()).thenReturn(nonReportableData);
+        
+        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Lists.newArrayList(tradeReportDocument));
+        when(requestValidator.validateUser(anyString(), any(ExceptionManagement.class))).thenReturn(true);
+        when(requestValidator.validateApprovalStatus(anyString())).thenReturn(false);
+        when(dataUpdater.removeCommentsToException(any(AddTradeCommentRequest.class), any(ExceptionManagement.class), anyString()))
+                .thenReturn(exceptionManagement);
+        
+        when(writeResult.isSuccess()).thenReturn(true);
+        when(writeResult.getDocumentId()).thenReturn(documentId);
+        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Lists.newArrayList(writeResult));
+        
+        // Execute
+        List<ActionUpdateResult> results = tradeActionService.removeComment(requests, "username");
+        
+        // Verify
+        verify(dataUpdater).removeCommentsToException(any(AddTradeCommentRequest.class), any(ExceptionManagement.class), anyString());
+    }
+
+    @Test
+    public void testAddCommentType_WithValidRequests() throws Exception {
+        // Setup
+        AddTradeCommentTypeRequest request = mock(AddTradeCommentTypeRequest.class);
+        ActionDocumentId actionDocumentId = new ActionDocumentId("key1", 1L);
+        when(request.getDocumentId()).thenReturn(actionDocumentId);
+        
+        List<AddTradeCommentTypeRequest> requests = Lists.newArrayList(request);
+        DocumentId documentId = DocumentId.from("key1", 1L);
+        
+        when(tradeReportDocument.getDocumentId()).thenReturn(documentId);
+        when(tradeReportDocument.getTradeReport()).thenReturn(tradeReport);
+        when(tradeReport.getExceptionManagement()).thenReturn(exceptionManagement);
+        when(tradeReport.getNonReportableData()).thenReturn(nonReportableData);
+        
+        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Lists.newArrayList(tradeReportDocument));
+        when(requestValidator.validateUser(anyString(), any(ExceptionManagement.class))).thenReturn(true);
+        when(requestValidator.validateApprovalStatus(anyString())).thenReturn(false);
+        when(dataUpdater.addCommentTypeToException(any(AddTradeCommentTypeRequest.class), any(ExceptionManagement.class), anyString()))
+                .thenReturn(exceptionManagement);
+        
+        when(writeResult.isSuccess()).thenReturn(true);
+        when(writeResult.getDocumentId()).thenReturn(documentId);
+        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Lists.newArrayList(writeResult));
+        
+        // Execute
+        List<ActionUpdateResult> results = tradeActionService.addCommentType(requests, "username");
+        
+        // Verify
+        verify(dataUpdater).addCommentTypeToException(any(AddTradeCommentTypeRequest.class), any(ExceptionManagement.class), anyString());
+    }
+
+    @Test
+    public void testRemoveCommentType_EmptyRequests() {
+        List<AddTradeCommentTypeRequest> requests = new ArrayList<>();
+        List<ActionUpdateResult> results = tradeActionService.removeCommentType(requests, "username");
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    public void testRemoveCommentType_WithException() {
+        // Setup
+        AddTradeCommentTypeRequest request = mock(AddTradeCommentTypeRequest.class);
+        ActionDocumentId actionDocumentId = new ActionDocumentId("key1", 1L);
+        when(request.getDocumentId()).thenReturn(actionDocumentId);
+        
+        List<AddTradeCommentTypeRequest> requests = Lists.newArrayList(request);
+        
+        when(dfTradePersistManager.getAllRecordsById(anyList())).thenThrow(new RuntimeException("Test exception"));
+        
+        // Execute
+        List<ActionUpdateResult> results = tradeActionService.removeCommentType(requests, "username");
+        
+        // Verify
+        assertEquals(1, results.size());
+        assertTrue(results.get(0).getErrorDetail().contains("Error updating trade record"));
+    }
+
+    @Test
+    public void testUpdateEditedFields_EmptyRequests() {
+        List<EditRequest> requests = new ArrayList<>();
+        List<ActionUpdateResult> results = tradeActionService.updateEditedFields(requests, "username", ExceptionStatus.Edit_Approved);
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    public void testUpdateEditedFields_WithValidRequests() throws Exception {
+        // Setup
+        EditRequest request = mock(EditRequest.class);
+        ActionDocumentId actionDocumentId = new ActionDocumentId("key1", 1L);
+        when(request.getDocumentId()).thenReturn(actionDocumentId);
+        
+        List<EditRequest> requests = Lists.newArrayList(request);
+        DocumentId documentId = DocumentId.from("key1", 1L);
+        
+        when(tradeReportDocument.getDocumentId()).thenReturn(documentId);
+        when(tradeReportDocument.getTradeReport()).thenReturn(tradeReport);
+        when(tradeReport.getExceptionManagement()).thenReturn(exceptionManagement);
+        
+        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Lists.newArrayList(tradeReportDocument));
+        when(requestValidator.validateApprovalStatus(anyString())).thenReturn(false);
+        when(dataUpdater.updateTradeReportData(any(EditRequest.class), any(TradeReport.class), anyString(), any(ExceptionStatus.class)))
+                .thenReturn(tradeReport);
+        
+        when(writeResult.isSuccess()).thenReturn(true);
+        when(writeResult.getDocumentId()).thenReturn(documentId);
+        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Lists.newArrayList(writeResult));
+        
+        // Execute
+        List<ActionUpdateResult> results = tradeActionService.updateEditedFields(requests, "username", ExceptionStatus.Edit_Approved);
+        
+        // Verify
+        verify(dataUpdater).updateTradeReportData(any(EditRequest.class), any(TradeReport.class), anyString(), any(ExceptionStatus.class));
+    }
+
+    @Test
+    public void testUpdateEditedFields_WithBlotterRunTimeException() throws Exception {
+        // Setup
+        EditRequest request = mock(EditRequest.class);
+        ActionDocumentId actionDocumentId = new ActionDocumentId("key1", 1L);
+        when(request.getDocumentId()).thenReturn(actionDocumentId);
+        
+        List<EditRequest> requests = Lists.newArrayList(request);
+        DocumentId documentId = DocumentId.from("key1", 1L);
+        
+        when(tradeReportDocument.getDocumentId()).thenReturn(documentId);
+        when(tradeReportDocument.getTradeReport()).thenReturn(tradeReport);
+        when(tradeReport.getExceptionManagement()).thenReturn(exceptionManagement);
+        
+        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Lists.newArrayList(tradeReportDocument));
+        when(requestValidator.validateApprovalStatus(anyString())).thenReturn(false);
+        when(dataUpdater.updateTradeReportData(any(EditRequest.class), any(TradeReport.class), anyString(), any(ExceptionStatus.class)))
+                .thenThrow(new BlotterRunTimeException("Test exception"));
+        
+        // Execute
+        List<ActionUpdateResult> results = tradeActionService.updateEditedFields(requests, "username", ExceptionStatus.Edit_Approved);
+        
+        // Verify that the exception is handled and result contains error
+        assertEquals(0, results.size()); // Since it's added to failedTrades but not returned directly
+    }
+
+    @Test
+    public void testUpdateExceptionStatus_EmptyRequests() {
+        List<UpdateExceptionStatusRequest> requests = new ArrayList<>();
+        List<ActionUpdateResult> results = tradeActionService.updateExceptionStatus(requests, ExceptionStatus.Edit_Approved, "username");
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    public void testUpdateExceptionStatus_WithEditRejectedStatus() throws Exception {
+        // Setup
+        UpdateExceptionStatusRequest request = mock(UpdateExceptionStatusRequest.class);
+        ActionDocumentId actionDocumentId = new ActionDocumentId("key1", 1L);
+        when(request.getDocumentId()).thenReturn(actionDocumentId);
+        
+        List<UpdateExceptionStatusRequest> requests = Lists.newArrayList(request);
+        DocumentId documentId = DocumentId.from("key1", 1L);
+        
+        when(tradeReportDocument.getDocumentId()).thenReturn(documentId);
+        when(tradeReportDocument.getTradeReport()).thenReturn(tradeReport);
+        when(tradeReport.getExceptionManagement()).thenReturn(exceptionManagement);
+        
+        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Lists.newArrayList(tradeReportDocument));
+        when(requestValidator.validateUser(anyString(), any(ExceptionManagement.class))).thenReturn(true);
+        when(requestValidator.validateApprovalStatus(anyString())).thenReturn(false);
+        when(requestValidator.validateAckedCancleTrade(any(ExceptionStatus.class), anyString())).thenReturn(false);
+        when(requestValidator.validateExceptionStatus(any(ExceptionStatus.class), anyString())).thenReturn(true);
+        when(requestValidator.validateApprover(any(ExceptionStatus.class), anyString(), anyString(), anyString())).thenReturn(false);
+        
+        when(dataUpdater.addExceptionStatus(any(ExceptionStatus.class), any(UpdateExceptionStatusRequest.class), any(ExceptionManagement.class), anyString()))
+                .thenReturn(exceptionManagement);
+        
+        when(writeResult.isSuccess()).thenReturn(true);
+        when(writeResult.getDocumentId()).thenReturn(documentId);
+        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Lists.newArrayList(writeResult));
+        when(dfTradePersistManager.upsertAllRecords(anyList())).thenReturn(Lists.newArrayList(writeResult));
+        
+        // Execute
+        List<ActionUpdateResult> results = tradeActionService.updateExceptionStatus(requests, ExceptionStatus.Edit_Rejected, "username");
+        
+        // Verify
+        verify(dfTradePersistManager).upsertAllRecords(anyList());
+    }
+
+    @Test
+    public void testPerformResetAction_EmptyRequests() {
+        List<UpdateExceptionStatusRequest> requests = new ArrayList<>();
+        List<ActionUpdateResult> results = tradeActionService.performResetAction(requests, "username");
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    public void testPerformResetAction_WithValidRequests() throws Exception {
+        // Setup
+        UpdateExceptionStatusRequest request = mock(UpdateExceptionStatusRequest.class);
+        ActionDocumentId actionDocumentId = new ActionDocumentId("key1", 1L);
+        when(request.getDocumentId()).thenReturn(actionDocumentId);
+        when(request.getFlow()).thenReturn("testFlow");
+        
+        List<UpdateExceptionStatusRequest> requests = Lists.newArrayList(request);
+        DocumentId documentId = DocumentId.from("key1", 1L);
+        
+        when(tradeReportDocument.getDocumentId()).thenReturn(documentId);
+        when(tradeReportDocument.getTradeReport()).thenReturn(tradeReport);
+        when(tradeReport.getExceptionManagement()).thenReturn(exceptionManagement);
+        
+        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Lists.newArrayList(tradeReportDocument));
+        when(requestValidator.validateResetActionApprovalStatus(anyString(), anyString())).thenReturn(true);
+        when(dataUpdater.resetAction(any(UpdateExceptionStatusRequest.class), any(ExceptionManagement.class), anyString()))
+                .thenReturn(exceptionManagement);
+        
+        when(writeResult.isSuccess()).thenReturn(true);
+        when(writeResult.getDocumentId()).thenReturn(documentId);
+        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Lists.newArrayList(writeResult));
+        
+        // Execute
+        List<ActionUpdateResult> results = tradeActionService.performResetAction(requests, "username");
+        
+        // Verify
+        verify(dataUpdater).resetAction(any(UpdateExceptionStatusRequest.class), any(ExceptionManagement.class), anyString());
+    }
+
+    @Test
+    public void testAssignExceptionToUser_EmptyRequests() {
+        List<AssignTradeRequest> requests = new ArrayList<>();
+        List<ActionUpdateResult> results = tradeActionService.assignExceptionToUser(requests, "username");
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    public void testAssignExceptionToUser_WithValidRequests() throws Exception {
+        // Setup
+        AssignTradeRequest request = mock(AssignTradeRequest.class);
+        ActionDocumentId actionDocumentId = new ActionDocumentId("key1", 1L);
+        when(request.getDocumentId()).thenReturn(actionDocumentId);
+        
+        List<AssignTradeRequest> requests = Lists.newArrayList(request);
+        DocumentId documentId = DocumentId.from("key1", 1L);
+        
+        when(tradeReportDocument.getDocumentId()).thenReturn(documentId);
+        when(tradeReportDocument.getTradeReport()).thenReturn(tradeReport);
+        when(tradeReport.getExceptionManagement()).thenReturn(exceptionManagement);
+        
+        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Lists.newArrayList(tradeReportDocument));
+        when(requestValidator.validateApprovalStatus(anyString())).thenReturn(false);
+        when(dataUpdater.assignException(any(AssignTradeRequest.class), any(ExceptionManagement.class), anyString()))
+                .thenReturn(exceptionManagement);
+        
+        when(writeResult.isSuccess()).thenReturn(true);
+        when(writeResult.getDocumentId()).thenReturn(documentId);
+        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Lists.newArrayList(writeResult));
+        
+        // Execute
+        List<ActionUpdateResult> results = tradeActionService.assignExceptionToUser(requests, "username");
+        
+        // Verify
+        verify(dataUpdater).assignException(any(AssignTradeRequest.class), any(ExceptionManagement.class), anyString());
+    }
+
+    @Test
+    public void testAddJiraId_EmptyRequests() {
+        List<AddTradeJiraReferenceRequest> requests = new ArrayList<>();
+        List<ActionUpdateResult> results = tradeActionService.addJiraId(requests, "username");
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    public void testAddJiraId_WithValidRequests() throws Exception {
+        // Setup
+        AddTradeJiraReferenceRequest request = mock(AddTradeJiraReferenceRequest.class);
+        ActionDocumentId actionDocumentId = new ActionDocumentId("key1", 1L);
+        when(request.getDocumentId()).thenReturn(actionDocumentId);
+        
+        JiraReference jiraReference = mock(JiraReference.class);
+        when(request.getJiraReference()).thenReturn(jiraReference);
+        when(jiraReference.getJiraId()).thenReturn("JIRA-123");
+        
+        List<AddTradeJiraReferenceRequest> requests = Lists.newArrayList(request);
+        DocumentId documentId = DocumentId.from("key1", 1L);
+        
+        when(tradeReportDocument.getDocumentId()).thenReturn(documentId);
+        when(tradeReportDocument.getTradeReport()).thenReturn(tradeReport);
+        when(tradeReport.getExceptionManagement()).thenReturn(exceptionManagement);
+        
+        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Lists.newArrayList(tradeReportDocument));
+        when(requestValidator.validateUser(anyString(), any(ExceptionManagement.class))).thenReturn(true);
+        when(requestValidator.validateApprovalStatus(anyString())).thenReturn(false);
+        when(requestValidator.isJiraIdPresent(anyList(), anyString())).thenReturn(false);
+        when(dataUpdater.addJiraIdToException(any(AddTradeJiraReferenceRequest.class), any(ExceptionManagement.class), anyString()))
+                .thenReturn(exceptionManagement);
+        
+        when(writeResult.isSuccess()).thenReturn(true);
+        when(writeResult.getDocumentId()).thenReturn(documentId);
+        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Lists.newArrayList(writeResult));
+        
+        // Execute
+        List<ActionUpdateResult> results = tradeActionService.addJiraId(requests, "username");
+        
+        // Verify
+        verify(dataUpdater).addJiraIdToException(any(AddTradeJiraReferenceRequest.class), any(ExceptionManagement.class), anyString());
+    }
+
+    @Test
+    public void testRemoveJiraId_EmptyRequests() {
+        List<AddTradeJiraReferenceRequest> requests = new ArrayList<>();
+        List<ActionUpdateResult> results = tradeActionService.removeJiraId(requests, "username");
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    public void testRemoveJiraId_WithValidRequests() throws Exception {
+        // Setup
+        AddTradeJiraReferenceRequest request = mock(AddTradeJiraReferenceRequest.class);
+        ActionDocumentId actionDocumentId = new ActionDocumentId("key1", 1L);
+        when(request.getDocumentId()).thenReturn(actionDocumentId);
+        
+        JiraReference jiraReference = mock(JiraReference.class);
+        when(request.getJiraReference()).thenReturn(jiraReference);
+        when(jiraReference.getJiraId()).thenReturn("JIRA-123");
+        
+        List<AddTradeJiraReferenceRequest> requests = Lists.newArrayList(request);
+        DocumentId documentId = DocumentId.from("key1", 1L);
+        
+        when(tradeReportDocument.getDocumentId()).thenReturn(documentId);
+        when(tradeReportDocument.getTradeReport()).thenReturn(tradeReport);
+        when(tradeReport.getExceptionManagement()).thenReturn(exceptionManagement);
+        
+        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Lists.newArrayList(tradeReportDocument));
+        when(requestValidator.validateUser(anyString(), any(ExceptionManagement.class))).thenReturn(true);
+        when(requestValidator.validateApprovalStatus(anyString())).thenReturn(false);
+        when(requestValidator.isJiraIdPresent(anyList(), anyString())).thenReturn(true);
+        when(dataUpdater.removeJiraIdFromException(any(AddTradeJiraReferenceRequest.class), any(ExceptionManagement.class), anyString()))
+                .thenReturn(exceptionManagement);
+        
+        when(writeResult.isSuccess()).thenReturn(true);
+        when(writeResult.getDocumentId()).thenReturn(documentId);
+        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Lists.newArrayList(writeResult));
+        
+        // Execute
+        List<ActionUpdateResult> results = tradeActionService.removeJiraId(requests, "username");
+        
+        // Verify
+        verify(dataUpdater).removeJiraIdFromException(any(AddTradeJiraReferenceRequest.class), any(ExceptionManagement.class), anyString());
+    }
+
+    @Test
+    public void testAddJiraType_EmptyRequests() {
+        List<AddTradeJiraTypeRequest> requests = new ArrayList<>();
+        List<ActionUpdateResult> results = tradeActionService.addJiraType(requests, "username");
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    public void testAddJiraType_WithValidRequests() throws Exception {
+        // Setup
+        AddTradeJiraTypeRequest request = mock(AddTradeJiraTypeRequest.class);
+        ActionDocumentId actionDocumentId = new ActionDocumentId("key1", 1L);
+        when(request.getDocumentId()).thenReturn(actionDocumentId);
+        
+        List<AddTradeJiraTypeRequest> requests = Lists.newArrayList(request);
+        DocumentId documentId = DocumentId.from("key1", 1L);
+        
+        when(tradeReportDocument.getDocumentId()).thenReturn(documentId);
+        when(tradeReportDocument.getTradeReport()).thenReturn(tradeReport);
+        when(tradeReport.getExceptionManagement()).thenReturn(exceptionManagement);
+        
+        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Lists.newArrayList(tradeReportDocument));
+        when(requestValidator.validateUser(anyString(), any(ExceptionManagement.class))).thenReturn(true);
+        when(requestValidator.validateApprovalStatus(anyString())).thenReturn(false);
+        when(dataUpdater.addJiraTypeToException(any(AddTradeJiraTypeRequest.class), any(ExceptionManagement.class), anyString()))
+                .thenReturn(exceptionManagement);
+        
+        when(writeResult.isSuccess()).thenReturn(true);
+        when(writeResult.getDocumentId()).thenReturn(documentId);
+        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Lists.newArrayList(writeResult));
+        
+        // Execute
+        List<ActionUpdateResult> results = tradeActionService.addJiraType(requests, "username");
+        
+        // Verify
+        verify(dataUpdater).addJiraTypeToException(any(AddTradeJiraTypeRequest.class), any(ExceptionManagement.class), anyString());
+    }
+
+    @Test
+    public void testUpdateUserActionType_EmptyRequests() {
+        List<UpdateUserActionTypeRequest> requests = new ArrayList<>();
+        List<ActionUpdateResult> results = tradeActionService.updateUserActionType(requests, "username");
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    public void testUpdateUserActionType_WithValidRequests() throws Exception {
+        // Setup
+        UpdateUserActionTypeRequest request = mock(UpdateUserActionTypeRequest.class);
+        ActionDocumentId actionDocumentId = new ActionDocumentId("key1", 1L);
+        when(request.getDocumentId()).thenReturn(actionDocumentId);
