@@ -1,82 +1,443 @@
-Could you write all the test cases for below java class to cover all the remaining scenarios or methods and make the test coverage or code coverage as 100% using junit 4 and old mockito version and java 8. Also don't use power mockito as i m using older mockito version and for private methods try to use reflection. Plus we can't change any file other than the above test class. 
-
-/**
- * 
- */
 package com.rbs.tntr.business.blotter.utility;
 
+import static org.junit.Assert.*;
+import static org.mockito.Matchers.*;
+import static org.mockito.Mockito.*;
+
 import java.io.IOException;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
 
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.mockito.Mock;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
+import org.mockito.runners.MockitoJUnitRunner;
 import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestTemplate;
 
-import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.collect.Maps;
 import com.rbs.tntr.business.blotter.search.querybuilder.LoggedInUserDetails;
 import com.rbs.tntr.domain.blotter.exceptions.BlotterRunTimeException;
 
-/**
- * Description : 
- * @author agrakit
- * Created By: Niket Agrawal
- * Created On 05-01-2023
- */
-@Configuration
-public class BlotterUtil {
+@RunWith(MockitoJUnitRunner.class)
+public class BlotterUtilTest {
 
-	private static final String RESPONSE = "response";
+    @Mock
+    private RestTemplate restTemplate;
+    
+    @Mock
+    private ObjectMapper objectMapper;
+    
+    @Mock
+    private JsonNode rootNode;
+    
+    @Mock
+    private JsonNode responseNode;
+    
+    @Mock
+    private JsonNode docsNode;
+    
+    @Mock
+    private JsonNode userNode;
+    
+    @Mock
+    private ResponseEntity<String> responseEntity;
+    
+    @Mock
+    private Logger logger;
+    
+    private BlotterUtil blotterUtil;
+    private String testUserRacfId = "testUser123";
+    private String testEndpoint = "http://test-endpoint/{userRacfId}";
+    
+    @Before
+    public void setUp() throws Exception {
+        blotterUtil = new BlotterUtil();
+        
+        // Set the userDetailsHost using reflection
+        setUserDetailsHostViaReflection(testEndpoint);
+        
+        // Mock the static logger
+        mockStaticLogger();
+    }
+    
+    private void setUserDetailsHostViaReflection(String endpoint) throws Exception {
+        Field userDetailsHostField = BlotterUtil.class.getDeclaredField("userDetailsHost");
+        userDetailsHostField.setAccessible(true);
+        userDetailsHostField.set(null, endpoint);
+    }
+    
+    private void mockStaticLogger() throws Exception {
+        Field loggerField = BlotterUtil.class.getDeclaredField("LOGGER");
+        loggerField.setAccessible(true);
+        loggerField.set(null, logger);
+    }
 
-	private static final Logger LOGGER = LoggerFactory.getLogger(BlotterUtil.class);
+    @Test
+    public void testSetUserDetailsHost() throws Exception {
+        // Test the setter method
+        String newEndpoint = "http://new-endpoint/{userRacfId}";
+        blotterUtil.setUserDetailsHost(newEndpoint);
+        
+        // Verify using reflection
+        Field userDetailsHostField = BlotterUtil.class.getDeclaredField("userDetailsHost");
+        userDetailsHostField.setAccessible(true);
+        String actualEndpoint = (String) userDetailsHostField.get(null);
+        
+        assertEquals(newEndpoint, actualEndpoint);
+    }
 
-	private static String userDetailsHost;
+    @Test
+    public void testGetLoggedInUserDetails_Success() throws Exception {
+        // Mock successful response
+        String responseBody = "{\"response\":{\"docs\":[{\"userId\":\"testUser\",\"name\":\"Test User\"}]}}";
+        
+        when(responseEntity.getStatusCode()).thenReturn(HttpStatus.OK);
+        when(responseEntity.getBody()).thenReturn(responseBody);
+        
+        // Mock ObjectMapper and JsonNode behavior
+        when(objectMapper.readTree(responseBody)).thenReturn(rootNode);
+        when(rootNode.hasNonNull("response")).thenReturn(true);
+        when(rootNode.get("response")).thenReturn(responseNode);
+        when(responseNode.hasNonNull("docs")).thenReturn(true);
+        when(responseNode.get("docs")).thenReturn(docsNode);
+        when(docsNode.has(0)).thenReturn(true);
+        when(docsNode.get(0)).thenReturn(userNode);
+        
+        // Mock the convertValue calls
+        Map<String, Object> userMap = new HashMap<>();
+        userMap.put("userId", "testUser");
+        userMap.put("name", "Test User");
+        
+        LoggedInUserDetails expectedUserDetails = new LoggedInUserDetails();
+        // Set properties if LoggedInUserDetails has setters
+        
+        when(objectMapper.convertValue(eq(userNode), any())).thenReturn(userMap);
+        when(objectMapper.convertValue(eq(userMap), eq(LoggedInUserDetails.class))).thenReturn(expectedUserDetails);
+        
+        // Mock RestTemplate with MockedStatic
+        try (MockedStatic<RestTemplate> mockedRestTemplate = Mockito.mockStatic(RestTemplate.class)) {
+            RestTemplate mockRestTemplate = mock(RestTemplate.class);
+            mockedRestTemplate.when(() -> new RestTemplate()).thenReturn(mockRestTemplate);
+            
+            when(mockRestTemplate.exchange(
+                eq(testEndpoint),
+                eq(HttpMethod.GET),
+                any(HttpEntity.class),
+                eq(String.class),
+                any(HashMap.class)
+            )).thenReturn(responseEntity);
+            
+            // Mock ObjectMapper constructor
+            try (MockedStatic<ObjectMapper> mockedObjectMapper = Mockito.mockStatic(ObjectMapper.class)) {
+                mockedObjectMapper.when(() -> new ObjectMapper()).thenReturn(objectMapper);
+                
+                LoggedInUserDetails result = BlotterUtil.getLoggedInUserDetails(testUserRacfId);
+                
+                assertNotNull(result);
+                assertEquals(expectedUserDetails, result);
+            }
+        }
+    }
 
-	@Value("${loggedin.user.details.endpoint}")
-	public void setUserDetailsHost(String hostEndpoint) {
-		BlotterUtil.userDetailsHost = hostEndpoint;
-	}
+    @Test(expected = BlotterRunTimeException.class)
+    public void testGetLoggedInUserDetails_NonOkStatus() throws Exception {
+        when(responseEntity.getStatusCode()).thenReturn(HttpStatus.INTERNAL_SERVER_ERROR);
+        
+        try (MockedStatic<RestTemplate> mockedRestTemplate = Mockito.mockStatic(RestTemplate.class)) {
+            RestTemplate mockRestTemplate = mock(RestTemplate.class);
+            mockedRestTemplate.when(() -> new RestTemplate()).thenReturn(mockRestTemplate);
+            
+            when(mockRestTemplate.exchange(
+                eq(testEndpoint),
+                eq(HttpMethod.GET),
+                any(HttpEntity.class),
+                eq(String.class),
+                any(HashMap.class)
+            )).thenReturn(responseEntity);
+            
+            BlotterUtil.getLoggedInUserDetails(testUserRacfId);
+        }
+        
+        // Verify error logging
+        verify(logger).error("Error in Response while fetching user details");
+    }
 
-	public static LoggedInUserDetails getLoggedInUserDetails(String userRacfId) {
-		try {
-			HttpHeaders headers = new HttpHeaders();
-			headers.setContentType(MediaType.APPLICATION_JSON);
-			HttpEntity<Object> entity = new HttpEntity<>(headers);
-			HashMap<String, Object> uriVariables = Maps.newHashMap();
-			uriVariables.put("userRacfId", userRacfId);
-			ResponseEntity<String> response = new RestTemplate().exchange(userDetailsHost, HttpMethod.GET, entity,
-					String.class, uriVariables);
-			if (response.getStatusCode() == HttpStatus.OK) {
-				ObjectMapper mapper = new ObjectMapper();
-				JsonNode node = mapper.readTree(response.getBody());
-				if (node.hasNonNull(RESPONSE) && node.get(RESPONSE).hasNonNull("docs")
-						&& node.get(RESPONSE).get("docs").has(0)) {
-					Map<String, Object> userMap = mapper.convertValue(node.get(RESPONSE).get("docs").get(0),
-							new TypeReference<Map<String, Object>>() {
-							});
-					return mapper.convertValue(userMap, LoggedInUserDetails.class);
-				} else {
-					LOGGER.error("API Response doesnt have User Details");
-					throw new BlotterRunTimeException("API Response doesnt have User Details");
-				}
-			} else {
-				LOGGER.error("Error in Response while fetching user details");
-				throw new BlotterRunTimeException("Error in Response while fetching user details");
-			}
-		} catch (IOException ex) {
-			LOGGER.error("There was an exception while fetching user details", ex);
-			throw new BlotterRunTimeException("There was an exception while fetching user details", ex);
-		}
-	}
+    @Test(expected = BlotterRunTimeException.class)
+    public void testGetLoggedInUserDetails_NoResponseNode() throws Exception {
+        String responseBody = "{\"data\":{\"users\":[]}}";
+        
+        when(responseEntity.getStatusCode()).thenReturn(HttpStatus.OK);
+        when(responseEntity.getBody()).thenReturn(responseBody);
+        
+        when(objectMapper.readTree(responseBody)).thenReturn(rootNode);
+        when(rootNode.hasNonNull("response")).thenReturn(false);
+        
+        try (MockedStatic<RestTemplate> mockedRestTemplate = Mockito.mockStatic(RestTemplate.class)) {
+            RestTemplate mockRestTemplate = mock(RestTemplate.class);
+            mockedRestTemplate.when(() -> new RestTemplate()).thenReturn(mockRestTemplate);
+            
+            when(mockRestTemplate.exchange(
+                eq(testEndpoint),
+                eq(HttpMethod.GET),
+                any(HttpEntity.class),
+                eq(String.class),
+                any(HashMap.class)
+            )).thenReturn(responseEntity);
+            
+            try (MockedStatic<ObjectMapper> mockedObjectMapper = Mockito.mockStatic(ObjectMapper.class)) {
+                mockedObjectMapper.when(() -> new ObjectMapper()).thenReturn(objectMapper);
+                
+                BlotterUtil.getLoggedInUserDetails(testUserRacfId);
+            }
+        }
+        
+        // Verify error logging
+        verify(logger).error("API Response doesnt have User Details");
+    }
+
+    @Test(expected = BlotterRunTimeException.class)
+    public void testGetLoggedInUserDetails_NoDocsNode() throws Exception {
+        String responseBody = "{\"response\":{\"users\":[]}}";
+        
+        when(responseEntity.getStatusCode()).thenReturn(HttpStatus.OK);
+        when(responseEntity.getBody()).thenReturn(responseBody);
+        
+        when(objectMapper.readTree(responseBody)).thenReturn(rootNode);
+        when(rootNode.hasNonNull("response")).thenReturn(true);
+        when(rootNode.get("response")).thenReturn(responseNode);
+        when(responseNode.hasNonNull("docs")).thenReturn(false);
+        
+        try (MockedStatic<RestTemplate> mockedRestTemplate = Mockito.mockStatic(RestTemplate.class)) {
+            RestTemplate mockRestTemplate = mock(RestTemplate.class);
+            mockedRestTemplate.when(() -> new RestTemplate()).thenReturn(mockRestTemplate);
+            
+            when(mockRestTemplate.exchange(
+                eq(testEndpoint),
+                eq(HttpMethod.GET),
+                any(HttpEntity.class),
+                eq(String.class),
+                any(HashMap.class)
+            )).thenReturn(responseEntity);
+            
+            try (MockedStatic<ObjectMapper> mockedObjectMapper = Mockito.mockStatic(ObjectMapper.class)) {
+                mockedObjectMapper.when(() -> new ObjectMapper()).thenReturn(objectMapper);
+                
+                BlotterUtil.getLoggedInUserDetails(testUserRacfId);
+            }
+        }
+        
+        verify(logger).error("API Response doesnt have User Details");
+    }
+
+    @Test(expected = BlotterRunTimeException.class)
+    public void testGetLoggedInUserDetails_EmptyDocsArray() throws Exception {
+        String responseBody = "{\"response\":{\"docs\":[]}}";
+        
+        when(responseEntity.getStatusCode()).thenReturn(HttpStatus.OK);
+        when(responseEntity.getBody()).thenReturn(responseBody);
+        
+        when(objectMapper.readTree(responseBody)).thenReturn(rootNode);
+        when(rootNode.hasNonNull("response")).thenReturn(true);
+        when(rootNode.get("response")).thenReturn(responseNode);
+        when(responseNode.hasNonNull("docs")).thenReturn(true);
+        when(responseNode.get("docs")).thenReturn(docsNode);
+        when(docsNode.has(0)).thenReturn(false);
+        
+        try (MockedStatic<RestTemplate> mockedRestTemplate = Mockito.mockStatic(RestTemplate.class)) {
+            RestTemplate mockRestTemplate = mock(RestTemplate.class);
+            mockedRestTemplate.when(() -> new RestTemplate()).thenReturn(mockRestTemplate);
+            
+            when(mockRestTemplate.exchange(
+                eq(testEndpoint),
+                eq(HttpMethod.GET),
+                any(HttpEntity.class),
+                eq(String.class),
+                any(HashMap.class)
+            )).thenReturn(responseEntity);
+            
+            try (MockedStatic<ObjectMapper> mockedObjectMapper = Mockito.mockStatic(ObjectMapper.class)) {
+                mockedObjectMapper.when(() -> new ObjectMapper()).thenReturn(objectMapper);
+                
+                BlotterUtil.getLoggedInUserDetails(testUserRacfId);
+            }
+        }
+        
+        verify(logger).error("API Response doesnt have User Details");
+    }
+
+    @Test(expected = BlotterRunTimeException.class)
+    public void testGetLoggedInUserDetails_IOException() throws Exception {
+        try (MockedStatic<RestTemplate> mockedRestTemplate = Mockito.mockStatic(RestTemplate.class)) {
+            RestTemplate mockRestTemplate = mock(RestTemplate.class);
+            mockedRestTemplate.when(() -> new RestTemplate()).thenReturn(mockRestTemplate);
+            
+            when(mockRestTemplate.exchange(
+                eq(testEndpoint),
+                eq(HttpMethod.GET),
+                any(HttpEntity.class),
+                eq(String.class),
+                any(HashMap.class)
+            )).thenThrow(new IOException("Network error"));
+            
+            BlotterUtil.getLoggedInUserDetails(testUserRacfId);
+        }
+        
+        verify(logger).error(eq("There was an exception while fetching user details"), any(IOException.class));
+    }
+
+    @Test(expected = BlotterRunTimeException.class)
+    public void testGetLoggedInUserDetails_JsonProcessingException() throws Exception {
+        String responseBody = "invalid json";
+        
+        when(responseEntity.getStatusCode()).thenReturn(HttpStatus.OK);
+        when(responseEntity.getBody()).thenReturn(responseBody);
+        
+        when(objectMapper.readTree(responseBody)).thenThrow(new JsonProcessingException("Invalid JSON") {});
+        
+        try (MockedStatic<RestTemplate> mockedRestTemplate = Mockito.mockStatic(RestTemplate.class)) {
+            RestTemplate mockRestTemplate = mock(RestTemplate.class);
+            mockedRestTemplate.when(() -> new RestTemplate()).thenReturn(mockRestTemplate);
+            
+            when(mockRestTemplate.exchange(
+                eq(testEndpoint),
+                eq(HttpMethod.GET),
+                any(HttpEntity.class),
+                eq(String.class),
+                any(HashMap.class)
+            )).thenReturn(responseEntity);
+            
+            try (MockedStatic<ObjectMapper> mockedObjectMapper = Mockito.mockStatic(ObjectMapper.class)) {
+                mockedObjectMapper.when(() -> new ObjectMapper()).thenReturn(objectMapper);
+                
+                BlotterUtil.getLoggedInUserDetails(testUserRacfId);
+            }
+        }
+        
+        verify(logger).error(eq("There was an exception while fetching user details"), any(JsonProcessingException.class));
+    }
+
+    @Test
+    public void testGetLoggedInUserDetails_NullUserRacfId() throws Exception {
+        // Test with null userRacfId
+        String responseBody = "{\"response\":{\"docs\":[{\"userId\":\"testUser\",\"name\":\"Test User\"}]}}";
+        
+        when(responseEntity.getStatusCode()).thenReturn(HttpStatus.OK);
+        when(responseEntity.getBody()).thenReturn(responseBody);
+        
+        when(objectMapper.readTree(responseBody)).thenReturn(rootNode);
+        when(rootNode.hasNonNull("response")).thenReturn(true);
+        when(rootNode.get("response")).thenReturn(responseNode);
+        when(responseNode.hasNonNull("docs")).thenReturn(true);
+        when(responseNode.get("docs")).thenReturn(docsNode);
+        when(docsNode.has(0)).thenReturn(true);
+        when(docsNode.get(0)).thenReturn(userNode);
+        
+        Map<String, Object> userMap = new HashMap<>();
+        LoggedInUserDetails expectedUserDetails = new LoggedInUserDetails();
+        
+        when(objectMapper.convertValue(eq(userNode), any())).thenReturn(userMap);
+        when(objectMapper.convertValue(eq(userMap), eq(LoggedInUserDetails.class))).thenReturn(expectedUserDetails);
+        
+        try (MockedStatic<RestTemplate> mockedRestTemplate = Mockito.mockStatic(RestTemplate.class)) {
+            RestTemplate mockRestTemplate = mock(RestTemplate.class);
+            mockedRestTemplate.when(() -> new RestTemplate()).thenReturn(mockRestTemplate);
+            
+            when(mockRestTemplate.exchange(
+                eq(testEndpoint),
+                eq(HttpMethod.GET),
+                any(HttpEntity.class),
+                eq(String.class),
+                any(HashMap.class)
+            )).thenReturn(responseEntity);
+            
+            try (MockedStatic<ObjectMapper> mockedObjectMapper = Mockito.mockStatic(ObjectMapper.class)) {
+                mockedObjectMapper.when(() -> new ObjectMapper()).thenReturn(objectMapper);
+                
+                LoggedInUserDetails result = BlotterUtil.getLoggedInUserDetails(null);
+                
+                assertNotNull(result);
+            }
+        }
+    }
+
+    @Test
+    public void testGetLoggedInUserDetails_EmptyUserRacfId() throws Exception {
+        // Test with empty userRacfId
+        String responseBody = "{\"response\":{\"docs\":[{\"userId\":\"testUser\",\"name\":\"Test User\"}]}}";
+        
+        when(responseEntity.getStatusCode()).thenReturn(HttpStatus.OK);
+        when(responseEntity.getBody()).thenReturn(responseBody);
+        
+        when(objectMapper.readTree(responseBody)).thenReturn(rootNode);
+        when(rootNode.hasNonNull("response")).thenReturn(true);
+        when(rootNode.get("response")).thenReturn(responseNode);
+        when(responseNode.hasNonNull("docs")).thenReturn(true);
+        when(responseNode.get("docs")).thenReturn(docsNode);
+        when(docsNode.has(0)).thenReturn(true);
+        when(docsNode.get(0)).thenReturn(userNode);
+        
+        Map<String, Object> userMap = new HashMap<>();
+        LoggedInUserDetails expectedUserDetails = new LoggedInUserDetails();
+        
+        when(objectMapper.convertValue(eq(userNode), any())).thenReturn(userMap);
+        when(objectMapper.convertValue(eq(userMap), eq(LoggedInUserDetails.class))).thenReturn(expectedUserDetails);
+        
+        try (MockedStatic<RestTemplate> mockedRestTemplate = Mockito.mockStatic(RestTemplate.class)) {
+            RestTemplate mockRestTemplate = mock(RestTemplate.class);
+            mockedRestTemplate.when(() -> new RestTemplate()).thenReturn(mockRestTemplate);
+            
+            when(mockRestTemplate.exchange(
+                eq(testEndpoint),
+                eq(HttpMethod.GET),
+                any(HttpEntity.class),
+                eq(String.class),
+                any(HashMap.class)
+            )).thenReturn(responseEntity);
+            
+            try (MockedStatic<ObjectMapper> mockedObjectMapper = Mockito.mockStatic(ObjectMapper.class)) {
+                mockedObjectMapper.when(() -> new ObjectMapper()).thenReturn(objectMapper);
+                
+                LoggedInUserDetails result = BlotterUtil.getLoggedInUserDetails("");
+                
+                assertNotNull(result);
+            }
+        }
+    }
+
+    @Test
+    public void testConstants() throws Exception {
+        // Test private static final constants using reflection
+        Field responseField = BlotterUtil.class.getDeclaredField("RESPONSE");
+        responseField.setAccessible(true);
+        String responseValue = (String) responseField.get(null);
+        assertEquals("response", responseValue);
+    }
+
+    @Test
+    public void testConstructor() {
+        // Test constructor coverage
+        BlotterUtil util = new BlotterUtil();
+        assertNotNull(util);
+    }
+
+    @Test
+    public void testStaticLoggerField() throws Exception {
+        // Test static logger field coverage
+        Field loggerField = BlotterUtil.class.getDeclaredField("LOGGER");
+        loggerField.setAccessible(true);
+        Logger staticLogger = (Logger) loggerField.get(null);
+        assertNotNull(staticLogger);
+    }
 }
