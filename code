@@ -1,200 +1,11 @@
-Could you write all the additional test cases for below java class to cover all the remaining scenarios or methods and make the test coverage or code coverage as 100% using junit 4 and old mockito version and java 8. Also don't use power mockito as i m using older mockito version and for private methods try to use reflection. Plus we can't change any file other than the above test class. 
-
 package com.rbs.tntr.business.blotter.web.controllers;
 
 import com.rbs.datafabric.domain.RecordId;
-import com.rbs.tntr.business.blotter.security.TntrRole;
 import com.rbs.tntr.business.blotter.services.blotterEvents.BlotterEventRepository;
 import com.rbs.tntr.business.blotter.services.blotterEvents.BlotterSubscriptionDeletionResult;
 import com.rbs.tntr.business.blotter.services.blotterEvents.IndexCreationResult;
 import com.rbs.tntr.business.blotter.services.blotterEvents.SubscriptionEventManager;
 import com.rbs.tntr.business.blotter.services.datetime.DateTimeService;
-import com.rbs.tntr.business.blotter.web.request.blotterEvents.BlotterEvent;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.format.annotation.DateTimeFormat;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.annotation.Secured;
-import org.springframework.web.bind.annotation.*;
-
-import java.util.Date;
-import java.util.HashMap;
-import java.util.List;
-import java.util.stream.Collectors;
-
-@RestController
-@RequestMapping(value= "api/v1/blotter-events")
-@Secured({TntrRole.Name.READONLY})
-public class BlotterEventsController {
-
-    static final Logger LOGGER = LoggerFactory.getLogger(BlotterEventsController.class);
-
-    final BlotterEventRepository eventRepository;
-    final DateTimeService dateTimeService;
-    final SubscriptionEventManager subscriptionEventManager;
-
-    public BlotterEventsController(BlotterEventRepository eventRepository,
-                                   DateTimeService dateTimeService,
-                                   SubscriptionEventManager subscriptionEventManager
-                                   ) {
-        this.eventRepository = eventRepository;
-        this.dateTimeService = dateTimeService;
-        this.subscriptionEventManager = subscriptionEventManager;
-    }
-
-    @RequestMapping(method = RequestMethod.POST)
-    public ResponseEntity save(@RequestBody BlotterEvent blotterEvent){
-        try{
-            RecordId recordId = eventRepository.save(blotterEvent);
-            return new ResponseEntity(recordId, HttpStatus.OK);
-        }catch (Exception ex){
-            String message = String.format("Error saving blotter event %s",blotterEvent.getEventId());
-            LOGGER.error("Error saving blotter event {}",blotterEvent.getEventId(),ex);
-            return new ResponseEntity(message,HttpStatus.INTERNAL_SERVER_ERROR);
-        }
-    }
-
-
-    @RequestMapping(value = "bulk",method = RequestMethod.POST)
-    public ResponseEntity saveAll(@RequestBody List<BlotterEvent> blotterEvents){
-        try{
-            List<RecordId> recordIds = eventRepository.saveAll(blotterEvents);
-            return new ResponseEntity(recordIds, HttpStatus.OK);
-        }catch (Exception ex){
-            List<String> eventIds = blotterEvents.stream().map(e->e.getEventId())
-                    .collect(Collectors.toList());
-            String message = String.format("Error saving blotter events %s",String.join(",",eventIds));
-            LOGGER.error(message,ex);
-            return new ResponseEntity(message,HttpStatus.INTERNAL_SERVER_ERROR);
-        }
-    }
-
-    @Secured({TntrRole.Name.ITSUPPORT})
-    @RequestMapping(value = "create-indexes",method = RequestMethod.POST)
-    public ResponseEntity createIndexesDropExisting(boolean dropExisting){
-        try{
-            HashMap<String, IndexCreationResult> result = eventRepository.dropAndCreateIndexes(dropExisting);
-            return new ResponseEntity(result, HttpStatus.OK);
-        }catch (Exception ex){
-            String message = String.format("Error in creating/recreating indexes");
-            LOGGER.error(message,ex);
-            return new ResponseEntity(message,HttpStatus.INTERNAL_SERVER_ERROR);
-        }
-    }
-
-    @RequestMapping(value="active-subscriptions",method = RequestMethod.GET)
-    public ResponseEntity getActiveSubscriptions(@RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") Date asOf){
-        try{
-            List<BlotterEvent> activeSubscriptions = eventRepository.getActiveSubscriptions(asOf);
-            return new ResponseEntity(activeSubscriptions, HttpStatus.OK);
-        }catch (Exception ex){
-            String message = String.format("Error fetching active subscriptions");
-            LOGGER.error(message,ex);
-            return new ResponseEntity(message,HttpStatus.INTERNAL_SERVER_ERROR);
-        }
-    }
-
-    @RequestMapping(value="by-date-range",method = RequestMethod.GET)
-    public ResponseEntity getEventsByDateTime(@RequestParam @DateTimeFormat(pattern = "yyyy-MM-dd") Date  from, @RequestParam @DateTimeFormat(pattern = "yyyy-MM-dd") Date to){
-        try{
-            List<BlotterEvent> activeSubscriptions = eventRepository.eventsByDateRange(from,to);
-            return new ResponseEntity(activeSubscriptions, HttpStatus.OK);
-        }catch (Exception ex){
-            String message = String.format("Error fetching subscriptions for date range");
-            LOGGER.error(message,ex);
-            return new ResponseEntity(message,HttpStatus.INTERNAL_SERVER_ERROR);
-        }
-    }
-
-    @RequestMapping(value = "{date}",method = RequestMethod.GET)
-    public ResponseEntity getEventsByDateTime(@PathVariable("date") @DateTimeFormat(pattern = "yyyy-MM-dd") Date date){
-        try{
-            Date from = date;
-            Date to =dateTimeService.addDays(date,1);
-            List<BlotterEvent> activeSubscriptions = eventRepository.eventsByDateRange(from,to);
-            return new ResponseEntity(activeSubscriptions, HttpStatus.OK);
-        }catch (Exception ex){
-            String message = String.format("Error fetching subscriptions for date");
-            LOGGER.error(message,ex);
-            return new ResponseEntity(message,HttpStatus.INTERNAL_SERVER_ERROR);
-        }
-    }
-
-    @RequestMapping(value="details",method = RequestMethod.POST)
-    public ResponseEntity getSubscriptions(@RequestBody List<String> eventIds){
-        try{
-            List<BlotterEvent> subscriptions = eventRepository.getEvents(eventIds);
-            return new ResponseEntity(subscriptions, HttpStatus.OK);
-        }catch (Exception ex){
-            String message="Error fetching blotter event details";
-            LOGGER.error(message,ex);
-            return new ResponseEntity(message,HttpStatus.INTERNAL_SERVER_ERROR);
-        }
-    }
-
-    @RequestMapping(value="details/sessions",method = RequestMethod.GET)
-    public ResponseEntity getSubscriptions(@RequestParam String sessionId){
-        try{
-            List<BlotterEvent> subscriptions = eventRepository.getEvents(sessionId);
-            return new ResponseEntity(subscriptions, HttpStatus.OK);
-        }catch (Exception ex){
-            String message="Error fetching blotter event details";
-            LOGGER.error(message,ex);
-            return new ResponseEntity(message,HttpStatus.INTERNAL_SERVER_ERROR);
-        }
-    }
-
-    @RequestMapping(value="by-user",method = RequestMethod.GET)
-    public ResponseEntity getEventsByUser(@RequestParam @DateTimeFormat(pattern = "yyyy-MM-dd") Date from, @RequestParam @DateTimeFormat(pattern = "yyyy-MM-dd") Date to, @RequestParam String userName){
-        try{
-            List<BlotterEvent> activeSubscriptions = eventRepository.getEventsByUser(from,to,userName);
-            return new ResponseEntity(activeSubscriptions, HttpStatus.OK);
-        }catch (Exception ex){
-            String message = String.format("Error fetching subscriptions for user");
-            LOGGER.error(message,ex);
-            return new ResponseEntity(message,HttpStatus.INTERNAL_SERVER_ERROR);
-        }
-    }
-
-    @Secured({TntrRole.Name.ITSUPPORT})
-    @RequestMapping(value="active-subscriptions",method = RequestMethod.DELETE)
-    public ResponseEntity deleteActiveSubscriptions(@RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") Date asOf){
-        try{
-
-            HashMap<String, BlotterSubscriptionDeletionResult> result
-                    = subscriptionEventManager.deleteAllActiveSubscriptions(asOf);
-            return new ResponseEntity(result, HttpStatus.OK);
-        }catch (Exception ex){
-            String message = String.format("Error deleting active subscriptions");
-            LOGGER.error(message,ex);
-            return new ResponseEntity(message,HttpStatus.INTERNAL_SERVER_ERROR);
-        }
-    }
-
-    @Secured({TntrRole.Name.ITSUPPORT})
-    @RequestMapping(value="subscriptions/delete",method = RequestMethod.POST)
-    public ResponseEntity deleteBlotterSubscriptions(@RequestBody List<String> blotterSubscriptionIds){
-        try{
-            HashMap<String, BlotterSubscriptionDeletionResult> result
-                    = subscriptionEventManager.deleteBlotterSubscriptions(blotterSubscriptionIds);
-            return new ResponseEntity(result, HttpStatus.OK);
-        }catch (Exception ex){
-            String message = String.format("Error deleting active subscriptions");
-            LOGGER.error(message,ex);
-            return new ResponseEntity(message,HttpStatus.INTERNAL_SERVER_ERROR);
-        }
-    }
-
-
-}
-
-Existing test class:
-
-package com.rbs.tntr.business.blotter.web.controllers;
-
-import com.rbs.tntr.business.blotter.services.blotterEvents.BlotterEventRepository;
-import com.rbs.tntr.business.blotter.services.blotterEvents.IndexCreationResult;
 import com.rbs.tntr.business.blotter.web.request.blotterEvents.BlotterEvent;
 import org.junit.Before;
 import org.junit.Test;
@@ -205,6 +16,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
 import java.util.Collections;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 
@@ -215,6 +27,12 @@ public class BlotterEventsControllerTest {
 
     @Mock
     private BlotterEventRepository eventRepository;
+
+    @Mock
+    private DateTimeService dateTimeService;
+
+    @Mock
+    private SubscriptionEventManager subscriptionEventManager;
 
     @InjectMocks
     private BlotterEventsController controller;
@@ -228,13 +46,11 @@ public class BlotterEventsControllerTest {
         blotterEvent.setEventId("testEvent");
     }
 
-    // Added exception handling tests for DataFabricSerializerException, UpsertException, OptimisticLockException
+    // Existing tests from the provided test class
     @Test
     public void testSave_DataFabricSerializerException() throws Exception {
         when(eventRepository.save(blotterEvent)).thenThrow(new com.rbs.datafabric.common.DataFabricSerializerException("Serialization Error"));
-
         ResponseEntity<?> response = controller.save(blotterEvent);
-
         assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
         assertTrue(response.getBody().toString().contains("Error saving blotter event"));
     }
@@ -242,9 +58,7 @@ public class BlotterEventsControllerTest {
     @Test
     public void testSave_UpsertException() throws Exception {
         when(eventRepository.save(blotterEvent)).thenThrow(new com.rbs.datafabric.api.exception.UpsertException("Upsert Error"));
-
         ResponseEntity<?> response = controller.save(blotterEvent);
-
         assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
         assertTrue(response.getBody().toString().contains("Error saving blotter event"));
     }
@@ -252,9 +66,7 @@ public class BlotterEventsControllerTest {
     @Test
     public void testSave_OptimisticLockException() throws Exception {
         when(eventRepository.save(blotterEvent)).thenThrow(new com.rbs.datafabric.api.exception.OptimisticLockException("Optimistic Lock Error"));
-
         ResponseEntity<?> response = controller.save(blotterEvent);
-
         assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
         assertTrue(response.getBody().toString().contains("Error saving blotter event"));
     }
@@ -263,9 +75,7 @@ public class BlotterEventsControllerTest {
     public void testSaveAll_DataFabricSerializerException() throws Exception {
         List<BlotterEvent> events = Collections.singletonList(blotterEvent);
         when(eventRepository.saveAll(events)).thenThrow(new com.rbs.datafabric.common.DataFabricSerializerException("Serialization Error"));
-
         ResponseEntity<?> response = controller.saveAll(events);
-
         assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
         assertTrue(response.getBody().toString().contains("Error saving blotter events"));
     }
@@ -274,9 +84,7 @@ public class BlotterEventsControllerTest {
     public void testSaveAll_UpsertException() throws Exception {
         List<BlotterEvent> events = Collections.singletonList(blotterEvent);
         when(eventRepository.saveAll(events)).thenThrow(new com.rbs.datafabric.api.exception.UpsertException("Upsert Error"));
-
         ResponseEntity<?> response = controller.saveAll(events);
-
         assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
         assertTrue(response.getBody().toString().contains("Error saving blotter events"));
     }
@@ -285,11 +93,249 @@ public class BlotterEventsControllerTest {
     public void testCreateIndexesDropExisting_Success() throws Exception {
         HashMap<String, IndexCreationResult> mockResult = new HashMap<>();
         when(eventRepository.dropAndCreateIndexes(true)).thenReturn(mockResult);
-
         ResponseEntity<?> response = controller.createIndexesDropExisting(true);
-
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(mockResult, response.getBody());
     }
 
+    // New test cases to achieve 100% coverage
+
+    // Tests for save method
+    @Test
+    public void testSave_Success() throws Exception {
+        RecordId mockRecordId = new RecordId("testId");
+        when(eventRepository.save(blotterEvent)).thenReturn(mockRecordId);
+        ResponseEntity<?> response = controller.save(blotterEvent);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(mockRecordId, response.getBody());
+    }
+
+    // Tests for saveAll method
+    @Test
+    public void testSaveAll_Success() throws Exception {
+        List<BlotterEvent> events = Collections.singletonList(blotterEvent);
+        List<RecordId> mockRecordIds = Collections.singletonList(new RecordId("testId"));
+        when(eventRepository.saveAll(events)).thenReturn(mockRecordIds);
+        ResponseEntity<?> response = controller.saveAll(events);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(mockRecordIds, response.getBody());
+    }
+
+    @Test
+    public void testSaveAll_EmptyList() throws Exception {
+        List<BlotterEvent> events = Collections.emptyList();
+        List<RecordId> mockRecordIds = Collections.emptyList();
+        when(eventRepository.saveAll(events)).thenReturn(mockRecordIds);
+        ResponseEntity<?> response = controller.saveAll(events);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(mockRecordIds, response.getBody());
+    }
+
+    // Tests for createIndexesDropExisting method
+    @Test
+    public void testCreateIndexesDropExisting_Failure() throws Exception {
+        when(eventRepository.dropAndCreateIndexes(true)).thenThrow(new RuntimeException("Index creation error"));
+        ResponseEntity<?> response = controller.createIndexesDropExisting(true);
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+        assertTrue(response.getBody().toString().contains("Error in creating/recreating indexes"));
+    }
+
+    // Tests for getActiveSubscriptions method
+    @Test
+    public void testGetActiveSubscriptions_Success() throws Exception {
+        Date asOf = new Date();
+        List<BlotterEvent> mockEvents = Collections.singletonList(blotterEvent);
+        when(eventRepository.getActiveSubscriptions(asOf)).thenReturn(mockEvents);
+        ResponseEntity<?> response = controller.getActiveSubscriptions(asOf);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(mockEvents, response.getBody());
+    }
+
+    @Test
+    public void testGetActiveSubscriptions_Failure() throws Exception {
+        Date asOf = new Date();
+        when(eventRepository.getActiveSubscriptions(asOf)).thenThrow(new RuntimeException("Fetch error"));
+        ResponseEntity<?> response = controller.getActiveSubscriptions(asOf);
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+        assertTrue(response.getBody().toString().contains("Error fetching active subscriptions"));
+    }
+
+    // Tests for getEventsByDateTime(Date from, Date to) method
+    @Test
+    public void testGetEventsByDateTime_Range_Success() throws Exception {
+        Date from = new Date();
+        Date to = new Date();
+        List<BlotterEvent> mockEvents = Collections.singletonList(blotterEvent);
+        when(eventRepository.eventsByDateRange(from, to)).thenReturn(mockEvents);
+        ResponseEntity<?> response = controller.getEventsByDateTime(from, to);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(mockEvents, response.getBody());
+    }
+
+    @Test
+    public void testGetEventsByDateTime_Range_Failure() throws Exception {
+        Date from = new Date();
+        Date to = new Date();
+        when(eventRepository.eventsByDateRange(from, to)).thenThrow(new RuntimeException("Fetch error"));
+        ResponseEntity<?> response = controller.getEventsByDateTime(from, to);
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+        assertTrue(response.getBody().toString().contains("Error fetching subscriptions for date range"));
+    }
+
+    // Tests for getEventsByDateTime(Date date) method
+    @Test
+    public void testGetEventsByDateTime_Date_Success() throws Exception {
+        Date date = new Date();
+        Date toDate = new Date(date.getTime() + 86400000); // +1 day in milliseconds
+        List<BlotterEvent> mockEvents = Collections.singletonList(blotterEvent);
+        when(dateTimeService.addDays(date, 1)).thenReturn(toDate);
+        when(eventRepository.eventsByDateRange(date, toDate)).thenReturn(mockEvents);
+        ResponseEntity<?> response = controller.getEventsByDateTime(date);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(mockEvents, response.getBody());
+    }
+
+    @Test
+    public void testGetEventsByDateTime_Date_Failure_AddDays() throws Exception {
+        Date date = new Date();
+        when(dateTimeService.addDays(date, 1)).thenThrow(new RuntimeException("Date error"));
+        ResponseEntity<?> response = controller.getEventsByDateTime(date);
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+        assertTrue(response.getBody().toString().contains("Error fetching subscriptions for date"));
+    }
+
+    @Test
+    public void testGetEventsByDateTime_Date_Failure_EventsByDateRange() throws Exception {
+        Date date = new Date();
+        Date toDate = new Date(date.getTime() + 86400000);
+        when(dateTimeService.addDays(date, 1)).thenReturn(toDate);
+        when(eventRepository.eventsByDateRange(date, toDate)).thenThrow(new RuntimeException("Fetch error"));
+        ResponseEntity<?> response = controller.getEventsByDateTime(date);
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+        assertTrue(response.getBody().toString().contains("Error fetching subscriptions for date"));
+    }
+
+    // Tests for getSubscriptions(List<String> eventIds) method
+    @Test
+    public void testGetSubscriptions_ByEventIds_Success() throws Exception {
+        List<String> eventIds = Collections.singletonList("testEvent");
+        List<BlotterEvent> mockEvents = Collections.singletonList(blotterEvent);
+        when(eventRepository.getEvents(eventIds)).thenReturn(mockEvents);
+        ResponseEntity<?> response = controller.getSubscriptions(eventIds);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(mockEvents, response.getBody());
+    }
+
+    @Test
+    public void testGetSubscriptions_ByEventIds_Failure() throws Exception {
+        List<String> eventIds = Collections.singletonList("testEvent");
+        when(eventRepository.getEvents(eventIds)).thenThrow(new RuntimeException("Fetch error"));
+        ResponseEntity<?> response = controller.getSubscriptions(eventIds);
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+        assertTrue(response.getBody().toString().contains("Error fetching blotter event details"));
+    }
+
+    @Test
+    public void testGetSubscriptions_ByEventIds_EmptyList() throws Exception {
+        List<String> eventIds = Collections.emptyList();
+        List<BlotterEvent> mockEvents = Collections.emptyList();
+        when(eventRepository.getEvents(eventIds)).thenReturn(mockEvents);
+        ResponseEntity<?> response = controller.getSubscriptions(eventIds);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(mockEvents, response.getBody());
+    }
+
+    // Tests for getSubscriptions(String sessionId) method
+    @Test
+    public void testGetSubscriptions_BySessionId_Success() throws Exception {
+        String sessionId = "testSession";
+        List<BlotterEvent> mockEvents = Collections.singletonList(blotterEvent);
+        when(eventRepository.getEvents(sessionId)).thenReturn(mockEvents);
+        ResponseEntity<?> response = controller.getSubscriptions(sessionId);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(mockEvents, response.getBody());
+    }
+
+    @Test
+    public void testGetSubscriptions_BySessionId_Failure() throws Exception {
+        String sessionId = "testSession";
+        when(eventRepository.getEvents(sessionId)).thenThrow(new RuntimeException("Fetch error"));
+        ResponseEntity<?> response = controller.getSubscriptions(sessionId);
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+        assertTrue(response.getBody().toString().contains("Error fetching blotter event details"));
+    }
+
+    // Tests for getEventsByUser method
+    @Test
+    public void testGetEventsByUser_Success() throws Exception {
+        Date from = new Date();
+        Date to = new Date();
+        String userName = "testUser";
+        List<BlotterEvent> mockEvents = Collections.singletonList(blotterEvent);
+        when(eventRepository.getEventsByUser(from, to, userName)).thenReturn(mockEvents);
+        ResponseEntity<?> response = controller.getEventsByUser(from, to, userName);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(mockEvents, response.getBody());
+    }
+
+    @Test
+    public void testGetEventsByUser_Failure() throws Exception {
+        Date from = new Date();
+        Date to = new Date();
+        String userName = "testUser";
+        when(eventRepository.getEventsByUser(from, to, userName)).thenThrow(new RuntimeException("Fetch error"));
+        ResponseEntity<?> response = controller.getEventsByUser(from, to, userName);
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+        assertTrue(response.getBody().toString().contains("Error fetching subscriptions for user"));
+    }
+
+    // Tests for deleteActiveSubscriptions method
+    @Test
+    public void testDeleteActiveSubscriptions_Success() throws Exception {
+        Date asOf = new Date();
+        HashMap<String, BlotterSubscriptionDeletionResult> mockResult = new HashMap<>();
+        when(subscriptionEventManager.deleteAllActiveSubscriptions(asOf)).thenReturn(mockResult);
+        ResponseEntity<?> response = controller.deleteActiveSubscriptions(asOf);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(mockResult, response.getBody());
+    }
+
+    @Test
+    public void testDeleteActiveSubscriptions_Failure() throws Exception {
+        Date asOf = new Date();
+        when(subscriptionEventManager.deleteAllActiveSubscriptions(asOf)).thenThrow(new RuntimeException("Delete error"));
+        ResponseEntity<?> response = controller.deleteActiveSubscriptions(asOf);
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+        assertTrue(response.getBody().toString().contains("Error deleting active subscriptions"));
+    }
+
+    // Tests for deleteBlotterSubscriptions method
+    @Test
+    public void testDeleteBlotterSubscriptions_Success() throws Exception {
+        List<String> subscriptionIds = Collections.singletonList("testId");
+        HashMap<String, BlotterSubscriptionDeletionResult> mockResult = new HashMap<>();
+        when(subscriptionEventManager.deleteBlotterSubscriptions(subscriptionIds)).thenReturn(mockResult);
+        ResponseEntity<?> response = controller.deleteBlotterSubscriptions(subscriptionIds);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(mockResult, response.getBody());
+    }
+
+    @Test
+    public void testDeleteBlotterSubscriptions_Failure() throws Exception {
+        List<String> subscriptionIds = Collections.singletonList("testId");
+        when(subscriptionEventManager.deleteBlotterSubscriptions(subscriptionIds)).thenThrow(new RuntimeException("Delete error"));
+        ResponseEntity<?> response = controller.deleteBlotterSubscriptions(subscriptionIds);
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+        assertTrue(response.getBody().toString().contains("Error deleting active subscriptions"));
+    }
+
+    @Test
+    public void testDeleteBlotterSubscriptions_EmptyList() throws Exception {
+        List<String> subscriptionIds = Collections.emptyList();
+        HashMap<String, BlotterSubscriptionDeletionResult> mockResult = new HashMap<>();
+        when(subscriptionEventManager.deleteBlotterSubscriptions(subscriptionIds)).thenReturn(mockResult);
+        ResponseEntity<?> response = controller.deleteBlotterSubscriptions(subscriptionIds);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(mockResult, response.getBody());
+    }
 }
