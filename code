@@ -1,20 +1,21 @@
-Could you write all the additional test cases for below java class to cover all the remaining scenarios or methods and make the test coverage or code coverage as 100% using junit 4 and old mockito version and java 8. Also don't use power mockito as i m using older mockito version and for private methods try to use reflection. Plus we can't change any file other than the above test class. 
-
 package com.rbs.tntr.business.blotter.services.validators;
 
-import java.io.IOException;
-import java.util.*;
-import java.util.stream.Collectors;
-
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.nwm.tntr.commons.domain.persistence.constant.ApprovalStatus;
 import com.nwm.tntr.commons.domain.persistence.constant.ReportingRegime;
 import com.nwm.tntr.commons.domain.persistence.constant.SourceSystemId;
+import com.nwm.tntr.commons.domain.persistence.constant.TransactionStateValue;
+import com.nwm.tntr.commons.domain.persistence.entity.ExceptionManagement;
+import com.nwm.tntr.commons.domain.persistence.entity.collateral.CollateralReport;
 import com.nwm.tntr.commons.domain.persistence.entity.collateral.CollateralReportDocument;
+import com.nwm.tntr.commons.domain.persistence.entity.collateral.CollateralReportId;
+import com.nwm.tntr.commons.domain.persistence.entity.trade.TradeReport;
 import com.nwm.tntr.commons.domain.persistence.entity.trade.TradeReportDocument;
+import com.nwm.tntr.commons.domain.persistence.entity.trade.TradeReportId;
+import com.nwm.tntr.commons.domain.persistence.entity.valuation.ValuationReport;
 import com.nwm.tntr.commons.domain.persistence.entity.valuation.ValuationReportDocument;
+import com.nwm.tntr.commons.domain.persistence.entity.valuation.ValuationReportId;
 import com.rbs.datafabric.agile.commons.lang.StartableException;
 import com.rbs.datafabric.api.PagedScanResult;
 import com.rbs.datafabric.api.exception.ScanException;
@@ -24,712 +25,27 @@ import com.rbs.datafabric.domain.JsonDocument;
 import com.rbs.datafabric.domain.Record;
 import com.rbs.datafabric.domain.client.builder.ScanRequestBuilder;
 import com.rbs.tntr.business.blotter.search.querybuilder.DfScanParameters;
+import com.rbs.tntr.business.blotter.services.actions.ActionDocumentId;
 import com.rbs.tntr.business.blotter.services.actions.ActionUpdateResult;
 import com.rbs.tntr.business.blotter.utility.DataFabricExportUtility;
 import com.rbs.tntr.business.blotter.web.request.regreportingTrade.*;
 import com.rbs.tntr.domain.blotter.enums.CRAction;
-import com.rbs.tntr.domain.blotter.tntrBlotterView.*;
-import org.apache.commons.lang.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
-
-import com.nwm.tntr.commons.domain.persistence.constant.ApprovalStatus;
-import com.nwm.tntr.commons.domain.persistence.constant.TransactionStateValue;
-import com.nwm.tntr.commons.domain.persistence.entity.ExceptionManagement;
 import com.rbs.tntr.domain.blotter.enums.ExceptionStatus;
 import com.rbs.tntr.domain.blotter.enums.FlowType;
 import com.rbs.tntr.domain.blotter.enums.WorkflowAction;
 import com.rbs.tntr.domain.blotter.exceptions.ValidationException;
-import com.rbs.tntr.domain.blotter.tntrBlotterView.UserComment;
-import static com.rbs.tntr.business.blotter.services.common.StringConstants.*;
-
-@Component
-public class ActionRequestValidator {
-
-    private final Logger LOGGER = LoggerFactory.getLogger(ActionRequestValidator.class);
-    private static final String FALSE = "false";
-    private static final String TRUE = "true";
-    public static final String REQUESTED = "Requested";
-    public static final String APPROVAL_STATUS_VALIDATION_ERROR = "Action not applicable.";
-    public static final String USER_VALIDATION_ERROR = "User not permitteed to take action.";
-    public static final String JIRA_ID_PRESENT = "Jira Id already present.";
-    public static final String JIRA_ID_NOT_PRESENT = "Jira Id not present.";
-    public static final String JIRA_TYPE_NOT_PRESENT = "Jira Type not present.";
-    public static final String USER_ACTION_TYPE = "userActionType";
-    public static final String REPORTING_REGIME_VALIDATION_ERROR = "Action not applicable for Regulatory : MAS 755, MAS 610, SFTR, JRR.";
-    private static final String ENTITY_IS_NULL_ERROR = "Entity must be specified";
-    private static final String REPORT_TYPE_IS_NULL_ERROR = "Report Submission Type has to be specified";
-    public static final List<ReportingRegime> restrictedMasRegulations = ImmutableList.of(ReportingRegime.THE_MONETARY_AUTHORITY_OF_SINGAPORE_755, ReportingRegime.THE_MONETARY_AUTHORITY_OF_SINGAPORE_610);
-    public static final List<ReportingRegime> restrictedRegulations = ImmutableList.of(ReportingRegime.THE_MONETARY_AUTHORITY_OF_SINGAPORE_755, ReportingRegime.THE_MONETARY_AUTHORITY_OF_SINGAPORE_610, ReportingRegime.SECURITIES_FINANCING_TRANSACTION_REGULATION_SELF_REPORTING, ReportingRegime.JAPAN_REGULATORY_REGIME);
-
-    final  CommonValidator commonValidator;
-    DataFabricExportUtility dataFabricExportUtil;
-
-    @Autowired
-    public ActionRequestValidator(CommonValidator commonValidator, DataFabricExportUtility dataFabricExportUtil) {
-        this.commonValidator = commonValidator;
-        this.dataFabricExportUtil = dataFabricExportUtil;
-    }
-
-	public void validateWorkflowRequests(List<UpdateExceptionStatusRequest> requests, ExceptionStatus exceptionStatus) {
-        try {
-			requests.forEach(request -> validateWorkflowRequest(request, exceptionStatus));
-        }
-        catch (Exception ex){
-            throw new ValidationException(ex.getMessage(),ex);
-        }
-    }
-	
-	public void validateResetActionRequests(List<UpdateExceptionStatusRequest> requests) {
-        try {
-			requests.forEach(this::validateResetActionRequest);
-        }
-        catch (Exception ex){
-            throw new ValidationException(ex.getMessage(),ex);
-        }
-    }
-	
-    public void validateAddTradeCommentRequests(List<AddTradeCommentRequest> requests) {
-        try {
-            requests.forEach(request -> validateAddTradeCommentRequest(request));
-        }
-        catch (Exception ex){
-            throw new ValidationException(ex.getMessage(),ex);
-        }
-    }
-    
-    public void validateRemoveTradeCommentRequests(List<AddTradeCommentRequest> requests) {
-        try {
-            requests.forEach(request -> validateRemoveTradeCommentRequest(request));
-        }
-        catch (Exception ex){
-            throw new ValidationException(ex.getMessage(),ex);
-        }
-    }
-
-    public void validateAssignReqeusts(List<AssignTradeRequest> requests){
-        try {
-            requests.forEach(request -> validateAssignReqeust(request));
-        }
-        catch (Exception ex){
-            throw new ValidationException(ex.getMessage(),ex);
-        }
-    }
-
-    public void validateAddJiraReferenceReqeusts(List<AddTradeJiraReferenceRequest> requests) {
-        try {
-            requests.forEach(request -> validateAddJiraReferenceReqeust(request));
-        } catch (Exception ex) {
-            throw new ValidationException(ex.getMessage(), ex);
-        }
-    }
-
-	private void validateWorkflowRequest(UpdateExceptionStatusRequest request, ExceptionStatus exceptionStatus) {
-        validateRequest(request);
-        commonValidator.validateWorkflowAction(request.getAction());
-        validateUserComment(request.getAction(), request.getComment());
-		if ((exceptionStatus.equals(ExceptionStatus.Edit_Approved))
-				|| (exceptionStatus.equals(ExceptionStatus.Edit_Rejected)))
-			validateUserCommentForEdit(request.getAction(), request.getComment());
-        validateApprovedBy(request);
-        validateAccountSubmission(request.getApprovalRequired(), request.getAction(), request.getAccountSubmissionType());
-    }
-	
-	private void validateResetActionRequest(UpdateExceptionStatusRequest request) {
-        validateRequest(request);
-        commonValidator.validateComment(request.getComment());
-    }
-
-    private void validateApprovedBy(EditRequest request) {
-        if (request.getApprovalRequired().equalsIgnoreCase(FALSE)) {
-            switch (WorkflowAction.getByValue(request.getAction())) {
-                case RequestEdit:
-				commonValidator.validateApprover(request.getExceptionManagementData().getApprovedBy());
-				break;
-			default:
-				break;
-            }
-        }
-    }
-    
-    private void validateApprovedBy(UpdateExceptionStatusRequest request) {
-        if (request.getApprovalRequired().equalsIgnoreCase(FALSE)) {
-            switch (WorkflowAction.getByValue(request.getAction())) {
-                case RequestCloseException:
-                case RequestOpenException:
-                case RequestReplay:
-                case RequestCancel:
-                case RequestRefresh:
-                case RequestDummyAmend:
-				commonValidator.validateApprover(request.getApprovedBy());
-				break;
-			default:
-				break;
-            }
-        }
-    }
-
-    private void validateUserComment(String action, UserComment userComment) {
-        switch (WorkflowAction.getByValue(action)) {
-            case RequestCloseException:
-            case ApproveCloseException:
-            case RejectCloseException:
-
-            case RequestOpenException:
-            case ApproveOpenException:
-            case RejectOpenException:
-
-            case RequestReplay:
-            case RejectReplay:
-            case ApproveReplay:
-
-            case RequestCancel:
-            case ApproveCancel:
-            case RejectCancel:
-
-            case RejectClosure:
-
-            case RequestRefresh:
-            case ApproveRefresh:
-            case RejectRefresh:
-
-            case RequestDummyAmend:
-            case ApproveDummyAmend:
-            case RejectDummyAmend:
-
-			commonValidator.validateComment(userComment);
-		default:
-			break;
-        }
-	}
-
-	private void validateUserCommentForEdit(String action, UserComment userComment) {
-		switch (WorkflowAction.getByValue(action)) {
-		case ApproveEdit:
-		case RejectEdit:
-			commonValidator.validateComment(userComment);
-		default:
-			break;
-		}
-	}
-    public void validateRequest(UpdateRequest request) {
-        if(request==null)
-            throw new ValidationException(ValidatorConstants.ERROR_REQUEST_NOT_NULL);
-
-        if(request.getDocumentId()==null)
-            throw new  ValidationException(ValidatorConstants.ERROR_DOCUMENT_ID_NOT_NULL);
-
-        if(request.getDocumentId().getKey()==null)
-            throw new  ValidationException(ValidatorConstants.ERROR_DOCUMENT_KEY_NOT_NULL);
-
-        if(request.getDocumentId().getVersion()==null)
-            throw new  ValidationException(ValidatorConstants.ERROR_DOCUMENT_VERSION_NOT_NULL);
-
-        if(request.getFlow()==null || !validateFlow(request.getFlow()))
-            throw new  ValidationException(ValidatorConstants.FLOW_IS_NOT_VALID + request.getFlow());
-
-        WorkFlowActionValidator.validateWorkFlowAction(request.getAction());
-    }
-
-    private boolean validateFlow(String flowType) {
-        if (!Arrays.stream(FlowType.values()).anyMatch(t->t.getValue().equals(flowType))) {
-            return false;
-        }
-        return true;
-    }
-
-    private void validateAddTradeCommentRequest(AddTradeCommentRequest request) {
-        validateRequest(request);
-        commonValidator.validateComment(request.getComment());
-    }
-    
-    private void validateRemoveTradeCommentRequest(AddTradeCommentRequest request) {
-        validateRequest(request);
-    }
-
-    private void validateAddJiraReferenceReqeust(AddTradeJiraReferenceRequest request) {
-        validateRequest(request);
-        commonValidator.validateJiraReference(request.getJiraReference());
-    }
-
-    private void validateAssignReqeust(AssignTradeRequest request) {
-        validateRequest(request);
-        commonValidator.validateAssignTo(request.getAssignTo());
-
-    }
-
-    public void validateAddJiraTypeReqeusts(List<AddTradeJiraTypeRequest> requests) {
-        try {
-            requests.forEach(request -> validateAddJiraTypeReqeust(request));
-        } catch (Exception ex) {
-            throw new ValidationException(ex.getMessage(), ex);
-        }
-    }
-
-    private void validateAddJiraTypeReqeust(AddTradeJiraTypeRequest request) {
-        validateRequest(request);
-        commonValidator.validateJiraType(request.getJiraType().getIssueType());
-    }
-
-    public void validateEditReqeusts(List<EditRequest> requests) {
-        try {
-            requests.forEach(this::validateEditTradeReqeust);
-        } catch (Exception ex) {
-            throw new ValidationException(ex.getMessage(), ex);
-        }
-    }
-
-    private void validateEditTradeReqeust(EditRequest request) {
-        validateRequest(request);
-        commonValidator.validateEditComment(request.getExceptionManagementData().getComment());
-        validateApprovedBy(request);
-        validateAccountSubmission(request.getApprovalRequired(), request.getAction(), request.getAccountSubmissionType());
-    }
-
-    private void validateAccountSubmission(String approvalRequired, String action, String accountSubmissionType) {
-        switch (WorkflowAction.getByValue(action)) {
-            case RequestReplay:
-            case RequestCancel:
-            case RequestRefresh:
-            case RequestEdit:
-                commonValidator.validateAccoubtSubmissionType(accountSubmissionType);
-                break;
-            default:
-                break;
-        }
-    }
-
-	public boolean validateAckedCancleTrade(ExceptionStatus requestedExceptionStatus, TransactionStateValue transactionStateValue) {
-        return ((ExceptionStatus.Cancel_Requested.equals(requestedExceptionStatus)
-                || ExceptionStatus.Cancel_Approved.equals(requestedExceptionStatus))
-				&& !(TransactionStateValue.ACKNOWLEDGED.equals(transactionStateValue)
-                    || TransactionStateValue.Hold.equals(transactionStateValue)
-                        || TransactionStateValue.Validation_Hold.equals(transactionStateValue)
-						    || TransactionStateValue.SUBMITTED.equals(transactionStateValue)));
-    }
-
-    public boolean validateExceptionStatus(ExceptionStatus requestedExceptionStatus, ApprovalStatus approvalStatus) {
-        if(approvalStatus == null || !approvalStatus.value().contains(REQUESTED)){
-            return true;
-        }else if(ApprovalStatus.CANCEL_REQUESTED.equals(approvalStatus)
-                && (ExceptionStatus.Cancel_Rejected.equals(requestedExceptionStatus) || ExceptionStatus.Cancel_Approved.equals(requestedExceptionStatus))){
-            return true;
-        }else if(ApprovalStatus.REPLAY_REQUESTED.equals(approvalStatus)
-                && (ExceptionStatus.Replay_Rejected.equals(requestedExceptionStatus) || ExceptionStatus.Replay_Approved.equals(requestedExceptionStatus))){
-            return true;
-        }else if(ApprovalStatus.REFRESH_REQUESTED.equals(approvalStatus)
-                && (ExceptionStatus.Replay_Refresh_Rejected.equals(requestedExceptionStatus) || ExceptionStatus.Replay_Refresh_Approved.equals(requestedExceptionStatus))){
-            return true;
-        }else if(ApprovalStatus.DUMMY_AMEND_REQUESTED.equals(approvalStatus)
-                && (ExceptionStatus.Dummy_Amend_Rejected.equals(requestedExceptionStatus) || ExceptionStatus.Dummy_Amend_Approved.equals(requestedExceptionStatus))){
-            return true;
-        }else if(ApprovalStatus.OPEN_REQUESTED.equals(approvalStatus)
-                && (ExceptionStatus.Open_Rejected.equals(requestedExceptionStatus) || ExceptionStatus.Open.equals(requestedExceptionStatus)|| ExceptionStatus.Open_Approved.equals(requestedExceptionStatus))){
-            return true;
-        }else if(ApprovalStatus.CLOSE_REQUESTED.equals(approvalStatus)
-                && (ExceptionStatus.Close_Rejected.equals(requestedExceptionStatus) || ExceptionStatus.Close.equals(requestedExceptionStatus)|| ExceptionStatus.Close_Approved.equals(requestedExceptionStatus))){
-            return true;
-		} else if (ApprovalStatus.REPLAY_EDIT_REQUESTED.equals(approvalStatus)
-				&& ((ExceptionStatus.Edit_Rejected.equals(requestedExceptionStatus))
-						|| (ExceptionStatus.Edit_Approved.equals(requestedExceptionStatus)))) {
-			return true;
-		}
-		return false;
-    }
-
-	public boolean validateResetActionApprovalStatus(ApprovalStatus approvalStatus, String flow) {
-		boolean result = false;
-		if (FlowType.TRANSACTION.getValue().equals(flow)) {
-			if (ApprovalStatus.DUMMY_AMEND_APPROVED.equals(approvalStatus)
-					|| ApprovalStatus.CANCEL_APPROVED.equals(approvalStatus)
-					|| ApprovalStatus.REFRESH_APPROVED.equals(approvalStatus)
-					|| ApprovalStatus.REPLAY_APPROVED.equals(approvalStatus)
-					|| ApprovalStatus.REPLAY_EDIT_APPROVED.equals(approvalStatus))
-				return true;
-		} else if (FlowType.VALUATION.getValue().equals(flow) || FlowType.COLLATERAL_LINK.getValue().equals(flow)) {
-			if (ApprovalStatus.REFRESH_APPROVED.equals(approvalStatus)
-					|| ApprovalStatus.REPLAY_APPROVED.equals(approvalStatus)
-					|| ApprovalStatus.REPLAY_EDIT_APPROVED.equals(approvalStatus))
-				return true;
-		} else if (FlowType.COLLATERAL.getValue().equals(flow)) {
-			if (ApprovalStatus.REPLAY_APPROVED.equals(approvalStatus)
-					|| ApprovalStatus.REPLAY_EDIT_APPROVED.equals(approvalStatus))
-				return true;
-		}
-		return result;
-	}
-    
-    public boolean validateUser(String userName, ExceptionManagement exceptionManagement){
-        if(exceptionManagement != null && exceptionManagement.getAssignedTo() != null) {
-            return userName.equalsIgnoreCase(exceptionManagement.getAssignedTo());
-        }
-        return false;
-    }
-
-    public boolean validateApprovalStatus(ApprovalStatus approvalStatus) {
-        if(approvalStatus == null){
-            return false;
-        }
-        switch (approvalStatus) {
-            case CANCEL_APPROVED:
-            case REPLAY_APPROVED:
-            case REFRESH_APPROVED:
-            case DUMMY_AMEND_APPROVED:
-            case REPLAY_EDIT_APPROVED:
-                return true;
-            default:
-                return false;
-        }
-    }
-
-    public boolean validateExceptionStatus(ExceptionStatus requestedExceptionStatus) {
-        switch (requestedExceptionStatus) {
-            case Cancel_Approved:
-            case Cancel_Requested:
-            case Cancel_Rejected:
-            case Dummy_Amend_Approved:
-            case Dummy_Amend_Rejected:
-            case Dummy_Amend_Requested:
-                return true;
-            default:
-                return false;
-        }
-    }
-
-    public boolean isJiraIdPresent(List<String> issueIds, String jiraId) {
-        if(issueIds!= null && StringUtils.isNotBlank(jiraId)) {
-            return issueIds.contains(jiraId);
-        }
-        return false;
-    }
-
-    public void validateUserActionType(List<UpdateUserActionTypeRequest> requests) {
-        try {
-            requests.forEach(this::validateEditUserActionTypeRequest);
-        }
-        catch (Exception ex){
-            throw new ValidationException(ex.getMessage(),ex);
-        }
-    }
-
-    private void validateEditUserActionTypeRequest(UpdateUserActionTypeRequest request) {
-        validateRequest(request);
-        commonValidator.validateComment(request.getComment());
-        commonValidator.validateEditUserActionType(request.getUserActionType());
-    }
-
-     public void validateMAS755Trades(List<TradeReportDocument> tradeReportDocuments, List<ActionUpdateResult> writeResults) {
-        List<TradeReportDocument> masTrades = tradeReportDocuments.stream().filter(trade ->
-                restrictedMasRegulations.contains(trade.getTradeReport().getTradeReportId().getReportingRegime())).collect(Collectors.toList());
-        tradeReportDocuments.removeAll(masTrades);
-        List<ActionUpdateResult> failedRecords = Lists.newArrayList();
-        for (TradeReportDocument tradeReportDocument: masTrades) {
-            failedRecords.add(ActionUpdateResult.createWithError(new ActionDocumentId(tradeReportDocument.getDocumentId().getKey(), tradeReportDocument.getDocumentId().getVersion()), REPORTING_REGIME_VALIDATION_ERROR));
-        }
-        writeResults.addAll(failedRecords);
-    }
-
-    public void validatePermittedExceptionStatus(List<TradeReportDocument> tradeReportDocuments, List<ActionUpdateResult> writeResults,
-                                                 ExceptionStatus exceptionStatus) {
-
-        Map<ReportingRegime, List<TradeReportDocument>> tradesByRegime = tradeReportDocuments.stream()
-                .filter(trade -> restrictedRegulations.contains(trade.getTradeReport().getTradeReportId().getReportingRegime()))
-                .collect(Collectors.groupingBy(trade -> trade.getTradeReport().getTradeReportId().getReportingRegime()));
-
-        List<TradeReportDocument> restrictedTrades = tradesByRegime.entrySet().stream()
-                .filter(entry -> {
-                    ReportingRegime regime = entry.getKey();
-                    Set<ExceptionStatus> restrictedStatuses = restrictedRegulationsWithAction.getOrDefault(regime.value(), Collections.emptySet());
-                    return (restrictedMasRegulations.contains(regime) && !restrictedStatuses.contains(exceptionStatus)) ||
-                            (!restrictedMasRegulations.contains(regime) && restrictedStatuses.contains(exceptionStatus));
-                })
-                .flatMap(entry -> entry.getValue().stream())
-                .collect(Collectors.toList());
-        tradeReportDocuments.removeAll(restrictedTrades);
-
-        List<ActionUpdateResult> failedRecords = restrictedTrades.stream()
-                .map(tradeReportDocument -> ActionUpdateResult.createWithError(
-                        new ActionDocumentId(tradeReportDocument.getDocumentId().getKey(), tradeReportDocument.getDocumentId().getVersion()),
-                        REPORTING_REGIME_VALIDATION_ERROR))
-                .collect(Collectors.toList());
-
-        writeResults.addAll(failedRecords);
-    }
-
-    public void validatePermittedExceptionStatusForVal(List<ValuationReportDocument> valuationReportDocuments, List<ActionUpdateResult> writeResults,
-                                                       ExceptionStatus exceptionStatus) {
-
-        Map<ReportingRegime, List<ValuationReportDocument>> tradesByRegime = valuationReportDocuments.stream()
-                .filter(trade -> restrictedRegulations.contains(trade.getValuationReport().getValuationReportId().getReportingRegime()))
-                .collect(Collectors.groupingBy(trade -> trade.getValuationReport().getValuationReportId().getReportingRegime()));
-
-        List<ValuationReportDocument> restrictedTrades = tradesByRegime.entrySet().stream()
-                .filter(entry -> {
-                    ReportingRegime regime = entry.getKey();
-                    Set<ExceptionStatus> restrictedStatuses = restrictedRegulationsWithAction.getOrDefault(SFTR_VALUATION, Collections.emptySet());
-                    return ((regime == ReportingRegime.SECURITIES_FINANCING_TRANSACTION_REGULATION_SELF_REPORTING && restrictedStatuses.contains(exceptionStatus)));
-                })
-                .flatMap(entry -> entry.getValue().stream())
-                .collect(Collectors.toList());
-        valuationReportDocuments.removeAll(restrictedTrades);
-
-        List<ActionUpdateResult> failedRecords = restrictedTrades.stream()
-                .map(tradeReportDocument -> ActionUpdateResult.createWithError(
-                        new ActionDocumentId(tradeReportDocument.getDocumentId().getKey(), tradeReportDocument.getDocumentId().getVersion()),
-                        REPORTING_REGIME_VALIDATION_ERROR))
-                .collect(Collectors.toList());
-
-        writeResults.addAll(failedRecords);
-    }
-
-    public void validatePermittedExceptionStatusForCol(List<CollateralReportDocument> collateralReportDocuments, List<ActionUpdateResult> writeResults,
-                                                       ExceptionStatus exceptionStatus) {
-
-        Map<ReportingRegime, List<CollateralReportDocument>> tradesByRegime = collateralReportDocuments.stream()
-                .filter(trade -> restrictedRegulations.contains(trade.getCollateralReport().getCollateralReportId().getReportingRegime()))
-                .collect(Collectors.groupingBy(trade -> trade.getCollateralReport().getCollateralReportId().getReportingRegime()));
-
-        List<CollateralReportDocument> restrictedTrades = tradesByRegime.entrySet().stream()
-                .filter(entry -> {
-                    ReportingRegime regime = entry.getKey();
-                    Set<ExceptionStatus> restrictedStatuses = restrictedRegulationsWithAction.getOrDefault(SFTR_COLLATERAL, Collections.emptySet());
-                    return ((regime == ReportingRegime.SECURITIES_FINANCING_TRANSACTION_REGULATION_SELF_REPORTING && restrictedStatuses.contains(exceptionStatus)));
-                })
-                .flatMap(entry -> entry.getValue().stream())
-                .collect(Collectors.toList());
-        collateralReportDocuments.removeAll(restrictedTrades);
-
-        List<ActionUpdateResult> failedRecords = restrictedTrades.stream()
-                .map(tradeReportDocument -> ActionUpdateResult.createWithError(
-                        new ActionDocumentId(tradeReportDocument.getDocumentId().getKey(), tradeReportDocument.getDocumentId().getVersion()),
-                        REPORTING_REGIME_VALIDATION_ERROR))
-                .collect(Collectors.toList());
-
-        writeResults.addAll(failedRecords);
-    }
-
-    public void validateBackdatedTrades(List<ReplayValuationForBusinessDate> requests) {
-        try {
-            validateBackdatedTradeRequest(requests);
-        } catch (Exception ex) {
-            throw new ValidationException(ex.getMessage(), ex);
-        }
-    }
-
-    public void validateBackdatedTradesByDateRange(List<ReplayValuationForDateRange> requests) {
-        try {
-            validateBackdatedTradeByDateRangeRequest(requests);
-        } catch (Exception ex) {
-            throw new ValidationException(ex.getMessage(), ex);
-        }
-    }
-
-    private void validateBackdatedTradeByDateRangeRequest(List<ReplayValuationForDateRange> requests) {
-        if (!requests.stream().map(ReplayValuationForDateRange::getFlow).allMatch(flow-> FlowType.TRANSACTION.getValue().equals(flow))){
-            throw new  ValidationException(ValidatorConstants.FLOW_IS_NOT_VALID_FOR_BACKDATED_TRADES);
-        }
-        String valuationDate = requests.get(0).getValuationDateFrom();
-        commonValidator.validateValDate(valuationDate);
-        if (!requests.stream().map(ReplayValuationForDateRange::getValuationDateFrom).allMatch(valuationDate::equals)){
-            throw new  ValidationException(ValidatorConstants.VALUATION_DATE_MULTIPLE_VALUES);
-        }
-        String valuationDateTo = requests.get(0).getValuationDateTo();
-        commonValidator.validateValDate(valuationDateTo);
-        if (!requests.stream().map(ReplayValuationForDateRange::getValuationDateTo).allMatch(valuationDateTo::equals)){
-            throw new  ValidationException(ValidatorConstants.VALUATION_DATE_MULTIPLE_VALUES);
-        }
-    }
-
-    private void validateBackdatedTradeRequest(List<ReplayValuationForBusinessDate> requests) {
-        if (!requests.stream().map(ReplayValuationForBusinessDate::getFlow).allMatch(flow-> FlowType.TRANSACTION.getValue().equals(flow))){
-            throw new  ValidationException(ValidatorConstants.FLOW_IS_NOT_VALID_FOR_BACKDATED_TRADES);
-        }
-        String valuationDate = requests.get(0).getValuationDate();
-        commonValidator.validateValDate(valuationDate);
-        if (!requests.stream().map(ReplayValuationForBusinessDate::getValuationDate).allMatch(valuationDate::equals)){
-            throw new  ValidationException(ValidatorConstants.VALUATION_DATE_MULTIPLE_VALUES);
-        }
-    }
-
-    private void validateValuationDate(ReplayValuationForBusinessDate reqest) {
-        commonValidator.validateValDate(reqest.getValuationDate());
-    }
-
-    public void validateBackdatedColyDateRange(List<ReplayCollateralForDateRange> requests) {
-        try {
-            if (requests.stream().allMatch(request -> request.getEntity()==null || StringUtils.isBlank(request.getEntity())))
-                throw new ValidationException(ENTITY_IS_NULL_ERROR);
-            if (requests.stream().allMatch(request -> request.getReportSubmissionType()==null || StringUtils.isBlank(request.getReportSubmissionType())))
-                throw new ValidationException(REPORT_TYPE_IS_NULL_ERROR);
-            String startDate = requests.get(0).getStartDate();
-            commonValidator.validateValDate(startDate);
-            if (!requests.stream().map(ReplayCollateralForDateRange::getStartDate).allMatch(startDate::equals)){
-                throw new  ValidationException(ValidatorConstants.VALUATION_DATE_MULTIPLE_VALUES);
-            }
-            String endDate = requests.get(0).getEndDate();
-            commonValidator.validateValDate(endDate);
-            if (!requests.stream().map(ReplayCollateralForDateRange::getEndDate).allMatch(endDate::equals)){
-                throw new  ValidationException(ValidatorConstants.VALUATION_DATE_MULTIPLE_VALUES);
-            }
-        } catch (Exception ex) {
-            throw new ValidationException(ex.getMessage(), ex);
-        }
-    }
-
-    public boolean validateApprover(ExceptionStatus exceptionStatus, String tradeId, String collectionName, String approverUserName) throws ScanException, IOException, StartableException {
-        switch (exceptionStatus) {
-            case Open:
-            case Open_Approved:
-            case Open_Rejected:
-            case Close:
-            case Close_Rejected:
-                DfScanParameters dfScanParameters = new DfScanParameters();
-                dfScanParameters.setSelect(REQUEST_ACTION_USERNAME_SELECT);
-                dfScanParameters.setWhere(TRADE_ID_WHERE.concat(tradeId).concat(REQUEST_LAST_ACTION_WHERE));
-                dfScanParameters.setOrderBy(DF_LIFETIME_FROM);
-                dfScanParameters.setScanPriorVersions(true);
-                dfScanParameters.setCollectionName(collectionName);
-                String requestedUserName = getActionRequestUsername(dfScanParameters);
-                return approverUserName.equalsIgnoreCase(requestedUserName);
-            default:
-                return false;
-        }
-    }
-
-    private String getActionRequestUsername(DfScanParameters dfScanParameters) throws StartableException, ScanException, IOException, IOException, StartableException {
-        String userName = "";
-        ObjectMapper objectMapper = new ObjectMapper();
-        DataFabricClient dfClient = dataFabricExportUtil.getDataFabricClient();
-        ScanRequestBuilder scanRequestBuilder = dataFabricExportUtil.getScanRequestBuilder(dfScanParameters);
-        PagedScanResult pagedScan;
-        try {
-            pagedScan = dfClient.pagedScan(scanRequestBuilder);
-        } catch (ScanException e) {
-            LOGGER.error("Error while fetching User name", e);
-            LOGGER.info("Making another attempt for User name after failure from Paged Scan");
-            pagedScan = dfClient.pagedScan(scanRequestBuilder);
-        }
-        if (!pagedScan.getRecords().isEmpty()) {
-            List<Record> recordList = pagedScan.getRecords();
-            Record record = recordList.get(0);
-            if (record != null && record.getDocument() != null) {
-                Document document = record.getDocument();
-                JsonDocument jsonDocument = ((JsonDocument) document);
-                if (jsonDocument != null) {
-                    String resVal = jsonDocument.getContents();
-                    JsonNode resNode = objectMapper.readTree(resVal);
-                    LOGGER.info("Request Action was performed by User : {} for record in  Collection : {}", resNode.get("username").asText(),
-                            dfScanParameters.getCollectionName());
-                    userName = resNode.get("username").asText();
-                }
-            }
-        }
-        return userName;
-    }
-
-    public void validateAddTradeCommentTypeRequests(List<AddTradeCommentTypeRequest> requests) {
-        try {
-            requests.forEach(request -> validateAddTradeCommentTypeRequest(request));
-        }
-        catch (Exception ex){
-            throw new ValidationException(ex.getMessage(),ex);
-        }
-    }
-
-    private void validateAddTradeCommentTypeRequest(AddTradeCommentTypeRequest request) {
-        validateRequest(request);
-        //validate user comment type enum
-        commonValidator.validateCommentType(request.getCommentType().getUserCommentType());
-    }
-
-    public void validateRemoveTradeCommentTypeRequests(List<AddTradeCommentTypeRequest> requests) {
-        try {
-            requests.forEach(request -> validateRemoveTradeCommentTypeRequest(request));
-        }
-        catch (Exception ex){
-            throw new ValidationException(ex.getMessage(),ex);
-        }
-    }
-
-    private void validateRemoveTradeCommentTypeRequest(AddTradeCommentTypeRequest request) {
-        validateRequest(request);
-    }
-
-    public void validateCRTradeRequests(List<CorrectiveReportingForTrade> requests) {
-        try {
-            requests.forEach(request -> validateCRTradeRequest(request));
-        } catch (Exception ex) {
-            throw new ValidationException(ex.getMessage(), ex);
-        }
-    }
-
-    private void validateCRTradeRequest(CorrectiveReportingForTrade request) {
-        if (request.getIssueType() == null || (!request.getIssueType().equals("Mis Reporting") && !request.getIssueType().equals("Under Reporting"))) {
-            throw new ValidationException("Issue type must be specified, valid values are : 'Mis Reporting, Under Reporting'");
-        }
-    }
-
-    public void validateCRValRequests(List<CorrectiveReportingForValuation> requests) {
-        try {
-            requests.forEach(request -> validateCRValRequest(request));
-        } catch (Exception ex) {
-            throw new ValidationException(ex.getMessage(), ex);
-        }
-    }
-
-    private void validateCRValRequest(CorrectiveReportingForValuation request) {
-        if (SourceSystemId.fromValue(request.getPrimaryKey().getSourceSystem())==null){
-            throw new ValidationException("Source System is not valid");
-        }
-        if (request.getDataFetchFrom() == null || (!request.getDataFetchFrom().equals("CMG") && !request.getDataFetchFrom().equals("Foundry"))) {
-            throw new ValidationException("Data fetch from must be specified, valid values are : 'CMG, FOUNDRY'");
-        }
-        if (CRAction.CR_VALUATION_DATE_RANGE.equals(request.getPrimaryKey().getAction())){
-            commonValidator.validateValDate(request.getValuationDateFrom());
-            commonValidator.validateValDate(request.getValuationDateTo());
-        }
-    }
-
-    public void validateCRColRequests(List<CorrectiveReportingForCollateral> requests) {
-        try {
-            requests.forEach(request -> validateCRColRequest(request));
-        } catch (Exception ex) {
-            throw new ValidationException(ex.getMessage(), ex);
-        }
-    }
-
-    private void validateCRColRequest(CorrectiveReportingForCollateral request) {
-        if (StringUtils.isBlank(request.getOverrideFields()) && CRAction.CR_COLLATERAL.equals(request.getPrimaryKey().getAction())){
-            throw new ValidationException("Please specify fields to Override");
-        }
-        if (CRAction.CR_COLLATERAL_DATE_RANGE.equals(request.getPrimaryKey().getAction())){
-            validateCRTradeRequest(request.getPrimaryKey());
-            commonValidator.validateValDate(request.getCollateralDateTo());
-            commonValidator.validateValDate(request.getCollateralDateFrom());
-            commonValidator.validateDateDifference(request.getCollateralDateFrom(),request.getCollateralDateTo(), 90);
-        }
-    }
-}
-
-Existing test class:
-
-package com.rbs.tntr.business.blotter.services.validators;
-
-import com.rbs.tntr.business.blotter.web.request.regreportingTrade.*;
-import com.rbs.tntr.domain.blotter.enums.ExceptionStatus;
-import com.rbs.tntr.domain.blotter.exceptions.ValidationException;
-import com.rbs.tntr.domain.blotter.tntrBlotterView.CorrectiveReportingForTrade;
-import com.rbs.tntr.domain.blotter.tntrBlotterView.ReplayValuationForBusinessDate;
+import com.rbs.tntr.domain.blotter.tntrBlotterView.*;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
-import java.util.Collections;
-import java.util.List;
+
+import java.io.IOException;
+import java.util.*;
+
 import static org.mockito.Mockito.*;
+import static org.junit.Assert.*;
 
 public class ActionRequestValidatorTest {
 
@@ -739,10 +55,15 @@ public class ActionRequestValidatorTest {
     @Mock
     private CommonValidator commonValidator;
 
+    @Mock
+    private DataFabricExportUtility dataFabricExportUtil;
+
     @Before
     public void setUp() {
         MockitoAnnotations.initMocks(this);
     }
+
+    // Existing test methods
 
     @Test(expected = ValidationException.class)
     public void testValidateWorkflowRequests_NullRequest_ShouldThrowValidationException() {
@@ -785,4 +106,557 @@ public class ActionRequestValidatorTest {
         actionRequestValidator.validateCRTradeRequests(Collections.singletonList(request));
     }
 
+    // New test methods for 100% coverage
+
+    /** Tests for validateWorkflowRequests - Valid scenario */
+    @Test
+    public void testValidateWorkflowRequests_ValidRequest() {
+        UpdateExceptionStatusRequest request = mock(UpdateExceptionStatusRequest.class);
+        when(request.getAction()).thenReturn(WorkflowAction.RequestCloseException.getValue());
+        UserComment comment = mock(UserComment.class);
+        when(request.getComment()).thenReturn(comment);
+        when(request.getApprovalRequired()).thenReturn("false");
+        when(request.getApprovedBy()).thenReturn("approver");
+        when(request.getDocumentId()).thenReturn(mock(ActionDocumentId.class));
+        when(request.getDocumentId().getKey()).thenReturn("key");
+        when(request.getDocumentId().getVersion()).thenReturn(1L);
+        when(request.getFlow()).thenReturn(FlowType.TRANSACTION.getValue());
+
+        doNothing().when(commonValidator).validateWorkflowAction(anyString());
+        doNothing().when(commonValidator).validateComment(any(UserComment.class));
+        doNothing().when(commonValidator).validateApprover(anyString());
+
+        actionRequestValidator.validateWorkflowRequests(Collections.singletonList(request), ExceptionStatus.Open);
+
+        verify(commonValidator).validateWorkflowAction(WorkflowAction.RequestCloseException.getValue());
+        verify(commonValidator).validateComment(comment);
+        verify(commonValidator).validateApprover("approver");
+    }
+
+    /** Tests for validateResetActionRequests - Valid scenario */
+    @Test
+    public void testValidateResetActionRequests_ValidRequest() {
+        UpdateExceptionStatusRequest request = mock(UpdateExceptionStatusRequest.class);
+        UserComment comment = mock(UserComment.class);
+        when(request.getComment()).thenReturn(comment);
+        when(request.getDocumentId()).thenReturn(mock(ActionDocumentId.class));
+        when(request.getDocumentId().getKey()).thenReturn("key");
+        when(request.getDocumentId().getVersion()).thenReturn(1L);
+        when(request.getFlow()).thenReturn(FlowType.TRANSACTION.getValue());
+
+        doNothing().when(commonValidator).validateComment(any(UserComment.class));
+
+        actionRequestValidator.validateResetActionRequests(Collections.singletonList(request));
+
+        verify(commonValidator).validateComment(comment);
+    }
+
+    /** Tests for validateAddTradeCommentRequests - Valid scenario */
+    @Test
+    public void testValidateAddTradeCommentRequests_ValidRequest() {
+        AddTradeCommentRequest request = mock(AddTradeCommentRequest.class);
+        UserComment comment = mock(UserComment.class);
+        when(request.getComment()).thenReturn(comment);
+        when(request.getDocumentId()).thenReturn(mock(ActionDocumentId.class));
+        when(request.getDocumentId().getKey()).thenReturn("key");
+        when(request.getDocumentId().getVersion()).thenReturn(1L);
+        when(request.getFlow()).thenReturn(FlowType.TRANSACTION.getValue());
+
+        doNothing().when(commonValidator).validateComment(any(UserComment.class));
+
+        actionRequestValidator.validateAddTradeCommentRequests(Collections.singletonList(request));
+
+        verify(commonValidator).validateComment(comment);
+    }
+
+    /** Tests for validateRemoveTradeCommentRequests - Valid scenario */
+    @Test
+    public void testValidateRemoveTradeCommentRequests_ValidRequest() {
+        AddTradeCommentRequest request = mock(AddTradeCommentRequest.class);
+        when(request.getDocumentId()).thenReturn(mock(ActionDocumentId.class));
+        when(request.getDocumentId().getKey()).thenReturn("key");
+        when(request.getDocumentId().getVersion()).thenReturn(1L);
+        when(request.getFlow()).thenReturn(FlowType.TRANSACTION.getValue());
+
+        actionRequestValidator.validateRemoveTradeCommentRequests(Collections.singletonList(request));
+        // No specific validations to verify, just ensure no exception
+    }
+
+    /** Tests for validateAssignReqeusts - Valid scenario */
+    @Test
+    public void testValidateAssignReqeusts_ValidRequest() {
+        AssignTradeRequest request = mock(AssignTradeRequest.class);
+        when(request.getAssignTo()).thenReturn("assignee");
+        when(request.getDocumentId()).thenReturn(mock(ActionDocumentId.class));
+        when(request.getDocumentId().getKey()).thenReturn("key");
+        when(request.getDocumentId().getVersion()).thenReturn(1L);
+        when(request.getFlow()).thenReturn(FlowType.TRANSACTION.getValue());
+
+        doNothing().when(commonValidator).validateAssignTo(anyString());
+
+        actionRequestValidator.validateAssignReqeusts(Collections.singletonList(request));
+
+        verify(commonValidator).validateAssignTo("assignee");
+    }
+
+    /** Tests for validateAddJiraReferenceReqeusts - Valid scenario */
+    @Test
+    public void testValidateAddJiraReferenceReqeusts_ValidRequest() {
+        AddTradeJiraReferenceRequest request = mock(AddTradeJiraReferenceRequest.class);
+        when(request.getJiraReference()).thenReturn("JIRA-123");
+        when(request.getDocumentId()).thenReturn(mock(ActionDocumentId.class));
+        when(request.getDocumentId().getKey()).thenReturn("key");
+        when(request.getDocumentId().getVersion()).thenReturn(1L);
+        when(request.getFlow()).thenReturn(FlowType.TRANSACTION.getValue());
+
+        doNothing().when(commonValidator).validateJiraReference(anyString());
+
+        actionRequestValidator.validateAddJiraReferenceReqeusts(Collections.singletonList(request));
+
+        verify(commonValidator).validateJiraReference("JIRA-123");
+    }
+
+    /** Tests for validateAddJiraTypeReqeusts - Valid scenario */
+    @Test
+    public void testValidateAddJiraTypeReqeusts_ValidRequest() {
+        AddTradeJiraTypeRequest request = mock(AddTradeJiraTypeRequest.class);
+        JiraType jiraType = mock(JiraType.class);
+        when(request.getJiraType()).thenReturn(jiraType);
+        when(jiraType.getIssueType()).thenReturn("Bug");
+        when(request.getDocumentId()).thenReturn(mock(ActionDocumentId.class));
+        when(request.getDocumentId().getKey()).thenReturn("key");
+        when(request.getDocumentId().getVersion()).thenReturn(1L);
+        when(request.getFlow()).thenReturn(FlowType.TRANSACTION.getValue());
+
+        doNothing().when(commonValidator).validateJiraType(anyString());
+
+        actionRequestValidator.validateAddJiraTypeReqeusts(Collections.singletonList(request));
+
+        verify(commonValidator).validateJiraType("Bug");
+    }
+
+    /** Tests for validateEditReqeusts - Valid scenario */
+    @Test
+    public void testValidateEditReqeusts_ValidRequest() {
+        EditRequest request = mock(EditRequest.class);
+        when(request.getAction()).thenReturn(WorkflowAction.RequestEdit.getValue());
+        when(request.getApprovalRequired()).thenReturn("false");
+        ExceptionManagementData data = mock(ExceptionManagementData.class);
+        UserComment comment = mock(UserComment.class);
+        when(request.getExceptionManagementData()).thenReturn(data);
+        when(data.getComment()).thenReturn(comment);
+        when(data.getApprovedBy()).thenReturn("approver");
+        when(request.getDocumentId()).thenReturn(mock(ActionDocumentId.class));
+        when(request.getDocumentId().getKey()).thenReturn("key");
+        when(request.getDocumentId().getVersion()).thenReturn(1L);
+        when(request.getFlow()).thenReturn(FlowType.TRANSACTION.getValue());
+
+        doNothing().when(commonValidator).validateEditComment(any(UserComment.class));
+        doNothing().when(commonValidator).validateApprover(anyString());
+
+        actionRequestValidator.validateEditReqeusts(Collections.singletonList(request));
+
+        verify(commonValidator).validateEditComment(comment);
+        verify(commonValidator).validateApprover("approver");
+    }
+
+    /** Tests for validateBackdatedTrades - Valid scenario */
+    @Test
+    public void testValidateBackdatedTrades_ValidRequest() {
+        ReplayValuationForBusinessDate request = mock(ReplayValuationForBusinessDate.class);
+        when(request.getFlow()).thenReturn(FlowType.TRANSACTION.getValue());
+        when(request.getValuationDate()).thenReturn("2023-01-01");
+
+        doNothing().when(commonValidator).validateValDate(anyString());
+
+        actionRequestValidator.validateBackdatedTrades(Collections.singletonList(request));
+
+        verify(commonValidator).validateValDate("2023-01-01");
+    }
+
+    /** Tests for validateBackdatedTradesByDateRange - Valid scenario */
+    @Test
+    public void testValidateBackdatedTradesByDateRange_ValidRequest() {
+        ReplayValuationForDateRange request = mock(ReplayValuationForDateRange.class);
+        when(request.getFlow()).thenReturn(FlowType.TRANSACTION.getValue());
+        when(request.getValuationDateFrom()).thenReturn("2023-01-01");
+        when(request.getValuationDateTo()).thenReturn("2023-01-02");
+
+        doNothing().when(commonValidator).validateValDate(anyString());
+
+        actionRequestValidator.validateBackdatedTradesByDateRange(Collections.singletonList(request));
+
+        verify(commonValidator).validateValDate("2023-01-01");
+        verify(commonValidator).validateValDate("2023-01-02");
+    }
+
+    /** Tests for validateBackdatedColyDateRange - Valid scenario */
+    @Test
+    public void testValidateBackdatedColyDateRange_ValidRequest() {
+        ReplayCollateralForDateRange request = mock(ReplayCollateralForDateRange.class);
+        when(request.getEntity()).thenReturn("Entity");
+        when(request.getReportSubmissionType()).thenReturn("Type");
+        when(request.getStartDate()).thenReturn("2023-01-01");
+        when(request.getEndDate()).thenReturn("2023-01-02");
+
+        doNothing().when(commonValidator).validateVal  void validateBackdatedColyDateRange(List<ReplayCollateralForDateRange> requests) {
+        try {
+            if (requests.stream().allMatch(request -> request.getEntity() == null || StringUtils.isBlank(request.getEntity())))
+                throw new ValidationException(ENTITY_IS_NULL_ERROR);
+            if (requests.stream().allMatch(request -> request.getReportSubmissionType() == null || StringUtils.isBlank(request.getReportSubmissionType())))
+                throw new ValidationException(REPORT_TYPE_IS_NULL_ERROR);
+            String startDate = requests.get(0).getStartDate();
+            commonValidator.validateValDate(startDate);
+            if (!requests.stream().map(ReplayCollateralForDateRange::getStartDate).allMatch(startDate::equals)) {
+                throw new ValidationException(ValidatorConstants.VALUATION_DATE_MULTIPLE_VALUES);
+            }
+            String endDate = requests.get(0).getEndDate();
+            commonValidator.validateValDate(endDate);
+            if (!requests.stream().map(ReplayCollateralForDateRange::getEndDate).allMatch(endDate::equals)) {
+                throw new ValidationException(ValidatorConstants.VALUATION_DATE_MULTIPLE_VALUES);
+            }
+        } catch (Exception ex) {
+            throw new ValidationException(ex.getMessage(), ex);
+        }
+    }
+
+    doNothing().when(commonValidator).validateValDate(anyString());
+
+        actionRequestValidator.validateBackdatedColyDateRange(Collections.singletonList(request));
+
+        verify(commonValidator).validateValDate("2023-01-01");
+        verify(commonValidator).validateValDate("2023-01-02");
+    }
+
+    /** Tests for validateCRTradeRequests - Valid scenario */
+    @Test
+    public void testValidateCRTradeRequests_ValidRequest() {
+        CorrectiveReportingForTrade request = mock(CorrectiveReportingForTrade.class);
+        when(request.getIssueType()).thenReturn("Mis Reporting");
+
+        actionRequestValidator.validateCRTradeRequests(Collections.singletonList(request));
+        // No exception expected
+    }
+
+    /** Tests for validateCRValRequests - Valid scenario */
+    @Test
+    public void testValidateCRValRequests_ValidRequest() {
+        CorrectiveReportingForValuation request = mock(CorrectiveReportingForValuation.class);
+        PrimaryKey pk = mock(PrimaryKey.class);
+        when(request.getPrimaryKey()).thenReturn(pk);
+        when(pk.getSourceSystem()).thenReturn("ValidSystem");
+        when(request.getDataFetchFrom()).thenReturn("CMG");
+        when(pk.getAction()).thenReturn(CRAction.CR_VALUATION_DATE_RANGE);
+        when(request.getValuationDateFrom()).thenReturn("2023-01-01");
+        when(request.getValuationDateTo()).thenReturn("2023-01-02");
+
+        doNothing().when(commonValidator).validateValDate(anyString());
+
+        actionRequestValidator.validateCRValRequests(Collections.singletonList(request));
+
+        verify(commonValidator).validateValDate("2023-01-01");
+        verify(commonValidator).validateValDate("2023-01-02");
+    }
+
+    /** Tests for validateCRColRequests - Valid scenario */
+    @Test
+    public void testValidateCRColRequests_ValidRequest() {
+        CorrectiveReportingForCollateral request = mock(CorrectiveReportingForCollateral.class);
+        CorrectiveReportingForTrade pk = mock(CorrectiveReportingForTrade.class);
+        when(request.getPrimaryKey()).thenReturn(pk);
+        when(pk.getIssueType()).thenReturn("Mis Reporting");
+        when(pk.getAction()).thenReturn(CRAction.CR_COLLATERAL_DATE_RANGE);
+        when(request.getCollateralDateFrom()).thenReturn("2023-01-01");
+        when(request.getCollateralDateTo()).thenReturn("2023-01-02");
+        when(request.getOverrideFields()).thenReturn("fields");
+
+        doNothing().when(commonValidator).validateValDate(anyString());
+        doNothing().when(commonValidator).validateDateDifference(anyString(), anyString(), anyInt());
+
+        actionRequestValidator.validateCRColRequests(Collections.singletonList(request));
+
+        verify(commonValidator).validateValDate("2023-01-01");
+        verify(commonValidator).validateValDate("2023-01-02");
+        verify(commonValidator).validateDateDifference("2023-01-01", "2023-01-02", 90);
+    }
+
+    /** Tests for validateUserActionType - Valid scenario */
+    @Test
+    public void testValidateUserActionType_ValidRequest() {
+        UpdateUserActionTypeRequest request = mock(UpdateUserActionTypeRequest.class);
+        UserComment comment = mock(UserComment.class);
+        when(request.getComment()).thenReturn(comment);
+        when(request.getUserActionType()).thenReturn("Type");
+        when(request.getDocumentId()).thenReturn(mock(ActionDocumentId.class));
+        when(request.getDocumentId().getKey()).thenReturn("key");
+        when(request.getDocumentId().getVersion()).thenReturn(1L);
+        when(request.getFlow()).thenReturn(FlowType.TRANSACTION.getValue());
+
+        doNothing().when(commonValidator).validateComment(any(UserComment.class));
+        doNothing().when(commonValidator).validateEditUserActionType(anyString());
+
+        actionRequestValidator.validateUserActionType(Collections.singletonList(request));
+
+        verify(commonValidator).validateComment(comment);
+        verify(commonValidator).validateEditUserActionType("Type");
+    }
+
+    /** Tests for validateAddTradeCommentTypeRequests - Valid scenario */
+    @Test
+    public void testValidateAddTradeCommentTypeRequests_ValidRequest() {
+        AddTradeCommentTypeRequest request = mock(AddTradeCommentTypeRequest.class);
+        CommentType commentType = mock(CommentType.class);
+        when(request.getCommentType()).thenReturn(commentType);
+        when(commentType.getUserCommentType()).thenReturn("Type");
+        when(request.getDocumentId()).thenReturn(mock(ActionDocumentId.class));
+        when(request.getDocumentId().getKey()).thenReturn("key");
+        when(request.getDocumentId().getVersion()).thenReturn(1L);
+        when(request.getFlow()).thenReturn(FlowType.TRANSACTION.getValue());
+
+        doNothing().when(commonValidator).validateCommentType(anyString());
+
+        actionRequestValidator.validateAddTradeCommentTypeRequests(Collections.singletonList(request));
+
+        verify(commonValidator).validateCommentType("Type");
+    }
+
+    /** Tests for validateRemoveTradeCommentTypeRequests - Valid scenario */
+    @Test
+    public void testValidateRemoveTradeCommentTypeRequests_ValidRequest() {
+        AddTradeCommentTypeRequest request = mock(AddTradeCommentTypeRequest.class);
+        when(request.getDocumentId()).thenReturn(mock(ActionDocumentId.class));
+        when(request.getDocumentId().getKey()).thenReturn("key");
+        when(request.getDocumentId().getVersion()).thenReturn(1L);
+        when(request.getFlow()).thenReturn(FlowType.TRANSACTION.getValue());
+
+        actionRequestValidator.validateRemoveTradeCommentTypeRequests(Collections.singletonList(request));
+        // No specific validations to verify
+    }
+
+    /** Tests for validateMAS755Trades */
+    @Test
+    public void testValidateMAS755Trades_RestrictedRegime() {
+        TradeReportDocument trade = mock(TradeReportDocument.class);
+        TradeReport tradeReport = mock(TradeReport.class);
+        TradeReportId tradeReportId = mock(TradeReportId.class);
+        ActionDocumentId docId = mock(ActionDocumentId.class);
+        when(trade.getTradeReport()).thenReturn(tradeReport);
+        when(tradeReport.getTradeReportId()).thenReturn(tradeReportId);
+        when(tradeReportId.getReportingRegime()).thenReturn(ReportingRegime.THE_MONETARY_AUTHORITY_OF_SINGAPORE_755);
+        when(trade.getDocumentId()).thenReturn(docId);
+        when(docId.getKey()).thenReturn("key");
+        when(docId.getVersion()).thenReturn(1L);
+
+        List<TradeReportDocument> trades = new ArrayList<>(Collections.singletonList(trade));
+        List<ActionUpdateResult> writeResults = new ArrayList<>();
+
+        actionRequestValidator.validateMAS755Trades(trades, writeResults);
+
+        assertTrue(trades.isEmpty());
+        assertEquals(1, writeResults.size());
+        assertTrue(writeResults.get(0).getErrorMessage().contains("Action not applicable for Regulatory : MAS 755"));
+    }
+
+    /** Tests for validatePermittedExceptionStatus - Restricted trades */
+    @Test
+    public void testValidatePermittedExceptionStatus_RestrictedTrades() {
+        TradeReportDocument trade = mock(TradeReportDocument.class);
+        TradeReport tradeReport = mock(TradeReport.class);
+        TradeReportId tradeReportId = mock(TradeReportId.class);
+        ActionDocumentId docId = mock(ActionDocumentId.class);
+        when(trade.getTradeReport()).thenReturn(tradeReport);
+        when(tradeReport.getTradeReportId()).thenReturn(tradeReportId);
+        when(tradeReportId.getReportingRegime()).thenReturn(ReportingRegime.THE_MONETARY_AUTHORITY_OF_SINGAPORE_755);
+        when(trade.getDocumentId()).thenReturn(docId);
+        when(docId.getKey()).thenReturn("key");
+        when(docId.getVersion()).thenReturn(1L);
+
+        List<TradeReportDocument> trades = new ArrayList<>(Collections.singletonList(trade));
+        List<ActionUpdateResult> writeResults = new ArrayList<>();
+
+        actionRequestValidator.validatePermittedExceptionStatus(trades, writeResults, ExceptionStatus.Open);
+
+        assertTrue(trades.isEmpty());
+        assertEquals(1, writeResults.size());
+    }
+
+    /** Tests for validatePermittedExceptionStatusForVal - Restricted valuation */
+    @Test
+    public void testValidatePermittedExceptionStatusForVal_Restricted() {
+        ValuationReportDocument valDoc = mock(ValuationReportDocument.class);
+        ValuationReport valReport = mock(ValuationReport.class);
+        ValuationReportId valReportId = mock(ValuationReportId.class);
+        ActionDocumentId docId = mock(ActionDocumentId.class);
+        when(valDoc.getValuationReport()).thenReturn(valReport);
+        when(valReport.getValuationReportId()).thenReturn(valReportId);
+        when(valReportId.getReportingRegime()).thenReturn(ReportingRegime.SECURITIES_FINANCING_TRANSACTION_REGULATION_SELF_REPORTING);
+        when(valDoc.getDocumentId()).thenReturn(docId);
+        when(docId.getKey()).thenReturn("key");
+        when(docId.getVersion()).thenReturn(1L);
+
+        List<ValuationReportDocument> vals = new ArrayList<>(Collections.singletonList(valDoc));
+        List<ActionUpdateResult> writeResults = new ArrayList<>();
+
+        actionRequestValidator.validatePermittedExceptionStatusForVal(vals, writeResults, ExceptionStatus.Edit_Approved);
+
+        assertTrue(vals.isEmpty());
+        assertEquals(1, writeResults.size());
+    }
+
+    /** Tests for validatePermittedExceptionStatusForCol - Restricted collateral */
+    @Test
+    public void testValidatePermittedExceptionStatusForCol_Restricted() {
+        CollateralReportDocument colDoc = mock(CollateralReportDocument.class);
+        CollateralReport colReport = mock(CollateralReport.class);
+        CollateralReportId colReportId = mock(CollateralReportId.class);
+        ActionDocumentId docId = mock(ActionDocumentId.class);
+        when(colDoc.getCollateralReport()).thenReturn(colReport);
+        when(colReport.getCollateralReportId()).thenReturn(colReportId);
+        when(colReportId.getReportingRegime()).thenReturn(ReportingRegime.SECURITIES_FINANCING_TRANSACTION_REGULATION_SELF_REPORTING);
+        when(colDoc.getDocumentId()).thenReturn(docId);
+        when(docId.getKey()).thenReturn("key");
+        when(docId.getVersion()).thenReturn(1L);
+
+        List<CollateralReportDocument> cols = new ArrayList<>(Collections.singletonList(colDoc));
+        List<ActionUpdateResult> writeResults = new ArrayList<>();
+
+        actionRequestValidator.validatePermittedExceptionStatusForCol(cols, writeResults, ExceptionStatus.Edit_Approved);
+
+        assertTrue(cols.isEmpty());
+        assertEquals(1, writeResults.size());
+    }
+
+    /** Tests for validateAckedCancleTrade - Various scenarios */
+    @Test
+    public void testValidateAckedCancleTrade_ValidCase() {
+        boolean result = actionRequestValidator.validateAckedCancleTrade(ExceptionStatus.Cancel_Requested, TransactionStateValue.CANCELLED);
+        assertTrue(result);
+    }
+
+    @Test
+    public void testValidateAckedCancleTrade_InvalidCase() {
+        boolean result = actionRequestValidator.validateAckedCancleTrade(ExceptionStatus.Cancel_Requested, TransactionStateValue.ACKNOWLEDGED);
+        assertFalse(result);
+    }
+
+    /** Tests for validateExceptionStatus(ApprovalStatus) - Various scenarios */
+    @Test
+    public void testValidateExceptionStatusWithApprovalStatus_NullApproval() {
+        boolean result = actionRequestValidator.validateExceptionStatus(ExceptionStatus.Open, null);
+        assertTrue(result);
+    }
+
+    @Test
+    public void testValidateExceptionStatusWithApprovalStatus_ValidCase() {
+        boolean result = actionRequestValidator.validateExceptionStatus(ExceptionStatus.Cancel_Approved, ApprovalStatus.CANCEL_REQUESTED);
+        assertTrue(result);
+    }
+
+    @Test
+    public void testValidateExceptionStatusWithApprovalStatus_InvalidCase() {
+        boolean result = actionRequestValidator.validateExceptionStatus(ExceptionStatus.Open, ApprovalStatus.CANCEL_REQUESTED);
+        assertFalse(result);
+    }
+
+    /** Tests for validateResetActionApprovalStatus - Various flows */
+    @Test
+    public void testValidateResetActionApprovalStatus_TransactionFlow() {
+        boolean result = actionRequestValidator.validateResetActionApprovalStatus(ApprovalStatus.DUMMY_AMEND_APPROVED, FlowType.TRANSACTION.getValue());
+        assertTrue(result);
+    }
+
+    @Test
+    public void testValidateResetActionApprovalStatus_ValuationFlow() {
+        boolean result = actionRequestValidator.validateResetActionApprovalStatus(ApprovalStatus.REPLAY_APPROVED, FlowType.VALUATION.getValue());
+        assertTrue(result);
+    }
+
+    @Test
+    public void testValidateResetActionApprovalStatus_InvalidCase() {
+        boolean result = actionRequestValidator.validateResetActionApprovalStatus(ApprovalStatus.OPEN_REQUESTED, FlowType.TRANSACTION.getValue());
+        assertFalse(result);
+    }
+
+    /** Tests for validateUser */
+    @Test
+    public void testValidateUser_MatchingUser() {
+        ExceptionManagement em = mock(ExceptionManagement.class);
+        when(em.getAssignedTo()).thenReturn("user");
+        boolean result = actionRequestValidator.validateUser("user", em);
+        assertTrue(result);
+    }
+
+    @Test
+    public void testValidateUser_NonMatchingUser() {
+        ExceptionManagement em = mock(ExceptionManagement.class);
+        when(em.getAssignedTo()).thenReturn("user1");
+        boolean result = actionRequestValidator.validateUser("user2", em);
+        assertFalse(result);
+    }
+
+    /** Tests for validateApprovalStatus */
+    @Test
+    public void testValidateApprovalStatus_Valid() {
+        boolean result = actionRequestValidator.validateApprovalStatus(ApprovalStatus.CANCEL_APPROVED);
+        assertTrue(result);
+    }
+
+    @Test
+    public void testValidateApprovalStatus_Invalid() {
+        boolean result = actionRequestValidator.validateApprovalStatus(ApprovalStatus.OPEN_REQUESTED);
+        assertFalse(result);
+    }
+
+    /** Tests for validateExceptionStatus(ExceptionStatus) */
+    @Test
+    public void testValidateExceptionStatusOnly_Valid() {
+        boolean result = actionRequestValidator.validateExceptionStatus(ExceptionStatus.Cancel_Approved);
+        assertTrue(result);
+    }
+
+    @Test
+    public void testValidateExceptionStatusOnly_Invalid() {
+        boolean result = actionRequestValidator.validateExceptionStatus(ExceptionStatus.Open);
+        assertFalse(result);
+    }
+
+    /** Tests for isJiraIdPresent */
+    @Test
+    public void testIsJiraIdPresent_Present() {
+        List<String> issueIds = ImmutableList.of("JIRA-123");
+        boolean result = actionRequestValidator.isJiraIdPresent(issueIds, "JIRA-123");
+        assertTrue(result);
+    }
+
+    @Test
+    public void testIsJiraIdPresent_NotPresent() {
+        List<String> issueIds = ImmutableList.of("JIRA-124");
+        boolean result = actionRequestValidator.isJiraIdPresent(issueIds, "JIRA-123");
+        assertFalse(result);
+    }
+
+    /** Tests for validateApprover - Valid case */
+    @Test
+    public void testValidateApprover_Valid() throws Exception {
+        DataFabricClient dfClient = mock(DataFabricClient.class);
+        when(dataFabricExportUtil.getDataFabricClient()).thenReturn(dfClient);
+        ScanRequestBuilder scanBuilder = mock(ScanRequestBuilder.class);
+        when(dataFabricExportUtil.getScanRequestBuilder(any(DfScanParameters.class))).thenReturn(scanBuilder);
+        PagedScanResult pagedScan = mock(PagedScanResult.class);
+        when(dfClient.pagedScan(scanBuilder)).thenReturn(pagedScan);
+        Record record = mock(Record.class);
+        when(pagedScan.getRecords()).thenReturn(Collections.singletonList(record));
+        JsonDocument jsonDoc = mock(JsonDocument.class);
+        when(record.getDocument()).thenReturn(jsonDoc);
+        when(jsonDoc.getContents()).thenReturn("{\"username\":\"approver\"}");
+
+        boolean result = actionRequestValidator.validateApprover(ExceptionStatus.Open, "tradeId", "collection", "approver");
+        assertTrue(result);
+    }
+
+    @Test
+    public void testValidateApprover_Invalid() throws Exception {
+        boolean result = actionRequestValidator.validateApprover(ExceptionStatus.Edit_Approved, "tradeId", "collection", "approver");
+        assertFalse(result);
+    }
 }
