@@ -1,324 +1,1330 @@
-package com.rbs.tntr.business.blotter.services;
+Could you write all the additional test cases for below java class to cover all the remaining scenarios or methods and make the test coverage or code coverage as 100% using junit 4 and old mockito version and java 8. Also don't use power mockito as i m using older mockito version and for private methods try to use reflection. Plus we can't change any file other than the above test class. 
 
-import com.nwm.tntr.domain.email.EmailContent;
+package com.rbs.tntr.business.blotter.utility;
+
+import static com.rbs.tntr.business.blotter.services.common.StringConstants.*;
+
+import java.io.IOException;
+import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import org.joda.time.DateTime;
+import org.joda.time.DateTimeConstants;
+import org.joda.time.DateTimeZone;
+import org.joda.time.Duration;
+import org.joda.time.LocalDate;
+import org.joda.time.Period;
+import org.joda.time.PeriodType;
+import org.joda.time.format.DateTimeFormat;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.google.common.collect.Lists;
+import com.nwm.tntr.commons.repository.df.DfConnectionManager;
+import com.rbs.datafabric.agile.commons.lang.StartableException;
 import com.rbs.datafabric.api.PagedScanResult;
-import com.rbs.datafabric.api.ScanResult;
 import com.rbs.datafabric.api.exception.ScanException;
 import com.rbs.datafabric.client.DataFabricClient;
-import com.rbs.datafabric.domain.Document;
+import com.rbs.datafabric.domain.ConsistencyLevel;
 import com.rbs.datafabric.domain.JsonDocument;
 import com.rbs.datafabric.domain.Record;
-import com.rbs.datafabric.domain.RecordId;
+import com.rbs.datafabric.domain.client.builder.NextScanPageRequestBuilder;
 import com.rbs.datafabric.domain.client.builder.ScanRequestBuilder;
-import com.rbs.tntr.business.blotter.repository.DataFabricExportRepository;
+import com.rbs.datafabric.shaded.org.apache.commons.lang.RandomStringUtils;
+import com.rbs.datafabric.shaded.org.apache.commons.lang3.StringUtils;
+import com.rbs.tntr.business.blotter.configuration.DfExportConfig;
+import com.rbs.tntr.business.blotter.configuration.DfFieldMapper;
 import com.rbs.tntr.business.blotter.search.querybuilder.DfExportScan;
 import com.rbs.tntr.business.blotter.search.querybuilder.DfScanParameters;
-import com.rbs.tntr.business.blotter.search.querybuilder.LoggedInUserDetails;
 import com.rbs.tntr.business.blotter.services.datetime.DateTimeService;
-import com.rbs.tntr.business.blotter.services.jobs.DfExportJob;
-import com.rbs.tntr.domain.blotter.exceptions.BlotterRunTimeException;
+import com.rbs.tntr.domain.blotter.enums.FlowType;
+import com.rbs.tntr.domain.blotter.exceptions.ValidationException;
+
+/**
+ * Description : DataFabric Export Utility Class to retrieve DF Records
+ *
+ * @author agrakit
+ * 
+ * Created By: Niket Agrawal
+ * 
+ * Created On 13-09-2021
+ * 
+ */
+@Component
+public class DataFabricExportUtility extends ScanExpressionUtility {
+
+	private DfConnectionManager dfConnectionManager;
+
+	private DfExportConfig dfExportConfig;
+
+	private DfFieldMapper dfFieldMapper;
+
+	Map<String, String> dbToUiMapper;
+
+	private Set<String> allHeaders;
+
+	private Set<String> unknownHeaderSet;
+
+	private boolean fieldConversionEnabled;
+
+	Map<String, String> collectionDbMap;
+
+	private DateTimeService dateTimeService;
+
+	static final Logger LOGGER = LoggerFactory.getLogger(DataFabricExportUtility.class);
+
+	@Autowired
+	public DataFabricExportUtility(DfConnectionManager dfConnectionManager, DfExportConfig dfExportConfig,
+			DfFieldMapper dfFieldMapper, DateTimeService dateTimeService) {
+		this.dfConnectionManager = dfConnectionManager;
+		this.dfExportConfig = dfExportConfig;
+		this.dfFieldMapper = dfFieldMapper;
+		this.dateTimeService = dateTimeService;
+	}
+
+	/**
+	 * Description : Get Relevant Scan Request Builder for DB & Collection
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 21-12-2021
+	 * @param dfScanParameters
+	 * @return
+	 * @throws ScanException
+	 * @throws StartableException
+	 */
+	public ScanRequestBuilder getScanRequestBuilder(DfScanParameters dfScanParameters) {
+
+		Map<String, String> collectionDbMap = dfFieldMapper.getCollectionDbMap();
+		LOGGER.debug("Collection & DB Mapping extracted from configuration : {}", collectionDbMap);
+
+		if (!dfFieldMapper.getCollectionNameMap().containsKey(dfScanParameters.getCollectionName())) {
+			LOGGER.error("Collection Mapping not found for : {}", dfScanParameters.getCollectionName());
+			throw new ValidationException("Collection Mapping not found");
+		}
+
+		String collectionName = dfFieldMapper.getCollectionNameMap().get(dfScanParameters.getCollectionName());
+
+		if (!collectionDbMap.containsKey(collectionName)) {
+			LOGGER.error("Collection & Database Mapping not found for : {}", collectionName);
+			throw new ValidationException("Collection & Database Mapping not found");
+		}
+
+		String databaseName = collectionDbMap.get(collectionName);
+
+		fieldConversionEnabled = dfScanParameters.isFieldConversion();
+
+		// Convert Select clauses
+		if (fieldConversionEnabled) {
+			LOGGER.debug("Field Conversation is enabled for this request");
+			convertDfScanParameters(databaseName, dfScanParameters.getCollectionName(), dfScanParameters);
+		}
+
+		ScanRequestBuilder scanRequestBuilder = getScanRequestBuilder(dfScanParameters, databaseName, collectionName);
+		scanRequestBuilder.withStreamResults(false);
+		scanRequestBuilder.withReadTimeoutSeconds(dfExportConfig.getScanReadTimeoutInSeconds());
+		scanRequestBuilder.withConsistencyLevel(ConsistencyLevel.EVENTUAL);
+		return scanRequestBuilder;
+	}
+
+	public ScanRequestBuilder getNativeScanRequestBuilder(DfScanParameters dfScanParameters) {
+
+		Map<String, String> collectionDbMap = dfFieldMapper.getCollectionDbMap();
+		LOGGER.debug("Collection & DB Mapping extracted from configuration : {}", collectionDbMap);
+
+		String collectionName = dfFieldMapper.getCollectionNameMap().get(dfScanParameters.getCollectionName());
+		if (!collectionDbMap.containsKey(collectionName)) {
+			LOGGER.error("Collection & Database Mapping not found for : {}", collectionName);
+			throw new ValidationException("Collection & Database Mapping not found");
+		}
+
+		String databaseName = collectionDbMap.get(collectionName);
+
+		fieldConversionEnabled = dfScanParameters.isFieldConversion();
+
+		ScanRequestBuilder scanRequestBuilder = getScanRequestBuilder(dfScanParameters, databaseName, collectionName);
+		scanRequestBuilder.withStreamResults(false);
+		scanRequestBuilder.withReadTimeoutSeconds(dfExportConfig.getScanReadTimeoutInSeconds());
+		scanRequestBuilder.withConsistencyLevel(ConsistencyLevel.EVENTUAL);
+		return scanRequestBuilder;
+	}
+
+	/**
+	 * Description : Fetch all nodes from Json Record and convert to Data Map
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 20-09-2021
+	 * @param recordsDataMap
+	 * @param collectionName 
+	 * @return
+	 * @throws JsonProcessingException
+	 * @throws IOException
+	 */
+	private List<Map<String, String>> parseJsonRecords(Map<String, List<Object>> recordsDataMap, String collectionName, DfExportScan scan)
+			throws IOException {
+
+		ObjectMapper objectMapper = new ObjectMapper();
+		List<Map<String, String>> recordList = Lists.newArrayList();
+		unknownHeaderSet = new TreeSet<>();
+		if (RECONCILIATION.equals(collectionName)) {
+			LOGGER.info("Total {} records extracted from Recon DF", recordsDataMap.keySet().size());
+		}
+		for (String recordKey : recordsDataMap.keySet()) {
+			List<Object> recordObj = recordsDataMap.get(recordKey);
+			JsonNode resNode = objectMapper.readTree(recordObj.get(2).toString());
+			Map<String, String> map = new HashMap<>();
+			parseJsonTree(EMPTY, resNode, map);
+			map.put("_df.key", recordObj.get(0).toString());
+			map.put("_df.version", recordObj.get(1).toString());
+
+			if (FlowType.TRANSACTION.getValue().equals(collectionName)
+					|| FlowType.VALUATION.getValue().equals(collectionName)
+					|| FlowType.COLLATERAL.getValue().equals(collectionName)
+					|| FlowType.COLLATERAL_LINK.getValue().equals(collectionName) || CONTROL_MI.equals(collectionName))
+				populateManualFields(map);
+
+			renderMiReportData(collectionName, map);
+
+			if (RECONCILIATION.equals(collectionName)) {
+				recordList.addAll(convertDfKeyMapRecon(map,scan));
+
+			} else if (fieldConversionEnabled) {
+				Map<String, String> convertedMap = convertDfKeyMap(map);
+				convertedMap.put(FLOW, collectionName);
+				recordList.add(convertedMap);
+			} else {
+				map.put(FLOW, collectionName);
+				recordList.add(map);
+			}
+		}
+		LOGGER.debug("Not Found Header Keyset {}", unknownHeaderSet.toString());
+		return recordList;
+	}
+
+	/**
+	 * Description : 
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 03-02-2022
+	 * @param map
+	 */
+	private void populateManualFields(Map<String, String> map) {
+		map.put(EXCEPTION_AGE, EMPTY);
+		map.put(EXCEPTION_AGE_BUCKET, EMPTY);
+		map.put(MI_STATUS, EMPTY);
+		map.put(REPORTING_DELAY, EMPTY);
+		map.put(TIMELINESS, EMPTY);
+
+		if (map.keySet().contains(TRANSACTION_STATE_VALUE)) {
+			if (map.get(TRANSACTION_STATE_VALUE).equals("Processing Error")
+					|| map.get(TRANSACTION_STATE_VALUE).equals("Failed Acknowledgement")
+						|| map.get(TRANSACTION_STATE_VALUE).equals("Not Reported")) {
+
+				map.put(EXCEPTION_AGE, calculateExceptionAge(map.get(TNTR_RECEIVED_TIMESTAMP)));
+				map.put(EXCEPTION_AGE_BUCKET,
+						calculateExceptionBucket(map.get(TNTR_RECEIVED_TIMESTAMP)));
+
+			}
+		}
+
+		if (map.keySet().contains(TRANSACTION_STATE_VALUE)
+				&& map.keySet().contains(REPORTING_DEADLINE)) {
+			String reportingStatus = map.get(TRANSACTION_STATE_VALUE);
+
+			String deadlineTimeStamp = map.get(REPORTING_DEADLINE);
+
+			if (reportingStatus.equals("Submitted")) {
+				map.put(MI_STATUS, "No Response");
+				return;
+			} else if (reportingStatus.equals("Ignored")) {
+				map.put(MI_STATUS, "Ignored");
+				return;
+			}
+
+			if (StringUtils.isEmpty(reportingStatus) || StringUtils.isEmpty(deadlineTimeStamp)) {
+				map.put(TIMELINESS, UNKNOWN);
+				map.put(MI_STATUS, UNKNOWN);
+				return;
+			}
+
+			DateTime deadlineDate = dateTimeService.parseUTCDateTime(deadlineTimeStamp);
+			DateTime currentDate = dateTimeService.getCurrentUTCDateTime();
+
+			if ((reportingStatus.equals(ACKNOWLEDGED) || reportingStatus.equals(HOLD)
+					|| reportingStatus.equals(VALIDATION_HOLD)) && map.keySet().contains(TR_RESPONSE_DATE_TIME)) {
+				String responseTimeStamp = map.get(TR_RESPONSE_DATE_TIME);
+				if (StringUtils.isEmpty(responseTimeStamp)) {
+					map.put(TIMELINESS, UNKNOWN);
+					map.put(MI_STATUS, UNKNOWN);
+					return;
+				}
+
+				DateTime responseDate = dateTimeService.parseUTCDateTime(responseTimeStamp);
+
+				if (responseDate.isAfter(deadlineDate)) {
+					map.put(REPORTING_DELAY, getDateDifferenceInStandardFormat(deadlineDate, responseDate));
+					map.put(TIMELINESS, "Late Reported");
+					map.put(MI_STATUS, "Late Reported");
+				} else {
+					map.put(TIMELINESS, "Reported on Time");
+					map.put(MI_STATUS, "Successfully Reported");
+				}
+			} else {
+				if (currentDate.isAfter(deadlineDate)) {
+					map.put(TIMELINESS, "Outside SLA");
+					map.put(REPORTING_DELAY, getDateDifferenceInStandardFormat(deadlineDate, currentDate));
+				} else {
+					map.put(TIMELINESS, "With In SLA");
+					map.put(REPORTING_DELAY,
+							"- (" + getDateDifferenceInStandardFormat(currentDate, deadlineDate) + ")");
+				}
+				if (reportingStatus.equals("Processing Error")) {
+					map.put(MI_STATUS, "Failed To Submit");
+				} else if (reportingStatus.equals("Failed Acknowledgement") || reportingStatus.equals("Not Reported")) {
+					map.put(MI_STATUS, "Rejected By TR");
+				}
+			}
+
+		}
+
+	}
+
+	private String calculateExceptionBucket(String timeStamp) {
+		if (!StringUtils.isEmpty(timeStamp)) {
+			DateTime startDate = dateTimeService.parseUTCDateTime(timeStamp);
+			DateTime endDate = dateTimeService.getCurrentUTCDateTime();
+
+			Period period = new Period(startDate.getMillis(), endDate.getMillis(), PeriodType.days());
+			int dayCount = period.getDays();
+
+			String age = dayCount > 200 ? ">greater than 200 days"
+					: (dayCount > 149 ? "150-200"
+							: (dayCount > 90 ? "91-149"
+									: (dayCount > 30 ? "31-90"
+											: (dayCount > 24 ? "25-30"
+													: (dayCount > 14 ? "15-24"
+															: (dayCount > 6 ? "7-14"
+																	: (dayCount > 1 ? "2-6" : "0-1")))))));
+			return age;
+		}
+		return EMPTY;
+	}
+
+	private String calculateExceptionAge(String timeStamp) {
+		if (!StringUtils.isEmpty(timeStamp)) {
+			DateTime startDate = dateTimeService.parseUTCDateTime(timeStamp);
+			DateTime endDate = dateTimeService.getCurrentUTCDateTime();
+			String formatedDate = getDateDifferenceInStandardFormat(startDate, endDate);
+			return formatedDate;
+		}
+		return "0y-0M-0d-0h-0m-0s";
+
+	}
+
+	private String getDateDifferenceInStandardFormat(DateTime startDate, DateTime endDate) {
+		if (endDate.isBefore(startDate)) {
+			return EMPTY;
+		}
+		String formatedDate;
+		Period period = new Period(startDate.getMillis(), endDate.getMillis(), PeriodType.yearMonthDayTime());
+
+		if (period.getYears() > 0) {
+			formatedDate = period.getYears() + "y";
+		} else if (period.getMonths() > 0) {
+			formatedDate = period.getMonths() + "M";
+		} else if (period.getDays() > 0) {
+			formatedDate = period.getDays() + "d " + period.getHours() + "h " + period.getMinutes() + "m "
+					+ period.getSeconds() + "s ";
+		} else {
+			formatedDate = period.getHours() + "h " + period.getMinutes() + "m " + period.getSeconds() + "s ";
+		}
+
+		return formatedDate;
+	}
+
+	/**
+	 * Description : Method to modify data for Daily & Weekly MI reports
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 06-01-2022
+	 * @param collectionName
+	 * @param map
+	 */
+	private void renderMiReportData(String collectionName, Map<String, String> map) {
+
+		if (MI_UNKNOWN.equals(collectionName) || MI_KNOWN.equals(collectionName)) {
+			String isDelegated = map.get(MI_IS_DELEGATED).equalsIgnoreCase("Client Trade") ? MI_DELEGATED : MI_HOUSE;
+			map.put(MI_IS_DELEGATED, isDelegated);
+			map.put("breakAgeBucket", EMPTY);
+			if (MI_KNOWN.equals(collectionName)) {
+				String minAge = calculateAge(map.get("minDate"));
+				String maxAge = calculateAge(map.get("maxDate"));
+				map.put("maxDate", minAge);
+				map.put("minDate", maxAge);
+			}
+		}
+
+		if (MI_DAILY_TRANSACTION.equals(collectionName) || MI_DAILY_VALUATION.equals(collectionName)
+				|| MI_DAILY_CLM.equals(collectionName) || MI_DAILY_CVM.equals(collectionName)) {
+			map.put("refDate", dateTimeService
+					.getDateAsString(dateTimeService.getPastDateTime(dateTimeService.getCurrentUTCDateTime(), 2)));
+			map.put("reportDate", dateTimeService.getDateAsString(dateTimeService.getCurrentUTCDateTime()));
+
+			String isDelegated = map.get(MI_IS_DELEGATED).equalsIgnoreCase("Client Trade") ? MI_DELEGATED : MI_HOUSE;
+			map.put(MI_IS_DELEGATED, isDelegated);
+
+			if (map.containsKey(MI_DAILY_EXCEPTION_STATUS) && !map.get(MI_DAILY_EXCEPTION_STATUS).equals("Close"))
+				map.put(MI_DAILY_EXCEPTION_STATUS, "Open");
+
+			if ((MI_DAILY_CLM.equals(collectionName) || MI_DAILY_CVM.equals(collectionName))
+					&& StringUtils.isEmpty(map.get(MI_DAILY_ASSET_CLASS)))
+				map.put(MI_DAILY_ASSET_CLASS, "NONE");
+
+			if (MI_DAILY_TRANSACTION.equals(collectionName)) {
+				if (map.containsKey(MI_DAILY_MESSAGE_TYPE) && map.get(MI_DAILY_MESSAGE_TYPE).equals("Snapshot"))
+					map.put(MI_DAILY_MESSAGE_TYPE, "Transaction");
+			}
+
+		}
+	}
+
+	/**
+	 * Description : Method to calculate age between date
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 05-01-2022
+	 * @return
+	 */
+	private String calculateAge(String ageDate) {
+		DateTime currentDate = dateTimeService.getCurrentDateWithStartTime(0, 0);
+		DateTime agedDate = dateTimeService.parseUTCDateTime(ageDate);
+		Duration duration = new Duration(agedDate, currentDate);
+		LOGGER.debug("Processing Date is : {} , agedDate is : {} , and diffference of Days are : {}", currentDate,
+				agedDate, duration.getStandardDays());
+		return Long.toString(duration.getStandardDays());
+	}
+
+	/**
+	 * Description :  Parse JSON to retrieve all nodes from it with recursive calls
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 13-09-2021
+	 * @param currentNodePath
+	 * @param currentNode
+	 * @param dataMap
+	 */
+	private void parseJsonTree(String currentNodePath, JsonNode currentNode, Map<String, String> dataMap) {
+		// Handling Array Element
+		if (currentNode.isArray()) {
+			ArrayNode arrayNode = (ArrayNode) currentNode;
+			Iterator<JsonNode> arrayJsonElement = arrayNode.elements();
+			int arrIndex = 0;
+			// Iterating through Array child nodes
+			while (arrayJsonElement.hasNext()) {
+				parseJsonTree(!currentNodePath.isEmpty() ? currentNodePath + DOT + arrIndex
+						: String.valueOf(arrIndex), arrayJsonElement.next(), dataMap);
+				arrIndex += 1;
+			}
+		} else if (currentNode.isObject()) {
+			// Process all Object Nodes
+			currentNode.fields()
+					.forEachRemaining(nextNode -> parseJsonTree(!currentNodePath.isEmpty()
+							? currentNodePath + DOT + nextNode.getKey() : nextNode.getKey(),
+							nextNode.getValue(), dataMap));
+		} else {
+			// Capture Value from Value node
+			dataMap.put(currentNodePath, currentNode.asText());
+		}
+	}
+
+	public Set<String> getAllHeaders() {
+		return allHeaders;
+	}
+
+	/**
+	 * Description :  Method to convert DF Scan parameters according to collection
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 13-09-2021
+	 * @param databaseName
+	 * @param collectionName
+	 * @param dfScanParameters
+	 */
+	private void convertDfScanParameters(String databaseName, String collectionName,
+			DfScanParameters dfScanParameters) {
+		String key = databaseName.concat(DOT).concat(collectionName).replace('-', '.');
+
+		if (FlowType.RECONCILIATION.getValue().equals(collectionName)) {
+			String reconName = populateReconRuleIdentifierName(dfScanParameters);
+			key = key.concat(DOT).concat(reconName);
+		}
+
+		if (!StringUtils.isEmpty(dfScanParameters.getSelect())
+				&& !TOTAL_COUNT.equals(dfScanParameters.getSelect())
+				&& !RECON_SELECT.equals(dfScanParameters.getSelect())
+				&& !MI_WEEKLY_SELECT.equals(dfScanParameters.getSelect())
+				&& !MI_DAILY_SELECT.equals(dfScanParameters.getSelect())) {
+			String[] selects = dfScanParameters.getSelect().split(COMMA);
+			dfScanParameters.setSelect(convertSelectParameters(selects, key));
+			LOGGER.debug("Select clause converted to : {}", dfScanParameters.getSelect());
+		}
+
+		dbToUiMapper = dfFieldMapper.getCollectionToUiFieldMap().get(key);
+	}
+
+	/**
+	 * Description : Method to convert Select clause parameters
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 13-09-2021
+	 * @param selects
+	 * @param key
+	 */
+	private String convertSelectParameters(String[] selects, String key) {
+		StringBuilder builder = new StringBuilder();
+		Map<String, String> fieldMappings = dfFieldMapper.getUiToCollectionFieldMap().get(key);
+		for (String param : selects) {
+			if (!REC_ID.equals(param) && !REC_VER.equals(param)
+					&& fieldMappings.containsKey(param)) {
+				builder.append(fieldMappings.get(param)).append(COMMA);
+			}
+		}
+		
+		List<String> derivedColumns = Lists.newArrayList(TRANSACTION_STATE_VALUE, TNTR_RECEIVED_TIMESTAMP,REPORTING_DEADLINE,TR_RESPONSE_DATE_TIME);
+		for (String column : derivedColumns) {
+			if(!builder.toString().contains(column))
+				builder.append(column).append(COMMA);
+		}
+		
+		if (builder.toString().endsWith(COMMA))
+			builder.deleteCharAt(builder.length() - 1);
+		return builder.toString();
+	}
+
+	/**
+	 * Description :  Convert Array columns into Unique fields
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 13-09-2021
+	 * @param key
+	 */
+	private String convertDfKeys(String key) {
+		String result = EMPTY;
+		if (!StringUtils.isEmpty(key)) {
+			key = key.replaceAll("[.][0-9]{1,2}", EMPTY);
+			key = key.replace(DOUBLE_DOT, DOT);
+			if (key.endsWith(DOT))
+				result = key.substring(0, key.length() - 1);
+			else
+				result = key;
+		}
+		return result;
+	}
+
+	/**
+	 * Description :  Method to convert and concat DF to UI Field Mappings
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 13-09-2021
+	 * @param map
+	 */
+	private Map<String, String> convertDfKeyMap(Map<String, String> map) {
+		Map<String, String> convertedMap = new HashMap<>();
+
+		for (String dfKey : map.keySet()) {
+			String dfVal = map.get(dfKey);
+			String convertedKey = convertDfKeys(dfKey);
+			if (dbToUiMapper.containsKey(convertedKey)) {
+				String dbToUiKey = dbToUiMapper.get(convertedKey);
+				if (convertedMap.containsKey(dbToUiKey)) {
+					convertedMap.put(dbToUiKey,
+							convertedMap.get(dbToUiKey).concat(COMMA).concat(dfVal));
+				} else
+					convertedMap.put(dbToUiKey, dfVal);
+			} else {
+				LOGGER.debug("Mapping not found for key : {}", convertedKey);
+			}
+
+		}
+		return convertedMap;
+	}
+
+	/**
+	 * Description : Method to split Source & Target Records for Recon
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 02-12-2021
+	 * @param map
+	 * @return
+	 */
+	private List<Map<String, String>> convertDfKeyMapRecon(Map<String, String> map, DfExportScan scan) {
+		List<Map<String, String>> finalRecords = new ArrayList<>();
+		Map<String, String> baseDataMap = new HashMap<>();
+		Map<String, Map<String, String>> sourceMap = new HashMap<>();
+		Map<String, Map<String, String>> targetMap = new HashMap<>();
+
+		for (String dfKey : map.keySet()) {
+			String dfVal = map.get(dfKey);
+			String convertedKey = convertDfKeysRecon(dfKey);
+			if (convertedKey.startsWith("sourceRecords")) {
+				String sourceArrKey = getArrayKeyRecon(dfKey);
+				if (sourceMap.containsKey(sourceArrKey)) {
+					sourceMap.get(sourceArrKey).put(convertedKey, dfVal);
+				} else {
+					sourceMap.put(sourceArrKey, new HashMap<String, String>());
+					sourceMap.get(sourceArrKey).put(convertedKey, dfVal);
+				}
+
+			} else if (convertedKey.startsWith("targetRecords")) {
+				String targetArrKey = getArrayKeyRecon(dfKey);
+				if (targetMap.containsKey(targetArrKey)) {
+					targetMap.get(targetArrKey).put(convertedKey, dfVal);
+				} else {
+					targetMap.put(targetArrKey, new HashMap<String, String>());
+					targetMap.get(targetArrKey).put(convertedKey, dfVal);
+				}
+			} else {
+				if (baseDataMap.containsKey(convertedKey)) {
+					baseDataMap.put(convertedKey,
+							baseDataMap.get(convertedKey).concat(SEMICOLON).concat(dfVal));
+				} else
+					baseDataMap.put(convertedKey, dfVal);
+			}
+		}
+		finalRecords = populateFinalReconRecords(baseDataMap, sourceMap, targetMap, scan);
+		LOGGER.debug("Total {} records extracted after splitting source & target from Recon DF", finalRecords.size());
+		return finalRecords;
+	}
+
+	/**
+	 * Description : Method to populate split records for Recon
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 01-12-2021
+	 * @param baseDataMap
+	 * @param sourceMap
+	 * @param targetMap
+	 * @return
+	 */
+	private List<Map<String, String>> populateFinalReconRecords(Map<String, String> baseDataMap,
+			Map<String, Map<String, String>> sourceMap, Map<String, Map<String, String>> targetMap, DfExportScan scan) {
+		List<Map<String, String>> finalRecords = new ArrayList<Map<String, String>>();
+		if (sourceMap.keySet().isEmpty() && targetMap.keySet().isEmpty()) {
+			LOGGER.info("Target & Source are empty for record with sourceSystemEventOccurrenceIdentifier: {}",
+					baseDataMap.get("occurrenceIdentifier.sourceSystemEventOccurrenceIdentifier"));
+			finalRecords.add(convertUiReconData(baseDataMap, scan));
+		}
+		if (!sourceMap.keySet().isEmpty()) {
+			LOGGER.debug("Processing total {} source records", sourceMap.keySet().size());
+			for (String source : sourceMap.keySet()) {
+				Map<String, String> sourceRecord = new HashMap<>();
+				for (String sourceFieldKey : sourceMap.get(source).keySet()) {
+					String genericColName = sourceFieldKey.split(DOT_SPLITTER)[1];
+					sourceRecord.put(genericColName, sourceMap.get(source).get(sourceFieldKey));
+				}
+				checkAndFilterBreakData(sourceRecord, baseDataMap, scan);
+				sourceRecord.putAll(baseDataMap);
+				if (sourceRecord.containsKey(RECONCILIATION_NAME) &&
+						(sourceRecord.get(RECONCILIATION_NAME).startsWith(PAIRED_AND_MATCHED) || sourceRecord.get(RECONCILIATION_NAME).startsWith(PAIRED_AND_UNMATCHED)))
+					sourceRecord.put("split.Record.Type", "TRADE");
+				else
+					sourceRecord.put("split.Record.Type", "Source Record");
+				sourceRecord.put(FLOW, RECONCILIATION);
+				finalRecords.add(convertUiReconData(sourceRecord, scan));
+			}
+		}
+		if (!targetMap.keySet().isEmpty()) {
+			LOGGER.debug("Processing total {} target records", targetMap.keySet().size());
+			for (String target : targetMap.keySet()) {
+				Map<String, String> targetRecord = new HashMap<>();
+				for (String targetFieldKey : targetMap.get(target).keySet()) {
+					String genericColName = targetFieldKey.split(DOT_SPLITTER)[1];
+					targetRecord.put(genericColName, targetMap.get(target).get(targetFieldKey));
+				}
+				checkAndFilterBreakData(targetRecord, baseDataMap, scan);
+				targetRecord.putAll(baseDataMap);
+				if (targetRecord.containsKey(RECONCILIATION_NAME) &&
+						(targetRecord.get(RECONCILIATION_NAME).startsWith(PAIRED_AND_MATCHED) || targetRecord.get(RECONCILIATION_NAME).startsWith(PAIRED_AND_UNMATCHED)))
+					targetRecord.put("split.Record.Type", "ALLEGE");
+				else
+					targetRecord.put("split.Record.Type", "Target Record");
+				targetRecord.put(FLOW, RECONCILIATION);
+				finalRecords.add(convertUiReconData(targetRecord, scan));
+			}
+		}
+		return finalRecords;
+	}
+
+	private void checkAndFilterBreakData(Map<String, String> subRecord, Map<String, String> baseDataMap, DfExportScan scan) {
+		if (scan.isExportForBreak()){
+			Set<String> breakDataFieldArray = new HashSet<>(Arrays.asList("counterParty1","counterParty2","uti"));
+			if (baseDataMap.containsKey("accuracyBreaks.field") && !StringUtils.isBlank(baseDataMap.get("accuracyBreaks.field"))){
+				String breakFields = baseDataMap.get("accuracyBreaks.field");
+				breakDataFieldArray.addAll((Arrays.asList(breakFields.split(";"))));
+			}
+			subRecord.keySet().retainAll(breakDataFieldArray);
+		}
+	}
+
+	/**
+	 * Description : Convert Recon DF field to UI
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 01-12-2021
+	 * @return
+	 */
+	private Map<String, String> convertUiReconData(Map<String, String> reconDfDataMap, DfExportScan scan) {
+		Map<String, String> convertedMap = new HashMap<>();
+
+		if (reconDfDataMap.containsKey(BREAK_AGE)) {
+			int breakAge = Integer.parseInt(reconDfDataMap.get(BREAK_AGE));
+			String breakAgeBucket = getBreakAgebucket(breakAge);
+			reconDfDataMap.put(BREAK_AGE, Integer.toString(breakAge));
+			reconDfDataMap.put("breakAgeBucket", breakAgeBucket);
+		}
+
+		for (String dfKey : reconDfDataMap.keySet()) {
+			if (dbToUiMapper.containsKey(dfKey)) {
+				convertedMap.put(dbToUiMapper.get(dfKey), reconDfDataMap.get(dfKey));
+			} else {
+				unknownHeaderSet.add(dfKey);
+				LOGGER.debug("Mapping not found for key : {}", dfKey);
+			}
+
+		}
+		return convertedMap;
+	}
+
+	/**
+	 * Description : Convert DF Keys and remove array numbers
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 01-12-2021
+	 * @param key
+	 * @return
+	 */
+	private String convertDfKeysRecon(String key) {
+		String result = EMPTY;
+		if (!StringUtils.isEmpty(key)) {
+			key = key.replaceAll("[.][0-9]{1,4}", EMPTY);
+			key = key.replace(DOUBLE_DOT, DOT);
+			if (key.endsWith(DOT))
+				result = key.substring(0, key.length() - 1);
+			else
+				result = key;
+		}
+
+		return result;
+	}
+
+	/**
+	 * Description : Method to get Array identifier for Source & Target recon record
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 01-12-2021
+	 * @param key
+	 * @return
+	 */
+	private String getArrayKeyRecon(String key) {
+		String[] mapKey = key.split(DOT_SPLITTER);
+		return mapKey[0].concat(mapKey[1]);
+	}
+
+	/**
+	 * Description : Method to get Break Age Bucket
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 02-12-2021
+	 * @param breakAge
+	 * @return
+	 */
+	private String getBreakAgebucket(int breakAge) {
+		return breakAge > 60 ? "'60+"
+				: (breakAge > 30 ? "'31-60" : (breakAge > 6 ? "'7-30" : (breakAge > 0 ? "'0-7" : "'0-7")));
+	}
+
+	/**
+	 * Description : Method to calculate breakAge
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 02-12-2021
+	 * @param lastBreakOccurrenceDate
+	 * @return
+	 */
+	public int getBreakAge(String lastBreakOccurrenceDate, DfExportScan scan) {
+		LocalDate lastBreakDate = DateTimeFormat.forPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")
+				.parseDateTime(lastBreakOccurrenceDate).toLocalDate();
+		LocalDate currentDate = new DateTime().withZone(DateTimeZone.UTC).toLocalDate();
+		int dayCount = 0;
+		LocalDate weekday = lastBreakDate;
+		if (lastBreakDate.getDayOfWeek() == DateTimeConstants.SATURDAY
+				|| lastBreakDate.getDayOfWeek() == DateTimeConstants.SUNDAY) {
+			weekday = weekday.plusWeeks(1).withDayOfWeek(DateTimeConstants.MONDAY);
+		}
+		if (currentDate.getDayOfWeek() == DateTimeConstants.SATURDAY
+				|| currentDate.getDayOfWeek() == DateTimeConstants.SUNDAY) {
+			currentDate = currentDate.getDayOfWeek() == DateTimeConstants.SATURDAY ? currentDate.minusDays(1)
+					: currentDate.minusDays(2);
+		}
+		while (weekday.isBefore(currentDate)) {
+			dayCount++;
+
+			if (weekday.getDayOfWeek() == DateTimeConstants.FRIDAY)
+				weekday = weekday.plusDays(3);
+			else
+				weekday = weekday.plusDays(1);
+		}
+
+		// Reduce Days from Break Age as per Recon
+		int dayNegateCount = 2;
+		if (!scan.getWhere().isEmpty() && scan.getWhere().contains(RECON_BREAK_AGE_REGEX)) {
+			String reconName = getReconNameFromScan(scan);
+			if (dfFieldMapper.getReconBreakAgeMap().containsKey(reconName)) {
+				dayNegateCount = Integer.parseInt(dfFieldMapper.getReconBreakAgeMap().get(reconName).substring(2));
+			}
+		}
+		
+		if (dayNegateCount >= dayCount)
+			return 0;
+		else if (dayCount > dayNegateCount)
+			return dayCount - dayNegateCount;
+		else
+			return dayCount;
+	}
+
+	/**
+	 * Description : Method to get Recon Name from Where clause
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 22-09-2022
+	 * @param scan
+	 * @return String
+	 */
+	private String getReconNameFromScan(DfExportScan scan) {
+		int startIndex = scan.getWhere().lastIndexOf(RECON_BREAK_AGE_REGEX);
+		int lastIndex = scan.getWhere().lastIndexOf(SINGLE_QUOTE);
+		return scan.getWhere().substring(startIndex, lastIndex).replace(RECON_BREAK_AGE_REGEX, EMPTY)
+				.trim();
+	}
+
+	/**
+	* Description : Method to get next Page of Continues page scan
+	* @author agrakit
+	* Created By: Niket Agrawal
+	* Created On 20-12-2021
+	* @param scanId
+	* @param pageLimit
+	* @return
+	* @throws ScanException
+	* @throws StartableException
+	*/
+	public PagedScanResult getNextPage(String scanId, int pageLimit) throws ScanException, StartableException {
+		return getDfClient(dfConnectionManager)
+				.continuePagedScan(NextScanPageRequestBuilder.create(scanId).withPageLimit(pageLimit));
+	}
+
+	/**
+	 * Description : Method to convert List of Paged Records
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 20-12-2021
+	 * @param records
+	 * @param collectionName
+	 * @return
+	 * @throws JsonProcessingException
+	 * @throws IOException
+	 */
+	public List<Map<String, String>> convertScannedRecords(List<Record> records, String collectionName, DfExportScan scan)
+			throws IOException {
+		Map<String, List<Object>> recordsDataMap = new HashMap<>();
+		if (null != records) {
+			Iterator<Record> iterator = records.iterator();
+			while (iterator.hasNext()) {
+				Record record = iterator.next();
+				if (record != null && record.getDocument() != null) {
+					if (null != record.getId() && null != record.getId().getKey())
+						recordsDataMap.put(record.getId().getKey().concat(String.valueOf(record.getId().getVersion())),
+								Arrays.asList(record.getId().getKey(), record.getId().getVersion(),
+										((JsonDocument) record.getDocument()).getContents()));
+					else
+						recordsDataMap.put(RandomStringUtils.randomAlphanumeric(10).toUpperCase(),
+								Arrays.asList(RandomStringUtils.randomAlphanumeric(10).toUpperCase(),
+										RandomStringUtils.randomAlphanumeric(10).toUpperCase(),
+										((JsonDocument) record.getDocument()).getContents()));
+				}
+			}
+		}
+		return parseJsonRecords(recordsDataMap, collectionName, scan);
+	}
+
+	/**
+	 * Description : Method to populate Headers before Extract
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 20-12-2021
+	 * @param scanParamList
+	 */
+	public void populateAllHeaders(List<DfScanParameters> scanParamList) {
+		allHeaders = new LinkedHashSet<>();
+		collectionDbMap = dfFieldMapper.getCollectionDbMap();
+		LOGGER.debug("Collection & DB Mapping extracted from configuration : {}", collectionDbMap);
+
+		scanParamList.forEach(dfScanParameters -> {
+
+			String inputDfCollection = dfScanParameters.getCollectionName();
+			if (!dfFieldMapper.getCollectionNameMap().containsKey(inputDfCollection)) {
+				LOGGER.error("Collection Mapping not found for : {}", inputDfCollection);
+				throw new ValidationException("Collection Mapping not found");
+			}
+
+			String collectionName = dfFieldMapper.getCollectionNameMap().get(inputDfCollection);
+
+			if (!collectionDbMap.containsKey(collectionName)) {
+				LOGGER.error("Collection & Database Mapping not found for : {}", collectionName);
+				throw new ValidationException("Collection & Database Mapping not found");
+			}
+
+			String databaseName = collectionDbMap.get(collectionName);
+
+			String key = databaseName.concat(DOT).concat(inputDfCollection)
+					.replace('-', '.');
+
+			if (FlowType.RECONCILIATION.getValue().equals(inputDfCollection)) {
+				String reconName = populateReconRuleIdentifierName(dfScanParameters);
+				inputDfCollection = inputDfCollection.concat(DOT).concat(reconName);
+				key = key.concat(DOT).concat(reconName);
+			}
+
+			if (StringUtils.isEmpty(dfScanParameters.getSelect())) {
+				prepareAllHeaders(dfScanParameters.isFieldConversion(), key, inputDfCollection);
+			} else {
+				prepareSelectHeaders(dfScanParameters.isFieldConversion(), key, inputDfCollection,
+						dfScanParameters.getSelect());
+			}
+
+		});
+	}
+
+	/**
+	 * Description : Method to populate Recon Rule Identifier Name
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 31-08-2022
+	 * @param dfScanParameters
+	 */
+	public String populateReconRuleIdentifierName(DfScanParameters dfScanParameters) {
+		String reconName = EMPTY;
+		if (!dfScanParameters.getWhere().isEmpty() && dfScanParameters.getWhere().contains(RECON_BREAK_AGE_REGEX)) {
+			Pattern pattern = Pattern.compile("subjectIdentifier.reconciliationRuleIdentifier = '[A-Za-z0-9]+'");
+			Matcher matcher = pattern.matcher(dfScanParameters.getWhere());
+			if (matcher.find()) {
+				String matchedString = matcher.group(0);
+				int startIndex = matchedString.indexOf(SINGLE_QUOTE);
+				int lastIndex = matchedString.lastIndexOf(SINGLE_QUOTE);
+				reconName = matchedString.substring(startIndex + 1, lastIndex)
+						.replace(RECON_BREAK_AGE_REGEX, EMPTY).trim();
+			}
+
+		}
+		return reconName;
+	}
+
+	/**
+	 * Description : method to get DF Client
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 20-12-2021
+	 * @return
+	 * @throws StartableException
+	 */
+	public DataFabricClient getDataFabricClient() throws StartableException {
+		return getDfClient(dfConnectionManager);
+	}
+
+	/**
+	 * Description : Method to prepare all headers
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 20-12-2021
+	 * @param isFieldConversion
+	 * @param key
+	 * @param collectionName
+	 */
+	private void prepareAllHeaders(boolean isFieldConversion, String key, String collectionName) {
+		LOGGER.debug("Populating all headers for collection : {} with fieldConversion: {}", collectionName,
+				isFieldConversion);
+		if (isFieldConversion) {
+			dfFieldMapper.getOrderedColumnMap().get(collectionName).forEach(column -> {
+				if (dfFieldMapper.getUiToCollectionFieldMap().get(key).keySet().contains(column))
+					allHeaders.add(column);
+			});
+			LOGGER.info("Total {} Headers Populated for Collection : {}",
+					allHeaders.size(), collectionName);
+		} else {
+			allHeaders.addAll(dfFieldMapper.getCollectionToUiFieldMap().get(key).keySet());
+			LOGGER.info("Total {} Headers Populated for Collection : {}",
+					dfFieldMapper.getCollectionToUiFieldMap().get(key).keySet().size(), collectionName);
+		}
+	}
+
+	/**
+	 * Description : Method to prepare headers with customized select columns
+	 * @author agrakit
+	 * Created By: Niket Agrawal
+	 * Created On 20-12-2021
+	 * @param isFieldConversion
+	 * @param key
+	 * @param collectionName
+	 * @param select
+	 */
+	private void prepareSelectHeaders(boolean isFieldConversion, String key, String collectionName, String select) {
+		LOGGER.info("Populating Select headers for collection : {} with fieldConversion: {} and Select : {}",
+				collectionName, isFieldConversion, select);
+		String[] selects = select.split(COMMA);
+		List<String> orderedColumns = dfFieldMapper.getOrderedColumnMap().get(collectionName);
+		Set<String> mappingColumns = dfFieldMapper.getUiToCollectionFieldMap().get(key).keySet();
+		for (String param : selects) {
+			if (isFieldConversion) {
+				if (mappingColumns.contains(param) && orderedColumns.contains(param))
+					allHeaders.add(param);
+			} else {
+				if (dfFieldMapper.getCollectionToUiFieldMap().get(key).containsKey(param))
+					allHeaders.add(param);
+			}
+		}
+	}
+}
+
+Existing test class:
+
+package com.rbs.tntr.business.blotter.utility;
+
+import static org.junit.Assert.*;
+
+import java.io.IOException;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import com.rbs.datafabric.domain.client.builder.ScanRequestBuilder;
 import com.rbs.tntr.domain.blotter.exceptions.ValidationException;
 import org.joda.time.DateTime;
 import org.junit.Before;
 import org.junit.Test;
-import org.mockito.*;
-import org.mockito.invocation.InvocationOnMock;
-import org.mockito.stubbing.Answer;
-import org.slf4j.Logger;
-import org.springframework.test.util.ReflectionTestUtils;
+import org.mockito.Mockito;
 
-import java.io.File;
-import java.lang.reflect.Field;
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
-import java.util.*;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.regex.Pattern;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
+import com.nwm.tntr.commons.repository.df.DfConnectionManager;
+import com.rbs.datafabric.agile.commons.lang.StartableException;
+import com.rbs.datafabric.client.DataFabricClient;
+import com.rbs.datafabric.domain.JsonDocument;
+import com.rbs.datafabric.domain.Record;
+import com.rbs.datafabric.domain.RecordId;
+import com.rbs.tntr.business.blotter.configuration.DfExportConfig;
+import com.rbs.tntr.business.blotter.configuration.DfFieldMapper;
+import com.rbs.tntr.business.blotter.search.querybuilder.DfExportScan;
+import com.rbs.tntr.business.blotter.search.querybuilder.DfScanParameters;
+import com.rbs.tntr.business.blotter.services.datetime.DateTimeService;
+import com.rbs.tntr.business.blotter.services.datetime.DateTimeServiceImpl;
 
-import static com.rbs.tntr.business.blotter.services.common.StringConstants.*;
-import static org.junit.Assert.*;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.anyListOf;
-import static org.mockito.Matchers.anySetOf;
-import static org.mockito.Matchers.anyString;
-import static org.mockito.Mockito.*;
 
-public class DataFabricExportServiceImplTest {
+/**
+ * Description : Test class for DF Utility
+ *
+ * @author agrakit
+ * 
+ * Created By: Niket Agrawal
+ * 
+ * Created On 13-09-2021
+ * 
+ */
+public class DataFabricExportUtilityTest {
+	DfConnectionManager dfConnectionManager;
+	DfExportConfig dfExportConfig;
+	DataFabricExportUtility dfUtility;
+	DfFieldMapper dfFieldMapper;
+	DataFabricClient client;
+	DateTimeService dateTimeService;
+	DfExportScan scan;
+	
+	private static final String DB ="Tntr";
+	private static final String TRADE ="TNTR-trade-uat";
+	private static final String RECON ="TNTR-reconciliation-uat";
+	
 
-    @InjectMocks
-    private DataFabricExportServiceImpl dataFabricExportService;
+	@Before
+	public void setup() throws StartableException {
+		dfConnectionManager = Mockito.mock(DfConnectionManager.class);
+		dfExportConfig = Mockito.mock(DfExportConfig.class);
+		dfFieldMapper = Mockito.mock(DfFieldMapper.class);
+		client = Mockito.mock(DataFabricClient.class);
+		dateTimeService = new DateTimeServiceImpl();
+		scan = new DfExportScan();
+		
+		Mockito.when(dfConnectionManager.getDfClient()).thenReturn(client);
+		Mockito.when(dfFieldMapper.getCollectionDbMap()).thenReturn(ImmutableMap.of(TRADE, DB, RECON, DB));
+		Mockito.when(dfExportConfig.getScanReadTimeoutInSeconds()).thenReturn(600);
+		Mockito.when(dfFieldMapper.getCollectionNameMap())
+				.thenReturn(ImmutableMap.of("Transaction", TRADE, "Reconciliation", RECON));
+		Mockito.when(dfFieldMapper.getReconBreakAgeMap()).thenReturn(ImmutableMap.of("MasPositionFx", "T-1"));
+		Mockito.when(dfFieldMapper.getOrderedColumnMap()).thenReturn(
+				ImmutableMap.of("Reconciliation.MasPositionFx", Lists.newArrayList("Break Age")));
+		Mockito.when(dfFieldMapper.getCollectionToUiFieldMap())
+				.thenReturn(ImmutableMap.of("Tntr.Transaction",
+						Collections.singletonMap("subjectIdentifier.sourceSystem", "Source System"),
+						"Tntr.Reconciliation.MasPositionFx",
+						Collections.singletonMap("breakManagement.breakAge", "Break Age"),
+						"Tntr.Reconciliation.PairedAndUnmatchedEmirEsmaRates",
+						getPandMFieldMap(),
+						"Tntr.Reconciliation.CftcPositionFx",
+						Collections.singletonMap("breakManagement.breakAge", "Break Age")));
+		Mockito.when(dfFieldMapper.getUiToCollectionFieldMap())
+				.thenReturn(ImmutableMap.of("Tntr.Transaction",
+						Collections.singletonMap("Source System", "subjectIdentifier.sourceSystem"),
+						"Tntr.Reconciliation.MasPositionFx",
+						Collections.singletonMap("Break Age", "breakManagement.breakAge"),
+						"Tntr.Reconciliation.PairedAndUnmatchedEmirEsmaRates",
+						getUiFieldMap(),
+						"Tntr.Reconciliation.CftcPositionFx",
+						Collections.singletonMap("Break Age", "breakManagement.breakAge")));
+		dfUtility = new DataFabricExportUtility(dfConnectionManager, dfExportConfig, dfFieldMapper, dateTimeService);
+	}
 
-    @Mock
-    private DataFabricExportUtility dataFabricExportUtil;
-    @Mock
-    private CsvWriterImpl csvWriter;
-    @Mock
-    private ExcelWriterImpl excelWriter;
-    @Mock
-    private DataFabricExportRepository dfExportRepository;
-    @Mock
-    private DateTimeService dateTimeService;
-    @Mock
-    private EmailService emailService;
-    @Mock
-    private DataFabricClient dataFabricClient;
-    @Mock
-    private Logger logger;
-    @Mock
-    private BlockingQueue<DfExportJob> mockQueue;
-    @Mock
-    private PagedScanResult pagedScanResult;
-    @Mock
-    private Record record;
-    @Mock
-    private JsonDocument jsonDocument;
-    @Mock
-    private Document document;
-    @Mock
-    private ScanResult scanResult;
+	@Test
+	public void testParseJsonRecords() throws Exception {
+		List<Map<String, String>> recordList = dfUtility.convertScannedRecords(getMockRecords(getJsonRecords()),
+				"Transaction",scan);
+		assertNotNull(recordList);
+		assertTrue(recordList.size() > 0);
+		assertEquals("GDS GBLO", recordList.get(0).get("subjectIdentifier.sourceSystem"));
+		assertEquals("Transaction", recordList.get(0).get("Flow"));
+	}
+	
+	@Test
+	public void testReconBreakAge() throws Exception {
+		scan.setWhere("(reconciliationBusinessDateTime = '2022-07-12T00:00:00.000Z' AND subjectIdentifier.reconciliationRuleIdentifier = 'MasPositionFx')");
+		DfScanParameters param = createDfScanParameters("Reconciliation", "Break Age", scan.getWhere());
+		param.setFieldConversion(true);
+		dfUtility.getScanRequestBuilder(param);
+		DateTime lastBreakOccuranceDate = dateTimeService.getPastDateTime(dateTimeService.getCurrentDateTime(), 2);
+		List<Map<String, String>> recordList = dfUtility.convertScannedRecords(getMockRecords(getJsonReconRecords(lastBreakOccuranceDate.toString())),
+				"Reconciliation",scan);
+		String output=recordList.get(0).get("Break Age");
+		assertNotNull(recordList);
+		assertTrue(recordList.size() > 0);
+		assertEquals(output, recordList.get(0).get("Break Age"));
+	}
+	
+	@Test
+	public void testReconBreakAgeNotPresent() throws Exception {
+		scan.setWhere(
+				"(reconciliationBusinessDateTime = '2022-07-12T00:00:00.000Z' AND subjectIdentifier.reconciliationRuleIdentifier = 'MasPositionFx')");
+		DfScanParameters param = createDfScanParameters("Reconciliation", "Break Age", scan.getWhere());
+		param.setFieldConversion(true);
+		dfUtility.getScanRequestBuilder(param);
+		DateTime lastBreakOccuranceDate = dateTimeService.getPastDateTime(dateTimeService.getCurrentDateTime(), 0);
+		List<Map<String, String>> recordList = dfUtility.convertScannedRecords(getMockRecords(getJsonReconRecords(lastBreakOccuranceDate.toString())),
+				"Reconciliation", scan);
+		assertNotNull(recordList);
+		assertTrue(recordList.size() > 0);
+		assertFalse(recordList.get(0).containsKey("Break Age"));
+	}
 
-    private AutoCloseable closeable;
+	@Test
+	public void testCftcReconBreakAge() throws Exception {
+		scan.setWhere(
+				"(reconciliationBusinessDateTime = '2022-07-12T00:00:00.000Z' AND subjectIdentifier.reconciliationRuleIdentifier = 'CftcPositionFx')");
+		DfScanParameters param = createDfScanParameters("Reconciliation", "Break Age", scan.getWhere());
+		param.setFieldConversion(true);
+		dfUtility.getScanRequestBuilder(param);
+		List<Map<String, String>> recordList = dfUtility.convertScannedRecords(getMockRecords(getCftcJsonRecord()),
+				"Reconciliation", scan);
+		assertNotNull(recordList);
+		assertTrue(recordList.size() > 0);
+		assertEquals(String.valueOf(1), recordList.get(0).get("Break Age"));
+	}
 
-    @Before
-    public void setUp() throws Exception {
-        closeable = MockitoAnnotations.openMocks(this);
-        ReflectionTestUtils.setField(dataFabricExportService, "outputFilePath", "/test/output");
-        ReflectionTestUtils.setField(dataFabricExportService, "miReceiverEmail", "test@example.com");
-        ReflectionTestUtils.setField(dataFabricExportService, "exportThresholdCount", 1000);
-        ReflectionTestUtils.setField(dataFabricExportService, "exportThresholdCountFeature", true);
-        ReflectionTestUtils.setField(dataFabricExportService, "zippedExportFeature", true);
-        ReflectionTestUtils.setField(dataFabricExportService, "emailNotificationFeature", true);
-        ReflectionTestUtils.setField(dataFabricExportService, "exportPageCount", 100);
-        ReflectionTestUtils.setField(dataFabricExportService, "smtpHost", "smtp.example.com");
-        ReflectionTestUtils.setField(dataFabricExportService, "emailFrom", "noreply@example.com");
-        ReflectionTestUtils.setField(dataFabricExportService, "queue", new LinkedBlockingQueue<>());
+	@Test
+	public void testPnMRecord() throws IOException {
+		scan.setWhere("subjectIdentifier.reconciliationRuleIdentifier = 'PairedAndUnmatchedEmirEsmaRates' and reconciliationBusinessDateTime = '2024-05-15T00:00:00.000Z' and subjectIdentifier.sourceSystemMatchingKeyIdentifier = 'X3CZP3CK64YBHON1LE12|529900GGYMNGRQTDOO93|CK64YBHON1000133947543TRN'");
+		DfScanParameters param = createDfScanParameters("Reconciliation", "", scan.getWhere());
+		param.setFieldConversion(true);
+		scan.setExportForBreak(true);
+		dfUtility.getScanRequestBuilder(param);
+		List<Map<String, String>> recordList = dfUtility.convertScannedRecords(getMockRecords(getPnMJsonRecord()),
+				"Reconciliation", scan);
+		assertNotNull(recordList);
+		assertTrue(recordList.size() > 0);
+//		assertEquals(String.valueOf(1), recordList.get(0).get("Break Age"));
+	}
 
-        when(dataFabricExportUtil.getDataFabricClient()).thenReturn(dataFabricClient);
-        when(dataFabricClient.pagedScan(any(ScanRequestBuilder.class))).thenReturn(pagedScanResult);
-        when(pagedScanResult.getRecords()).thenReturn(Collections.singletonList(record));
-        when(record.getDocument()).thenReturn(document);
-        when(document.getContents()).thenReturn("{\"totalCount\":10}");
-        when(csvWriter.generateCsvFile(anyList(), anyString(), anyString())).thenReturn(true);
-    }
+	@Test
+	public void testParseJsonRecords_withSelect() throws Exception {
+		DfScanParameters param= createDfScanParameters("Transaction", "Source System", "where");
+		param.setFieldConversion(true);
+		dfUtility.getScanRequestBuilder(param);
+		List<Map<String, String>> recordList = dfUtility.convertScannedRecords(getMockRecords(getJsonRecords()),
+				"Transaction", scan);
+		assertNotNull(recordList);
+		assertTrue(recordList.size() > 0);
+		assertEquals("GDS GBLO", recordList.get(0).get("Source System"));
+	}
+	
+	@Test
+	public void testParseJsonRecords_withArray() throws Exception {
+		List<Map<String, String>> recordList = dfUtility.convertScannedRecords(getMockRecords(getJsonRecords()),
+				"Transaction", scan);
+		assertNotNull(recordList);
+		assertTrue(recordList.size() > 0);
+		assertEquals("Test", recordList.get(0).get("exceptionManagement.userComments.0"));
+	}
+	
+	@Test
+	public void testReconRuleIdentifierExtraction() {
+		DfScanParameters param = createDfScanParameters("Reconciliation", null,
+				"subjectIdentifier.reconciliationRuleIdentifier = 'EmirPositionRates' AND miDetails.party1LEI = 'RR3QWICWWIPCS8A4S074') and reconciliationBusinessDateTime = '2022-10-05T00:00:00.000Z'");
+		String reconName = dfUtility.populateReconRuleIdentifierName(param);
+		assertEquals("EmirPositionRates", reconName);
+	}
+	private DfScanParameters createDfScanParameters(String collectionName, String select, String where) {
+		return new DfScanParameters(select, where, "group by clause", "order by clause", collectionName, false,
+				"blotterName");
+	}
 
-    @Test
-    public void testCalculateThresholdCount() throws Exception {
-        DfScanParameters scanParam = new DfScanParameters();
-        scanParam.setCollectionName("testCollection");
-        List<DfScanParameters> scanParamList = Collections.singletonList(scanParam);
+	private List<Record> getMockRecords(List<String> jsonRecords){
+		List<Record> records = Lists.newArrayList();
+		for (int i = 0; i < jsonRecords.size(); i++) {
+			Record record = new Record();
+			RecordId recordId = new RecordId();
+			recordId.setDatabaseName(DB);
+			recordId.setCollectionName(TRADE);
+			record.setId(recordId);
+			record.setDocument((new JsonDocument()).withContents(jsonRecords.get(i)));
+			records.add(record);
+		}
+		return records;
+	}
 
-        int result = ReflectionTestUtils.invokeMethod(
-            dataFabricExportService, 
-            "calculateThresholdCount", 
-            scanParamList, 
-            "testUser"
-        );
-        assertEquals(10, result);
-    }
+	private List<String> getJsonRecords() {
+		List<String> jsonRecords = Lists.newArrayList();
+		/*		jsonRecords.add(
+						"{\"eventOccurrence\":{\"subjectIdentifier\":{\"reconciliationMatchingKeyIdentifier\":{\"sourceSystemMatchingKeyIdentifier\":\"null|RR3QWICWWIPCS8A4S074|DG3RU1DBUFHT4ZF9WN62|DXO5258\",\"sourceSystemIdentifier\":\"Anvil GBLO Ldn\"},\"reconciliationType\":\"Completeness\",\"reconciliationRuleIdentifier\":\"SftrAnvilDtccTrade\"},\"occurrenceIdentifier\":{\"sourceSystemIdentifier\":\"TnTR\",\"sourceSystemEventOccurrenceIdentifier\":\"e55eb33a-2d7c-471f-8a14-099a24e05519\"},\"occurrenceDateTime\":\"2020-06-29T04:08:40.128Z\",\"event\":{\"reconciliationBusinessDateTime\":\"2020-06-11T00:00:00.000Z\",\"sourceMatchingTransactionIdentifier\":[{\"sourceSystemIdentifier\":\"Anvil GBLO Ldn\",\"alternateTransactionIdentifier\":\"DXO5258\",\"alternateTransactionVersion\":\"0\",\"alternateTransactionIdentifierDescription\":\"FO Trade Identifier\"}],\"reconciliationMatchingKeyInformation\":{\"sftrAnvilDtccTrade\":{\"sourceMatchingKey\":{\"reportSubmittingLegalEntityId\":\"RR3QWICWWIPCS8A4S074\",\"counterpartyLegalEntityId\":\"DG3RU1DBUFHT4ZF9WN62\"}}},\"reconciliationState\":{\"sourceMatchingInstanceCount\":1,\"targetMatchingInstanceCount\":0,\"reconciliationStatus\":\"Target Unpaired\"},\"supplementaryInformation\":{\"breakManagement\":{\"lastBreakOccurrenceDate\":\"2020-06-11T00:00:00.000Z\",\"lastBreakStatus\":\"Target Unpaired\"},\"sftrAnvilDtccTrade\":{\"sourceRecords\":[{\"expectedTerminationDate\":\"2020-06-11T00:00:00.000Z\",\"endDate\":\"2020-06-11T00:00:00.000Z\",\"recordId\":\"ddac3be87b090d33\",\"masterAgreementType\":[\"GMRA\",\"GMRA1\",\"GMRA2\"],\"actionType\":\"New\",\"collateralLeg\":[{\"identificationOfASecurityUsedAsCollateral\":\"US9128286C90\",\"typeOfCollateralComponents\":\"Government Securities\"}],\"collateralisationOfNetExposure\":false,\"recordVersion\":\"1\",\"masterAgreementName\":null,\"counterpartyNucleusId\":\"1475\",\"tradeId\":\"DXO5258\",\"tradeVersion\":\"0\",\"sftType\":\"buy-sell back\",\"startDate\":\"2020-06-01T00:00:00.000Z\"}],\"targetRecords\":[]}},\"_type\":\"v10_35_4.Lifecycle.Reconciliation.SpecifyReconciliation\",\"_corpusType\":\"lifecycle.reconciliation.specifyReconciliation\"}},\"_type\":\"v10_35_4._root.__notification.ReconciliationLifecycleNotification\",\"_corpusType\":\"_root.__notification.reconciliationLifecycleNotification\",\"_corpusVersion\":\"v10.35.4\"}");
+		 jsonRecords.add(
+				"{\"subjectIdentifier\":{\"transactionId\":\"21237LN037105D_CANADA\",\"sourceSystem\":\"SystemX\",\"version\":1,\"regulatoryRegimeIdentifier\":{\"name\":\"Canada Rule 91-507\",\"regulatoryAuthority\":\"Ontario Securities Commission (ON, Canada)\"},\"regimeImpactType\":\"Transaction Reporting\",\"reportTriggerType\":\"Transaction Lifecycle\",\"reportSubmissionType\":\"Snapshot\"},\"exceptionManagement\":{},\"transactionReportingStatus\":{\"sourceSystemIdentifier\":\"TnTR\",\"transactionStateValue\":\"Processing Error\",\"stateTransitionDateTime\":\"2021-08-25T13:55:13.139Z\",\"stateTransitionEffectiveDateTime\":\"2021-08-25T13:55:13.139Z\",\"commentary\":\"Trade Submission\",\"reportSubmissionRepository\":\"DTCC\",\"reportSubmissionError\":[{\"errorCategory\":\"Internal\",\"errorComment\":\"Null Field(s): Notional Amount 1, ExchangeRate Basis Currency1, ExchangeRate Basis Currency2, Notional Currency 1, Notional Currency 2, Notional Amount 2\",\"errorCode\":\"TNTR008\",\"capturingSystem\":\"TnTR\"}]},\"reportableData\":{},\"nonReportableData\":{},\"appendix\":{}}");*/
+        jsonRecords.add("{\n  \"subjectIdentifier\": {\n    \"transactionId\": \"134783067\",\n    \"sourceSystem\": \"GDS GBLO\",\n    \"version\": 2,\n    \"regulatoryRegimeIdentifier\": {\n      \"name\": \"European Markets Infrastructure Regulation\",\n      \"regulatoryAuthority\": \"Financial Conduct Authority (UK)\"\n    },\n    \"regimeImpactType\": \"Transaction Reporting\",\n    \"reportTriggerType\": \"Transaction Lifecycle\",\n    \"reportSubmissionType\": \"Snapshot\"\n  },\n  \"exceptionManagement\": {\n    \"userComments\": [\n      \"Test\",\n      \"Need to replay\"\n    ],\n    \"issueTypes\": [\n      \"Mis Reporting\"\n    ],\n    \"approvalStatus\": \"Replay Approved\",\n    \"assignedTo\": \"sharnin\",\n    \"approvedBy\": \"sharnin\",\n    \"lastActionUser\": \"sharnin\",\n    \"lastActionDate\": \"2021-09-10T13:09:40.053Z\",\n    \"lastAction\": \"TntrRequestReplay\"\n  },\n  \"transactionReportingStatus\": {\n    \"sourceSystemIdentifier\": \"TnTR\",\n    \"transactionStateValue\": \"Acknowledged\",\n    \"stateTransitionDateTime\": \"2021-09-10T12:12:07.902Z\",\n    \"stateTransitionEffectiveDateTime\": \"2021-09-10T12:12:07.902Z\",\n    \"reportSubmissionRepository\": \"DTCCEU\"\n  },\n  \"reportableData\": {\n    \"action\": \"New\",\n    \"clearingStatus\": \"false\",\n    \"confirmationMethod\": \"NotConfirmed\",\n    \"compressedTradeIndicator\": \"true\",\n    \"contractType\": \"SW\",\n    \"effectiveDate1\": \"2021-09-13T00:00:00.000Z\",\n    \"executionVenueId\": \"XXXX\",\n    \"executionVenueMicCode\": \"XXXX\",\n    \"intraGroupIndicator\": \"false\",\n    \"maturityDate\": \"2026-09-13T00:00:00.000Z\",\n    \"leg2SettlementCurr\": \"USD\",\n    \"level\": \"T\",\n    \"lifecycleEvent\": \"Trade\",\n    \"mandatoryClearingJustification\": \"false\",\n    \"messageId\": \"134783067_0_POU_1631275924038_uat\",\n    \"messageType\": \"Snapshot\",\n    \"notionalAmount1\": 100000000,\n    \"notionalCurr1\": \"GBP\",\n    \"notionalCurr2\": \"USD\",\n    \"originalExecutionTimestamp\": \"2021-09-09T06:11:43.000Z\",\n    \"payment1FreqPeriod\": \"M\",\n    \"payment1FreqPeriodMultiplier\": 3,\n    \"terminationDate\": \"2021-09-09T00:00:00.000Z\",\n    \"price1Price\": 1.18049739,\n    \"price1Units\": \"YIELD\",\n    \"priceMultiplier\": 1,\n    \"assetClass\": \"InterestRate\",\n    \"productClassification\": \"SRACCP\",\n    \"productClassificationType\": \"http://www.fpml.org/coding-scheme/external/product-classification/iso10962\",\n    \"productId\": \"InterestRate:CrossCurrency:Basis\",\n    \"productIdType\": \"ISDA\",\n    \"productIdentification\": \"EZP67QKWJQR7\",\n    \"productIdentificationType\": \"http://www.fpml.org/spec/2002/instrument-id-ISIN\",\n    \"quantity\": 1,\n    \"reportingTimestamp\": \"2021-09-10T12:12:04.000Z\",\n    \"resetFreqPeriod1\": \"M\",\n    \"resetFreqPeriodMultiplier1\": 3,\n    \"scheduledTerminationDate1\": \"2026-09-13T00:00:00.000Z\",\n    \"settlementCurr1\": \"GBP\",\n    \"settlementDate\": \"2021-10-10T00:00:00.000Z\",\n    \"settlementType\": \"Cash\",\n    \"submittedFor\": \"Party1\",\n    \"submittingPartyId\": \"549300ZD5KE1EACJTY62\",\n    \"submittingPartyIdType\": \"LEI\",\n    \"tradeParty1NatureOfReportingCpty\": \"F\",\n    \"tradeParty1BeneficiaryId\": \"RR3QWICWWIPCS8A4S074\",\n    \"tradeParty1BeneficiaryIdType\": \"LEI\",\n    \"tradeParty1CorporateSectorType\": \"C\",\n    \"tradeParty1CptySide\": \"S\",\n    \"tradeParty1CountryOfOtherCpty\": \"GB\",\n    \"tradeParty1Id\": \"549300ZD5KE1EACJTY62\",\n    \"tradeParty1IdType\": \"LEI\",\n    \"reportableActionTypeParty1\": \"N\",\n    \"tradeParty1RepDest\": \"FCA\",\n    \"tradeParty1TradingCapacity1\": \"Principal\",\n    \"tradeParty1TransactionId\": \"GDSGBLO134783067\",\n    \"tradeParty2ClearingThreshold\": \"false\",\n    \"tradeParty2CountryOfOtherCpty\": \"CA\",\n    \"tradeParty2Id\": \"75LI66N60BF3QJ2FAR78\",\n    \"tradeParty2Type\": \"LEI\",\n    \"repActionTypeParty2\": \"N\",\n    \"underlyingIdentificationType\": \"http://www.dtcc.com/coding-scheme/external/underlying-id/ISIN\",\n    \"utiId\": \"IR123134783067TNTRuat\",\n    \"utiIdPrefix\": \"1030272448\",\n    \"originalActionTypeParty1\": \"N\",\n    \"leg1FloatingRateIndex\": \"LIBO\",\n    \"leg1FloatingRateTenorPeriod\": \"M\",\n    \"leg1FloatingRateTenorPeriodMultiplier\": 3,\n    \"leg2EffectiveDate\": \"2021-09-13T00:00:00.000Z\",\n    \"leg2FloatingRateIndex\": \"LIBO\",\n    \"leg2FloatingRateTenorPeriod\": \"M\",\n    \"leg2FloatingRateTenorPeriodMultiplier\": 3,\n    \"leg2ResetFrequencyPeriod\": \"M\",\n    \"leg2ResetFrequencyPeriodMultiplier\": 3,\n    \"payment1Date\": \"2021-10-10T00:00:00.000Z\",\n    \"payment2FrequencyPeriodMultiplier\": 3,\n    \"payment2FrequencyPeriod\": \"M\",\n    \"collateralizedFlag\": \"ONEWAY\"\n  },\n  \"nonReportableData\": {\n    \"party1Ciscode\": \"WBUG0G\",\n    \"party2Ciscode\": \"F1711CA\",\n    \"party1NucId\": 92001,\n    \"party2NucId\": 2289043,\n    \"opsBusinessArea\": \"Balance Guaranteed\",\n    \"recordType\": \"House trade\",\n    \"tntrReceivedTimestamp\": \"2021-09-10T12:12:02.805Z\",\n    \"trResponseDateTime\": \"2022-02-04T15:41:29.000Z\",\n    \"reportingDeadline\": \"2022-02-07T23:59:59.000Z\",\n    \"tradeParty2Name\": \"PIMCO RE 1711 PIMCO CAN COREPLUS BD\",\n    \"tradeParty1Name\": \"NWM PLC TRADING\",\n    \"isDelegated\": false,\n    \"tradeVersion\": 0,\n    \"eventExecutionTimestamp\": \"2021-09-09T06:11:43.256Z\"\n  },\n  \"appendix\": {}\n}");
+        jsonRecords.add("{\n  \"subjectIdentifier\": {\n    \"transactionId\": \"134783067\",\n    \"sourceSystem\": \"GDS GBLO\",\n    \"version\": 2,\n    \"regulatoryRegimeIdentifier\": {\n      \"name\": \"European Markets Infrastructure Regulation\",\n      \"regulatoryAuthority\": \"Financial Conduct Authority (UK)\"\n    },\n    \"regimeImpactType\": \"Transaction Reporting\",\n    \"reportTriggerType\": \"Transaction Lifecycle\",\n    \"reportSubmissionType\": \"Snapshot\"\n  },\n  \"exceptionManagement\": {\n    \"userComments\": [\n      \"Test\",\n      \"Need to replay\"\n    ],\n    \"issueTypes\": [\n      \"Mis Reporting\"\n    ],\n    \"approvalStatus\": \"Replay Approved\",\n    \"assignedTo\": \"sharnin\",\n    \"approvedBy\": \"sharnin\",\n    \"lastActionUser\": \"sharnin\",\n    \"lastActionDate\": \"2021-09-10T13:09:40.053Z\",\n    \"lastAction\": \"TntrRequestReplay\"\n  },\n  \"transactionReportingStatus\": {\n    \"sourceSystemIdentifier\": \"TnTR\",\n    \"transactionStateValue\": \"Processing Error\",\n    \"stateTransitionDateTime\": \"2021-09-10T12:12:07.902Z\",\n    \"stateTransitionEffectiveDateTime\": \"2021-09-10T12:12:07.902Z\",\n    \"reportSubmissionRepository\": \"DTCCEU\"\n  },\n  \"reportableData\": {\n    \"action\": \"New\",\n    \"clearingStatus\": \"false\",\n    \"confirmationMethod\": \"NotConfirmed\",\n    \"compressedTradeIndicator\": \"true\",\n    \"contractType\": \"SW\",\n    \"effectiveDate1\": \"2021-09-13T00:00:00.000Z\",\n    \"executionVenueId\": \"XXXX\",\n    \"executionVenueMicCode\": \"XXXX\",\n    \"intraGroupIndicator\": \"false\",\n    \"maturityDate\": \"2026-09-13T00:00:00.000Z\",\n    \"leg2SettlementCurr\": \"USD\",\n    \"level\": \"T\",\n    \"lifecycleEvent\": \"Trade\",\n    \"mandatoryClearingJustification\": \"false\",\n    \"messageId\": \"134783067_0_POU_1631275924038_uat\",\n    \"messageType\": \"Snapshot\",\n    \"notionalAmount1\": 100000000,\n    \"notionalCurr1\": \"GBP\",\n    \"notionalCurr2\": \"USD\",\n    \"originalExecutionTimestamp\": \"2021-09-09T06:11:43.000Z\",\n    \"payment1FreqPeriod\": \"M\",\n    \"payment1FreqPeriodMultiplier\": 3,\n    \"terminationDate\": \"2021-09-09T00:00:00.000Z\",\n    \"price1Price\": 1.18049739,\n    \"price1Units\": \"YIELD\",\n    \"priceMultiplier\": 1,\n    \"assetClass\": \"InterestRate\",\n    \"productClassification\": \"SRACCP\",\n    \"productClassificationType\": \"http://www.fpml.org/coding-scheme/external/product-classification/iso10962\",\n    \"productId\": \"InterestRate:CrossCurrency:Basis\",\n    \"productIdType\": \"ISDA\",\n    \"productIdentification\": \"EZP67QKWJQR7\",\n    \"productIdentificationType\": \"http://www.fpml.org/spec/2002/instrument-id-ISIN\",\n    \"quantity\": 1,\n    \"reportingTimestamp\": \"2021-09-10T12:12:04.000Z\",\n    \"resetFreqPeriod1\": \"M\",\n    \"resetFreqPeriodMultiplier1\": 3,\n    \"scheduledTerminationDate1\": \"2026-09-13T00:00:00.000Z\",\n    \"settlementCurr1\": \"GBP\",\n    \"settlementDate\": \"2021-10-10T00:00:00.000Z\",\n    \"settlementType\": \"Cash\",\n    \"submittedFor\": \"Party1\",\n    \"submittingPartyId\": \"549300ZD5KE1EACJTY62\",\n    \"submittingPartyIdType\": \"LEI\",\n    \"tradeParty1NatureOfReportingCpty\": \"F\",\n    \"tradeParty1BeneficiaryId\": \"RR3QWICWWIPCS8A4S074\",\n    \"tradeParty1BeneficiaryIdType\": \"LEI\",\n    \"tradeParty1CorporateSectorType\": \"C\",\n    \"tradeParty1CptySide\": \"S\",\n    \"tradeParty1CountryOfOtherCpty\": \"GB\",\n    \"tradeParty1Id\": \"549300ZD5KE1EACJTY62\",\n    \"tradeParty1IdType\": \"LEI\",\n    \"reportableActionTypeParty1\": \"N\",\n    \"tradeParty1RepDest\": \"FCA\",\n    \"tradeParty1TradingCapacity1\": \"Principal\",\n    \"tradeParty1TransactionId\": \"GDSGBLO134783067\",\n    \"tradeParty2ClearingThreshold\": \"false\",\n    \"tradeParty2CountryOfOtherCpty\": \"CA\",\n    \"tradeParty2Id\": \"75LI66N60BF3QJ2FAR78\",\n    \"tradeParty2Type\": \"LEI\",\n    \"repActionTypeParty2\": \"N\",\n    \"underlyingIdentificationType\": \"http://www.dtcc.com/coding-scheme/external/underlying-id/ISIN\",\n    \"utiId\": \"IR123134783067TNTRuat\",\n    \"utiIdPrefix\": \"1030272448\",\n    \"originalActionTypeParty1\": \"N\",\n    \"leg1FloatingRateIndex\": \"LIBO\",\n    \"leg1FloatingRateTenorPeriod\": \"M\",\n    \"leg1FloatingRateTenorPeriodMultiplier\": 3,\n    \"leg2EffectiveDate\": \"2021-09-13T00:00:00.000Z\",\n    \"leg2FloatingRateIndex\": \"LIBO\",\n    \"leg2FloatingRateTenorPeriod\": \"M\",\n    \"leg2FloatingRateTenorPeriodMultiplier\": 3,\n    \"leg2ResetFrequencyPeriod\": \"M\",\n    \"leg2ResetFrequencyPeriodMultiplier\": 3,\n    \"payment1Date\": \"2021-10-10T00:00:00.000Z\",\n    \"payment2FrequencyPeriodMultiplier\": 3,\n    \"payment2FrequencyPeriod\": \"M\",\n    \"collateralizedFlag\": \"ONEWAY\"\n  },\n  \"nonReportableData\": {\n    \"party1Ciscode\": \"WBUG0G\",\n    \"party2Ciscode\": \"F1711CA\",\n    \"party1NucId\": 92001,\n    \"party2NucId\": 2289043,\n    \"opsBusinessArea\": \"Balance Guaranteed\",\n    \"recordType\": \"House trade\",\n    \"tntrReceivedTimestamp\": \"2021-09-10T12:12:02.805Z\",\n    \"trResponseDateTime\": \"2022-02-04T15:41:29.000Z\",\n    \"reportingDeadline\": \"2022-02-07T23:59:59.000Z\",\n    \"tradeParty2Name\": \"PIMCO RE 1711 PIMCO CAN COREPLUS BD\",\n    \"tradeParty1Name\": \"NWM PLC TRADING\",\n    \"isDelegated\": false,\n    \"tradeVersion\": 0,\n    \"eventExecutionTimestamp\": \"2021-09-09T06:11:43.256Z\"\n  },\n  \"appendix\": {}\n}");
+		return jsonRecords;
+	}
+	
+	private List<String> getJsonReconRecords(String lastBreakOccuranceDate) {
+		List<String> jsonRecords = Lists.newArrayList();
+		jsonRecords.add(
+				"{\"subjectIdentifier\":{\"sourceSystemMatchingKeyIdentifier\":\"RR3QWICWWIPCS8A4S074|F226TOH6YD6XJB17KS62|nullMissing_uniqueTransactionId_137855967\","
+				+ "\"sourceSystemIdentifier\":\"GDSGBLO\",\"reconciliationType\":\"Completeness\",\"reconciliationRuleIdentifier\":\"EmirPositionRates\"},\"reconciliationBusinessDateTime\":\"2022-05-26T00:00:00.000Z\""
+				+ ",\"occurrenceIdentifier\":{\"sourceSystemIdentifier\":\"TnTR\",\"sourceSystemEventOccurrenceIdentifier\":\"1fb48f3a-2b02-4e09-b3a0-4ea9368779b7\"},\"occurrenceDateTime\":\"2022-05-30T13:39:17.223Z\""
+				+ ",\"sourceMatchingKey\":{\"party1Id\":\"RR3QWICWWIPCS8A4S074\",\"party2Id\":\"F226TOH6YD6XJB17KS62\",\"utiValue\":\"Missing_uniqueTransactionId_137855967\",\"utiPrefix\":\"null\"},\"targetMatchingKey\":{}"
+				+ ",\"reconciliationState\":{\"sourceMatchingInstanceCount\":1,\"targetMatchingInstanceCount\":0,\"reconciliationStatus\":\"TargetUnpaired\"},"
+				+ "\"probableMatching\":{\"breakId\":\"GDSGBLO137855967\",\"criteria\":\"2:internalUniqueId->internalUniqueId\",\"status\":\"ProbableMatch\"},"
+				+ "\"targetRecords\":[],\"sourceRecords\":[{\"fileName\":\"Emir_Rates_Position_2022-05-26.csv\",\"tradeAssignedTo\":\"null\",\"internalUniqueId\":\"GDSGBLO137855967\","
+				+ "\"usiValue\":\"null\",\"assetClass\":\"InterestRate\",\"clientReportingDestination\":\"null\",\"reportingJurisdiction\":\"FinancialConductAuthority(UK)\",\"rowNumber\":\"104135\",\"productType\":\"ird.__product.interestRateSwap\""
+				+ ",\"utiPrefixutiValue\":\"nullMissing_uniqueTransactionId_137855967\",\"expirationDate\":\"2052-05-26T11:00:00.000Z\",\"tradeExecutionVenueType\":\"XXXX\",\"party1Id\":\"RR3QWICWWIPCS8A4S074\",\"terminationDateLeg1\":\"2052-05-26T11:00:00.000Z\",\"tradeTerminated\":\"false\",\"party2Id\":\"F226TOH6YD6XJB17KS62\",\"productIdValue\":\"InterestRate:IRSwap:OIS\",\"sourceSystemId\":\"GDSGBLO\",\"terminationDateLeg2\":\"2052-05-26T11:00:00.000Z\",\"usiPrefix\":\"null\",\"complexTradeComponentId\":\"null\",\"tp1Transformation\":\"137855967\",\"utiPrefix\":\"null\",\"effectiveDateLeg2\":\"2022-05-26T11:00:00.000Z\",\"reportableExecutionDateTime\":\"2022-05-26T08:01:33.000Z\",\"notionalAmountLeg1\":\"1.0E7\",\"tradeDate\":\"2022-05-26T11:00:00.000Z\",\"effectiveDateLeg1\":\"2022-05-26T11:00:00.000Z\",\"messageSentBy\":\"RR3QWICWWIPCS8A4S074\",\"collateralization\":\"PARTIALLY\",\"blockTradeIndicator\":\"null\",\"reportingRegime\":\"EuropeanMarketsInfrastructureRegulation\",\"utiValue\":\"Missing_uniqueTransactionId_137855967\",\"tradeInitiated\":\"true\",\"intraGroup\":\"null\",\"tradeIssueId\":\"null\",\"reportingFlow\":\"Position\",\"portfolioCode\":\"OTC1501018889NWM\"}]"
+				+ ",\"breakManagement\":{\"lastBreakOccurrenceDate\":\""
+				+ lastBreakOccuranceDate
+				+ "\",\"lastBreakStatus\":\"TargetUnpaired\",\"issueTrackingReference\":[]},\"miDetails\":{\"regulatoryRegimeIdentifier\":{\"name\":\"EuropeanMarketsInfrastructureRegulation\",\"regulatoryAuthority\":\"FinancialConductAuthority(UK)\"},\"assetClass\":\"InterestRate\",\"reportingFlow\":\"Position\",\"party1LEI\":\"RR3QWICWWIPCS8A4S074\"},\"metadata\":{\"corpusVersion\":\"v1.0.5\"}}");
+		return jsonRecords;
+	}
+	
 
-    @Test
-    public void testModifyFileName() throws Exception {
-        DfScanParameters scanParam = new DfScanParameters();
-        scanParam.setCollectionName("Reconciliation");
-        List<DfScanParameters> scanParamList = Collections.singletonList(scanParam);
-        when(record.getDocument()).thenReturn(jsonDocument);
-        when(jsonDocument.getContents()).thenReturn("{\"identifier\":\"ID123\",\"reconciliationBusinessDateTime\":\"2023-01-01T00:00:00Z\"}");
+	private List<String> getCftcJsonRecord() {
+		return Lists.newArrayList(
+				"{\"subjectIdentifier\":{\"sourceSystemMatchingKeyIdentifier\":\"RR3QWICWWIPCS8A4S074|E57ODZWZ7FF32TWEFA76|abcd\",\"sourceSystemIdentifier\":\"SystemX\",\"reconciliationType\":\"Completeness\",\"reconciliationRuleIdentifier\":\"CftcPositionFx\"},\"reconciliationBusinessDateTime\":\"2022-09-12T00:00:00.000Z\",\"occurrenceIdentifier\":{\"sourceSystemIdentifier\":\"TnTR\",\"sourceSystemEventOccurrenceIdentifier\":\"b0992c1a-f4b3-4969-af8f-3556efafd626\"},\"occurrenceDateTime\":\"2022-09-16T06:34:44.825Z\",\"reconciliationState\":{\"sourceMatchingInstanceCount\":0,\"targetMatchingInstanceCount\":2,\"reconciliationStatus\":\"SourceUnpaired\"},\"breakManagement\":{\"lastBreakOccurrenceDate\":\"2022-09-12T00:00:00.000Z\",\"lastBreakStatus\":\"SourceUnpaired\",\"issueTrackingReference\":[],\"breakAge\":1},\"metadata\":{\"corpusVersion\":\"v1.0.5\"}}");
+	}
 
-        String result = ReflectionTestUtils.invokeMethod(
-            dataFabricExportService, 
-            "modifyFileName", 
-            scanParamList, 
-            "originalFileName"
-        );
-        assertEquals("ID123_2023-01-01_originalFileName", result);
-    }
+	private List<String> getPnMJsonRecord(){
+		return Lists.newArrayList(
+				"{\"subjectIdentifier\":{\"sourceSystemMatchingKeyIdentifier\":\"X3CZP3CK64YBHON1LE12|529900GGYMNGRQTDOO93|CK64YBHON1000133947543TRN\",\"sourceSystemIdentifier\":\"GDSGBLO\",\"reconciliationType\":\"Completeness\",\"reconciliationRuleIdentifier\":\"PairedAndUnmatchedEmirEsmaRates\"},\"reconciliationBusinessDateTime\":\"2024-05-15T00:00:00.000Z\",\"occurrenceIdentifier\":{\"sourceSystemIdentifier\":\"TnTR\",\"sourceSystemEventOccurrenceIdentifier\":\"1814e45c-7f54-4376-a929-e61a24fdc4f8\"},\"occurrenceDateTime\":\"2024-05-16T07:28:16.580Z\",\"sourceMatchingKey\":{\"counterParty1\":\"X3CZP3CK64YBHON1LE12\",\"uti\":\"CK64YBHON1000133947543TRN\",\"counterParty2\":\"529900GGYMNGRQTDOO93\"},\"targetMatchingKey\":{\"counterParty1\":\"X3CZP3CK64YBHON1LE12\",\"uti\":\"CK64YBHON1000133947543TRN\",\"counterParty2\":\"529900GGYMNGRQTDOO93\"},\"reconciliationState\":{\"sourceMatchingInstanceCount\":1,\"targetMatchingInstanceCount\":1,\"reconciliationStatus\":\"PairedandUnmatched\"},\"probableMatching\":{},\"targetRecords\":[{\"fileName\":\"sFTP_EUEMIR_EOD_Recon_Status_Report_02983506_2024-05-15.01_59_03_001001_6TRB.csv\",\"contractType\":\"\",\"floatingRateReferencePeriodOfLeg1TimePeriod\":\"DAIL\",\"assetClass\":\"\",\"confirmationTimestamp\":\"2022-03-31T11:00:00Z\",\"fixedRatePaymentFrequencyPeriodMultiplierLeg2\":\"6\",\"optionType\":\"\",\"counterParty1\":\"X3CZP3CK64YBHON1LE12\",\"fixedRateOfLeg1OrCoupon\":\"\",\"indexFactor\":\"\",\"centralCounterparty\":\"\",\"price\":\"\",\"endDateOfTheNotionalQuantityOfLeg2\":\"\",\"endDateOfTheNotionalQuantityOfLeg1\":\"\",\"rowNumber\":\"537\",\"intragroup\":\"\",\"regulatoryRegimeIdentifier\":\"EuropeanSecuritiesandMarketsAuthority(EuropeanUnion)\",\"counterParty2\":\"529900GGYMNGRQTDOO93\",\"earlyTerminationDate\":\"\",\"effectiveDateOfTheNotionalAmountOfLeg1\":\"\",\"masterAgreementVersion\":\"1996\",\"level\":\"\",\"floatingRateResetFrequencyPeriodOfLeg1\":\"DAIL\",\"floatingRateReferencePeriodOfLeg2TimePeriod\":\"\",\"floatingRateResetFrequencyPeriodOfLeg2\":\"\",\"fixedRateOrCouponPaymentFrequencyPeriodMultiplierLeg1\":\"\",\"referenceEntity\":\"\",\"totalNotionalQuantityOfLeg1\":\"\",\"endDateOfTheNotionalAmountOfLeg2\":\"\",\"totalNotionalQuantityOfLeg2\":\"\",\"uti\":\"CK64YBHON1000133947543TRN\",\"effectiveDateOfTheNotionalAmountOfLeg2\":\"31-03-2024\",\"endDateOfTheNotionalAmountOfLeg1\":\"\",\"upi\":\"\",\"masterAgreementType\":\"\",\"notionalQuantityInEffectOnAssociatedEffectiveDateOfLeg1\":\"\",\"PTRRServiceProvider\":\"\",\"priceCurrency\":\"\",\"notionalQuantityInEffectOnAssociatedEffectiveDateOfLeg2\":\"\",\"clearingTimestamp\":\"\",\"maturityDateOfTheUnderlying\":\"\",\"floatingRatePaymentFrequencyPeriodMultiplierOfLeg2\":\"\",\"floatingRatePaymentFrequencyPeriodMultiplierOfLeg1\":\"6\",\"directionOfLeg2\":\"\",\"cleared\":\"\",\"directionOfLeg1\":\"\",\"venueOfExecution\":\"XOFF\",\"finalContractualSettlementDate\":\"21-01-2041\",\"floatingRateDayCountConventionOfLeg2\":\"\",\"floatingRateDayCountConventionOfLeg1\":\"A005\",\"optionStyle\":\"\",\"fixedRateDayCountConventionLeg2\":\"A006\",\"underlyingIdentification\":\"\",\"notionalAmountInEffectOnAssociatedEffectiveDateOfLeg1\":\"\",\"confirmed\":\"YCNF\",\"notionalAmountInEffectOnAssociatedEffectiveDateOfLeg2\":\"31180586.5\",\"productClassification\":\"SRHDSC\",\"floatingRateResetFrequencyMultiplierOfLeg2\":\"\",\"floatingRateResetFrequencyMultiplierOfLeg1\":\"1\",\"floatingRateReferencePeriodOfLeg2Multiplier\":\"\",\"reportTrackingNumber\":\"\",\"reportSubmittingEntity\":\"X3CZP3CK64YBHON1LE12\",\"fixedRatePaymentFrequencyPeriodLeg2\":\"MNTH\",\"direction\":\"\",\"expirationDate\":\"\",\"floatingRatePaymentFrequencyPeriodOfLeg1\":\"MNTH\",\"sourceSystemId\":\"GDS_GBLO\",\"deliveryType\":\"CASH\",\"clearingObligation\":\"FLSE\",\"floatingRatePaymentFrequencyPeriodOfLeg2\":\"\",\"tradeOrAllege\":\"Allege\",\"notionalCurrency1\":\"\",\"notionalCurrency2\":\"GBP\",\"ptrr\":\"\",\"tranche\":\"\",\"typeOfPTRRTechnique\":\"\",\"fixedRateOfLeg2\":\"0.0207\",\"indicatorOfTheFloatingRateOfLeg1\":\"SONA\",\"notionalAmountOfLeg1\":\"\",\"fixedRateOrCouponPaymentFrequencyPeriodLeg1\":\"\",\"floatingRateReferencePeriodOfLeg1Multiplier\":\"1\",\"indicatorOfTheFloatingRateOfLeg2\":\"\",\"notionalAmountOfLeg2\":\"50000000\",\"fixedRateOrCouponDayCountConventionLeg1\":\"\",\"identifierOfTheFloatingRateOfLeg1\":\"GB00B56Z6W79\",\"identifierOfTheFloatingRateOfLeg2\":\"\",\"underlyingIdentificationType\":\"\",\"effectiveDateOfTheNotionalQuantityOfLeg2\":\"\",\"effectiveDateOfTheNotionalQuantityOfLeg1\":\"\",\"isin\":\"EZMR0K3T3L96\",\"effectiveDate\":\"05-03-2008\",\"seniority\":\"\",\"executionTimestamp\":\"2022-03-31T11:00:00Z\"}],\"sourceRecords\":[{\"fileName\":\"sFTP_EUEMIR_EOD_Recon_Status_Report_02983506_2024-05-15.01_59_03_001001_6TRB.csv\",\"contractType\":\"\",\"floatingRateReferencePeriodOfLeg1TimePeriod\":\"\",\"assetClass\":\"\",\"confirmationTimestamp\":\"2021-06-17T12:11:22Z\",\"fixedRatePaymentFrequencyPeriodMultiplierLeg2\":\"\",\"optionType\":\"\",\"counterParty1\":\"X3CZP3CK64YBHON1LE12\",\"fixedRateOfLeg1OrCoupon\":\"0.61\",\"indexFactor\":\"\",\"centralCounterparty\":\"\",\"price\":\"\",\"endDateOfTheNotionalQuantityOfLeg2\":\"\",\"endDateOfTheNotionalQuantityOfLeg1\":\"\",\"rowNumber\":\"536\",\"intragroup\":\"\",\"regulatoryRegimeIdentifier\":\"EuropeanSecuritiesandMarketsAuthority(EuropeanUnion)\",\"counterParty2\":\"529900GGYMNGRQTDOO93\",\"isAccuracyRequired\":\"true\",\"earlyTerminationDate\":\"\",\"effectiveDateOfTheNotionalAmountOfLeg1\":\"\",\"masterAgreementVersion\":\"1992\",\"level\":\"\",\"floatingRateResetFrequencyPeriodOfLeg1\":\"\",\"floatingRateReferencePeriodOfLeg2TimePeriod\":\"EXPI\",\"floatingRateResetFrequencyPeriodOfLeg2\":\"EXPI\",\"fixedRateOrCouponPaymentFrequencyPeriodMultiplierLeg1\":\"1\",\"referenceEntity\":\"\",\"totalNotionalQuantityOfLeg1\":\"\",\"endDateOfTheNotionalAmountOfLeg2\":\"\",\"totalNotionalQuantityOfLeg2\":\"\",\"uti\":\"CK64YBHON1000133947543TRN\",\"effectiveDateOfTheNotionalAmountOfLeg2\":\"\",\"endDateOfTheNotionalAmountOfLeg1\":\"\",\"upi\":\"QZ4795CQBRJZ\",\"masterAgreementType\":\"\",\"notionalQuantityInEffectOnAssociatedEffectiveDateOfLeg1\":\"\",\"PTRRServiceProvider\":\"\",\"priceCurrency\":\"\",\"notionalQuantityInEffectOnAssociatedEffectiveDateOfLeg2\":\"\",\"clearingTimestamp\":\"\",\"maturityDateOfTheUnderlying\":\"\",\"floatingRatePaymentFrequencyPeriodMultiplierOfLeg2\":\"1\",\"floatingRatePaymentFrequencyPeriodMultiplierOfLeg1\":\"\",\"directionOfLeg2\":\"\",\"cleared\":\"\",\"directionOfLeg1\":\"\",\"venueOfExecution\":\"NWNV\",\"finalContractualSettlementDate\":\"20-01-2041\",\"floatingRateDayCountConventionOfLeg2\":\"A020\",\"floatingRateDayCountConventionOfLeg1\":\"\",\"optionStyle\":\"\",\"fixedRateDayCountConventionLeg2\":\"\",\"underlyingIdentification\":\"\",\"notionalAmountInEffectOnAssociatedEffectiveDateOfLeg1\":\"\",\"confirmed\":\"ECNF\",\"notionalAmountInEffectOnAssociatedEffectiveDateOfLeg2\":\"\",\"productClassification\":\"SRGCSP\",\"floatingRateResetFrequencyMultiplierOfLeg2\":\"1\",\"floatingRateResetFrequencyMultiplierOfLeg1\":\"\",\"floatingRateReferencePeriodOfLeg2Multiplier\":\"1\",\"reportTrackingNumber\":\"\",\"reportSubmittingEntity\":\"X3CZP3CK64YBHON1LE12\",\"fixedRatePaymentFrequencyPeriodLeg2\":\"\",\"direction\":\"\",\"expirationDate\":\"\",\"floatingRatePaymentFrequencyPeriodOfLeg1\":\"\",\"sourceSystemId\":\"GDS_GBLO\",\"deliveryType\":\"PHYS\",\"clearingObligation\":\"UKWN\",\"floatingRatePaymentFrequencyPeriodOfLeg2\":\"EXPI\",\"tradeOrAllege\":\"Trade\",\"notionalCurrency1\":\"GBP\",\"notionalCurrency2\":\"GBP\",\"ptrr\":\"\",\"tranche\":\"\",\"typeOfPTRRTechnique\":\"\",\"fixedRateOfLeg2\":\"\",\"indicatorOfTheFloatingRateOfLeg1\":\"\",\"notionalAmountOfLeg1\":\"592360.31\",\"fixedRateOrCouponPaymentFrequencyPeriodLeg1\":\"EXPI\",\"floatingRateReferencePeriodOfLeg1Multiplier\":\"\",\"indicatorOfTheFloatingRateOfLeg2\":\"\",\"notionalAmountOfLeg2\":\"592360.31\",\"fixedRateOrCouponDayCountConventionLeg1\":\"A005\",\"identifierOfTheFloatingRateOfLeg1\":\"\",\"identifierOfTheFloatingRateOfLeg2\":\"\",\"underlyingIdentificationType\":\"\",\"effectiveDateOfTheNotionalQuantityOfLeg2\":\"\",\"effectiveDateOfTheNotionalQuantityOfLeg1\":\"\",\"isin\":\"\",\"effectiveDate\":\"01-10-2040\",\"seniority\":\"\",\"executionTimestamp\":\"2021-06-17T11:58:48Z\"}],\"breakManagement\":{\"actionPerformed\":\"TntrAddJiraId\",\"lastBreakOccurrenceDate\":\"2024-05-15T00:00:00.000Z\",\"lastBreakStatus\":\"PairedandUnmatched\",\"issueTrackingReference\":[\"TTR-567\"],\"assignedTo\":\"krisrin\",\"lastActionDate\":\"2024-07-04T05:37:11.774Z\",\"lastActionUser\":\"krisrin\",\"breakAge\":0},\"miDetails\":{\"regulatoryRegimeIdentifier\":{}},\"accuracyBreaks\":[{\"field\":\"isin\",\"reason\":\"STRING_EQUALITY\",\"description\":\"Targetfieldnotmatchedisin\"},{\"field\":\"upi\",\"reason\":\"STRING_EQUALITY\",\"description\":\"Targetfieldnotmatchedupi\"},{\"field\":\"productClassification\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchedproductClassification\"},{\"field\":\"confirmationTimestamp\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchedconfirmationTimestamp\"},{\"field\":\"confirmed\",\"reason\":\"STRING_EQUALITY\",\"description\":\"Targetfieldnotmatchedconfirmed\"},{\"field\":\"clearingObligation\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchedclearingObligation\"},{\"field\":\"masterAgreementVersion\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchedmasterAgreementVersion\"},{\"field\":\"venueOfExecution\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchedvenueOfExecution\"},{\"field\":\"executionTimestamp\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchedexecutionTimestamp\"},{\"field\":\"effectiveDate\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchedeffectiveDate\"},{\"field\":\"finalContractualSettlementDate\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchedfinalContractualSettlementDate\"},{\"field\":\"deliveryType\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatcheddeliveryType\"},{\"field\":\"notionalAmountOfLeg1\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchednotionalAmountOfLeg1\"},{\"field\":\"notionalCurrency1\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchednotionalCurrency1\"},{\"field\":\"notionalAmountOfLeg2\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchednotionalAmountOfLeg2\"},{\"field\":\"effectiveDateOfTheNotionalAmountOfLeg2\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchedeffectiveDateOfTheNotionalAmountOfLeg2\"},{\"field\":\"notionalAmountInEffectOnAssociatedEffectiveDateOfLeg2\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchednotionalAmountInEffectOnAssociatedEffectiveDateOfLeg2\"},{\"field\":\"fixedRateOfLeg1OrCoupon\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchedfixedRateOfLeg1OrCoupon\"},{\"field\":\"fixedRateOrCouponDayCountConventionLeg1\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchedfixedRateOrCouponDayCountConventionLeg1\"},{\"field\":\"fixedRateOrCouponPaymentFrequencyPeriodLeg1\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchedfixedRateOrCouponPaymentFrequencyPeriodLeg1\"},{\"field\":\"fixedRateOrCouponPaymentFrequencyPeriodMultiplierLeg1\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchedfixedRateOrCouponPaymentFrequencyPeriodMultiplierLeg1\"},{\"field\":\"identifierOfTheFloatingRateOfLeg1\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchedidentifierOfTheFloatingRateOfLeg1\"},{\"field\":\"indicatorOfTheFloatingRateOfLeg1\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchedindicatorOfTheFloatingRateOfLeg1\"},{\"field\":\"floatingRateDayCountConventionOfLeg1\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchedfloatingRateDayCountConventionOfLeg1\"},{\"field\":\"floatingRatePaymentFrequencyPeriodOfLeg1\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchedfloatingRatePaymentFrequencyPeriodOfLeg1\"},{\"field\":\"floatingRatePaymentFrequencyPeriodMultiplierOfLeg1\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchedfloatingRatePaymentFrequencyPeriodMultiplierOfLeg1\"},{\"field\":\"floatingRateReferencePeriodOfLeg1TimePeriod\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchedfloatingRateReferencePeriodOfLeg1TimePeriod\"},{\"field\":\"floatingRateReferencePeriodOfLeg1Multiplier\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchedfloatingRateReferencePeriodOfLeg1Multiplier\"},{\"field\":\"floatingRateResetFrequencyPeriodOfLeg1\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchedfloatingRateResetFrequencyPeriodOfLeg1\"},{\"field\":\"floatingRateResetFrequencyMultiplierOfLeg1\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchedfloatingRateResetFrequencyMultiplierOfLeg1\"},{\"field\":\"fixedRateOfLeg2\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchedfixedRateOfLeg2\"},{\"field\":\"fixedRateDayCountConventionLeg2\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchedfixedRateDayCountConventionLeg2\"},{\"field\":\"fixedRatePaymentFrequencyPeriodLeg2\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchedfixedRatePaymentFrequencyPeriodLeg2\"},{\"field\":\"fixedRatePaymentFrequencyPeriodMultiplierLeg2\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchedfixedRatePaymentFrequencyPeriodMultiplierLeg2\"},{\"field\":\"floatingRateDayCountConventionOfLeg2\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchedfloatingRateDayCountConventionOfLeg2\"},{\"field\":\"floatingRatePaymentFrequencyPeriodOfLeg2\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchedfloatingRatePaymentFrequencyPeriodOfLeg2\"},{\"field\":\"floatingRatePaymentFrequencyPeriodMultiplierOfLeg2\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchedfloatingRatePaymentFrequencyPeriodMultiplierOfLeg2\"},{\"field\":\"floatingRateReferencePeriodOfLeg2TimePeriod\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchedfloatingRateReferencePeriodOfLeg2TimePeriod\"},{\"field\":\"floatingRateReferencePeriodOfLeg2Multiplier\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchedfloatingRateReferencePeriodOfLeg2Multiplier\"},{\"field\":\"floatingRateResetFrequencyPeriodOfLeg2\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchedfloatingRateResetFrequencyPeriodOfLeg2\"},{\"field\":\"floatingRateResetFrequencyMultiplierOfLeg2\",\"reason\":\"STRING_EQUALITY\",\"description\":\"TargetfieldnotmatchedfloatingRateResetFrequencyMultiplierOfLeg2\"}],\"metadata\":{\"corpusVersion\":\"v1.0.5\"}}");
+	}
 
-    @Test
-    public void testGenerateScanRequestId() {
-        String result = ReflectionTestUtils.invokeMethod(
-            dataFabricExportService, 
-            "generateScanRequestId", 
-            "testUser"
-        );
-        assertTrue(result.startsWith("testUser_scan_req_"));
-    }
+	private Map<String, String> getUiFieldMap() {
+		Map<String, String> testMap = new HashMap<>();
+		testMap.put("Accuracy Break Fields", "accuracyBreaks.field");
+		testMap.put("Tranche", "tranche");
+		return testMap;
+	}
 
-    @Test
-    public void testFilterLatestScanList_Valid() {
-        DfExportScan scan = new DfExportScan();
-        scan.setLastExecutionDateTime("01-01-2023 12:00:00");
-        when(dateTimeService.getCurrentUTCDateTime()).thenReturn(new DateTime(2023, 1, 1, 12, 0));
-        when(dateTimeService.getDirectPastDateTime(any(DateTime.class), anyInt())).thenReturn(new DateTime(2023, 1, 1, 11, 0));
+	private Map<String, String> getPandMFieldMap() {
+		Map<String, String> testMap = new HashMap<>();
+		testMap.put("accuracyBreaks.field", "Accuracy Break Fields");
+		testMap.put("tranche", "Tranche");
+		return testMap;
+	}
 
-        boolean result = ReflectionTestUtils.invokeMethod(
-            dataFabricExportService, 
-            "filterLatestScanList", 
-            scan
-        );
-        assertTrue(result);
-    }
+	@Test(expected = ValidationException.class)
+	public void testGetScanRequestBuilder_CollectionMappingNotFound() throws Exception {
+		DfScanParameters param = createDfScanParameters("InvalidCollection", "Field", "where");
+		dfUtility.getScanRequestBuilder(param);
+	}
 
-    @Test
-    public void testPopulateNextRunDate_TimeAfterCurrent() throws ParseException {
-        SimpleDateFormat sdf = new SimpleDateFormat("hh:mm a");
-        Date testTime = sdf.parse("11:00 AM");
-        when(dateTimeService.getCurrentUTCDateTime()).thenReturn(new DateTime().withHourOfDay(10));
+	@Test(expected = ValidationException.class)
+	public void testGetScanRequestBuilder_CollectionDatabaseMappingNotFound() throws Exception {
+		DfScanParameters param = createDfScanParameters("Transaction", "Field", "where");
+		Mockito.when(dfFieldMapper.getCollectionDbMap()).thenReturn(Collections.emptyMap());
+		dfUtility.getScanRequestBuilder(param);
+	}
 
-        Date result = ReflectionTestUtils.invokeMethod(
-            dataFabricExportService, 
-            "populateNextRunDate", 
-            "11:00 AM"
-        );
-        assertEquals(testTime, result);
-    }
+	@Test
+	public void testGetBreakAge_WithValidDate(){
+		DfExportScan scan = new DfExportScan();
+		scan.setWhere("some conditions with ID");
+		String breakAge = String.valueOf(dfUtility.getBreakAge("2022-01-01T00:00:00.000Z", scan));
 
-    @Test(expected = BlotterRunTimeException.class)
-    public void testPopulateNextRunDate_InvalidTime() {
-        ReflectionTestUtils.invokeMethod(
-            dataFabricExportService, 
-            "populateNextRunDate", 
-            "invalidTime"
-        );
-    }
+		assertTrue(Integer.parseInt(breakAge) > 0);
+	}
 
-    @Test
-    public void testFetchCsvRecords_WithAppend() {
-        Set<String> headers = new LinkedHashSet<>(Arrays.asList("header1", "header2"));
-        List<Map<String, String>> recordList = new ArrayList<>();
-        Map<String, String> recordMap = new HashMap<>();
-        recordMap.put("header1", "value1");
-        recordList.add(recordMap);
+	@Test
+	public void testConvertScannedRecords_NoRecords() throws IOException {
+		List<Map<String, String>> recordList = dfUtility.convertScannedRecords(Collections.emptyList(), "Transaction", new DfExportScan());
 
-        List<String[]> result = ReflectionTestUtils.invokeMethod(
-            dataFabricExportService, 
-            "fetchCsvRecords", 
-            recordList, 
-            headers, 
-            true
-        );
-        assertEquals(1, result.size()); // Only data rows (no header)
-    }
+		assertNotNull(recordList);
+		assertTrue(recordList.isEmpty());
+	}
 
-    @Test
-    public void testWriteDataToFile_Success() throws IOException {
-        DfExportScan scan = new DfExportScan();
-        scan.setExportFileFormat("CSV");
-        List<String[]> rows = new ArrayList<>();
-        when(csvWriter.generateCsvFile(anyList(), anyString(), anyString())).thenReturn(true);
+	@Test
+	public void testGetNativeScanRequestBuilder(){
+		DfScanParameters param = createDfScanParameters("Transaction", "Field", "where");
+		ScanRequestBuilder scanRequestBuilder = dfUtility.getNativeScanRequestBuilder(param);
 
-        boolean result = ReflectionTestUtils.invokeMethod(
-            dataFabricExportService, 
-            "writeDataToFile", 
-            scan, 
-            "testFile", 
-            rows
-        );
-        assertTrue(result);
-    }
+		assertNotNull(scanRequestBuilder);
+	}
 
-    @Test
-    public void testGenerateOutputFileName_MI() {
-        String result = ReflectionTestUtils.invokeMethod(
-            dataFabricExportService, 
-            "generateOutputFileName", 
-            "MI_testFile", 
-            "zip"
-        );
-        assertTrue(result.contains("/test/output/") && result.contains("/MI/"));
-    }
 
-    @Test
-    public void testStartScheduledJob() throws InterruptedException {
-        // Setup a job in the queue
-        DfExportJob job = new DfExportJob(
-            Collections.emptyList(), 
-            "testUser", 
-            true, 
-            new DfExportScan(), 
-            "testFile"
-        );
-        dataFabricExportService.submitTask(job);
-        
-        // Start the job executor thread
-        ReflectionTestUtils.invokeMethod(dataFabricExportService, "startScheduledJob");
-        Thread.sleep(500); // Allow time for thread execution
-        
-        // Verify job processing
-        verify(dfExportRepository, atLeastOnce()).upsertDfScan(any(DfExportScan.class));
-    }
+	@Test
+	public void testClearAllHeaders(){
+		dfUtility.populateAllHeaders(Lists.newArrayList(createDfScanParameters("Transaction", "none", "none")));
 
-    @Test
-    public void testResumeInQueueScans() {
-        DfExportScan scan = new DfExportScan();
-        scan.setScanId("testScan");
-        scan.setExecutionStatus(STATUS_IN_QUEUE);
-        when(dfExportRepository.fetchScansWithStatus(STATUS_IN_QUEUE)).thenReturn(Collections.singletonList(scan));
-        
-        ReflectionTestUtils.invokeMethod(dataFabricExportService, "resumeInQueueScans");
-        verify(dfExportRepository).fetchScansWithStatus(STATUS_IN_QUEUE);
-        assertFalse(dataFabricExportService.queue.isEmpty());
-    }
+		assertTrue(dfUtility.getAllHeaders().isEmpty()); // Ensure headers are cleared
+	}
 
-    @Test
-    public void testZipExportFile_Success() throws Exception {
-        File testFile = File.createTempFile("test", ".csv");
-        testFile.deleteOnExit();
-        ReflectionTestUtils.setField(dataFabricExportService, "outputFilePath", testFile.getParent());
-        
-        ReflectionTestUtils.invokeMethod(
-            dataFabricExportService, 
-            "zipExportFile", 
-            testFile.getName().replace(".csv", "")
-        );
-        
-        File zipFile = new File(testFile.getParent() + "/" + testFile.getName().replace(".csv", ".zip"));
-        assertTrue(zipFile.exists());
-        zipFile.deleteOnExit();
-    }
+	@Test
+	public void testPopulateAllHeaders(){
+		//create a list of dfscan parameters
+		List<DfScanParameters> params = Lists.newArrayList();
+        DfScanParameters scan = createDfScanParameters("Reconciliation", "Break Age", "reconciliationBusinessDateTime = '2024-10-09T00:00:00.000Z' and subjectIdentifier.reconciliationRuleIdentifier = 'MasPositionFx'");
+		scan.setFieldConversion(true);
+		DfScanParameters scan_no_select = createDfScanParameters("Reconciliation", "", "reconciliationBusinessDateTime = '2024-10-09T00:00:00.000Z' and subjectIdentifier.reconciliationRuleIdentifier = 'MasPositionFx'");
+		scan_no_select.setFieldConversion(true);
+		params.add(scan);
+		params.add(scan_no_select);
+        dfUtility.populateAllHeaders(params);
+        assertFalse(dfUtility.getAllHeaders().isEmpty());
+	}
 
-    @Test
-    public void testPopulateDynamicDate() {
-        String clause = "date > [D-1]";
-        String result = ReflectionTestUtils.invokeMethod(
-            dataFabricExportService, 
-            "populateDynamicDate", 
-            clause
-        );
-        assertTrue(result.contains("'"));
-    }
-
-    @Test
-    public void testPopulateEmailNotification() {
-        DfExportScan scan = new DfExportScan();
-        scan.setRequestedUserId("testUser");
-        scan.setBlotterName("TestBlotter");
-        scan.setExportRecordCount(100);
-        scan.setExecutionTime("10");
-        scan.setLastExecutionDateTime("01-01-2023 12:00:00");
-        
-        EmailContent result = ReflectionTestUtils.invokeMethod(
-            dataFabricExportService, 
-            "populateEmailNotification", 
-            scan
-        );
-        assertNotNull(result);
-    }
-
-    @Test
-    public void testGenerateForcedExport() {
-        DfExportScan scan = new DfExportScan();
-        scan.setScanId("forcedScan");
-        when(dfExportRepository.fetchDfScanById("forcedScan")).thenReturn(scan);
-        
-        dataFabricExportService.generateForcedExport("forcedScan", "testUser");
-        assertFalse(dataFabricExportService.queue.isEmpty());
-    }
-
-    // Clean up mocks
-    public void tearDown() throws Exception {
-        closeable.close();
-    }
 }
