@@ -1,10 +1,292 @@
-package com.rbs.tntr.business.blotter.utility;
+Could you write all the additional test cases for below java class to cover all the remaining scenarios or methods and make the test coverage or code coverage as 100% using junit 4 and old mockito version and java 8. Also don't use power mockito as i m using older mockito version and for private methods try to use reflection. Plus we can't change any file other than the above test class. 
+
+package com.rbs.tntr.business.blotter.df.updater;
+
+
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
+import java.util.ArrayList;
+import java.util.List;
+
+import com.nwm.tntr.commons.domain.persistence.constant.AccountSubmissionType;
+import com.nwm.tntr.commons.domain.persistence.constant.UserCommentType;
+import com.rbs.tntr.business.blotter.web.request.regreportingTrade.*;
+import org.apache.commons.lang.StringUtils;
+import org.springframework.stereotype.Component;
+
+import com.nwm.tntr.commons.domain.persistence.constant.ApprovalStatus;
+import com.nwm.tntr.commons.domain.persistence.constant.IssueType;
+import com.nwm.tntr.commons.domain.persistence.entity.ExceptionManagement;
+import com.rbs.tntr.business.blotter.utility.EntityComparator;
+import com.rbs.tntr.business.blotter.utility.ObjectManagementUtility;
+import com.rbs.tntr.domain.blotter.enums.ExceptionStatus;
+import com.rbs.tntr.domain.blotter.tntrBlotterView.JiraReference;
+
+@Component
+public class ExceptionManagmentUpdater extends ObjectManagementUtility {
+	
+    public static final String NO_FIELD_EDITED = "No edited field found";
+    public static final String APPROVED = "Approved";
+
+    public ExceptionManagement addExceptionStatus(ExceptionStatus requestedExceptionStatus,
+                                                  UpdateExceptionStatusRequest updateExceptionStatusRequest,
+                                                  ExceptionManagement em,
+                                                  String userName) {
+
+        ExceptionManagement.Builder exceptionManagement = ExceptionManagement.newBuilder(em)
+                .withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC))
+                .withLastActionUser(userName)
+                .withLastAction(updateExceptionStatusRequest.getAction())
+                .withUserComment(updateExceptionStatusRequest.getComment().getComment())
+                .withAccountSubmissionType(updateExceptionStatusRequest.getAccountSubmissionType() != null ? AccountSubmissionType.fromValue(updateExceptionStatusRequest.getAccountSubmissionType()): em.getAccountSubmissionType());
+
+		if (StringUtils.isEmpty(updateExceptionStatusRequest.getApprovedBy())
+				&& (validateExceptionApprovedStatus(requestedExceptionStatus)
+						|| validateExceptionRejectedStatus(requestedExceptionStatus))) {
+            exceptionManagement.withApprovedBy(userName);
+        }else{
+            exceptionManagement.withApprovedBy(updateExceptionStatusRequest.getApprovedBy());
+        }
+        if(requestedExceptionStatus.getValue().equalsIgnoreCase(ExceptionStatus.Open.getValue())) {
+            exceptionManagement.withExceptionStatus(com.nwm.tntr.commons.domain.persistence.constant.ExceptionStatus.fromValue(requestedExceptionStatus.getValue()));
+            exceptionManagement.withApprovalStatus(ApprovalStatus.OPEN_APPROVED);
+        }else if(requestedExceptionStatus.getValue().equalsIgnoreCase(ExceptionStatus.Close.getValue())) {
+            exceptionManagement.withExceptionStatus(com.nwm.tntr.commons.domain.persistence.constant.ExceptionStatus.fromValue(requestedExceptionStatus.getValue()));
+            exceptionManagement.withApprovalStatus(ApprovalStatus.CLOSE_APPROVED);
+        }else {
+            exceptionManagement.withApprovalStatus(ApprovalStatus.fromValue(requestedExceptionStatus.getValue()));
+        }
+
+        return exceptionManagement.build();
+    }
+    
+	public ExceptionManagement resetAction(UpdateExceptionStatusRequest updateExceptionStatusRequest, ExceptionManagement em, String userName) {
+
+		ExceptionManagement.Builder exceptionManagement = ExceptionManagement.newBuilder(em)
+				.withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC)).withLastActionUser(userName)
+				.withLastAction(updateExceptionStatusRequest.getAction())
+				.withUserComment(updateExceptionStatusRequest.getComment().getComment())
+				.withApprovalStatus(null)
+				.withApprovedBy(userName);
+		
+		return exceptionManagement.build();
+	}
+
+    private boolean validateExceptionApprovedStatus(ExceptionStatus requestedExceptionStatus) {
+        switch (requestedExceptionStatus) {
+            case Cancel_Approved:
+            case Replay_Approved:
+            case Replay_Refresh_Approved:
+            case Dummy_Amend_Approved:
+            case Close_Approved:
+            case Open_Approved:
+            case Open:
+            case Close:
+		case Edit_Approved:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+	private boolean validateExceptionRejectedStatus(ExceptionStatus requestedExceptionStatus) {
+		switch (requestedExceptionStatus) {
+		case Open_Rejected:
+		case Close_Rejected:
+		case Replay_Rejected:
+		case Replay_Refresh_Rejected:
+		case Dummy_Amend_Rejected:
+		case Cancel_Rejected:
+		case Edit_Rejected:
+			return true;
+		default:
+			return false;
+		}
+	}
+
+    public ExceptionManagement addExceptionStatusForEdit(ExceptionStatus requestedExceptionStatus, EditRequest editRequest, ExceptionManagement em, String userName, String editedFields) {
+
+        ExceptionManagement.Builder exceptionManagement = ExceptionManagement.newBuilder(em)
+                .withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC))
+                .withLastActionUser(userName)
+                .withLastAction(editRequest.getAction())
+                .withApprovalStatus(ApprovalStatus.fromValue(requestedExceptionStatus.getValue()))
+                .withApprovedBy(editRequest.getExceptionManagementData().getApprovedBy() != null ? editRequest.getExceptionManagementData().getApprovedBy() : userName)
+                .withEditedFields(editedFields)
+                .withUserComment(editRequest.getExceptionManagementData().getComment() == null ? em.getUserComment() : editRequest.getExceptionManagementData().getComment())
+                .withAccountSubmissionType(editRequest.getAccountSubmissionType() != null ? AccountSubmissionType.fromValue(editRequest.getAccountSubmissionType()): em.getAccountSubmissionType());
+
+        return exceptionManagement.build();
+    }
+
+    public ExceptionManagement assignException(AssignTradeRequest assignTradeRequest,
+                                               ExceptionManagement em,
+                                               String userName) {
+
+        ExceptionManagement.Builder exceptionManagement = ExceptionManagement.newBuilder(em)
+                .withAssignedTo(assignTradeRequest.getAssignTo())
+                .withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC))
+                .withLastActionUser(userName)
+                .withLastAction(assignTradeRequest.getAction());
+
+        return exceptionManagement.build();
+    }
+
+    public ExceptionManagement addCommentsToException(AddTradeCommentRequest addTradeCommentRequest,
+                                                      ExceptionManagement em,
+                                                      String userName) {
+
+        ExceptionManagement.Builder exceptionManagement = ExceptionManagement.newBuilder(em)
+                .withUserComment(addTradeCommentRequest.getComment().getComment())
+                .withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC))
+                .withLastActionUser(userName)
+                .withLastAction(addTradeCommentRequest.getAction());
+
+        return exceptionManagement.build();
+    }
+    
+	public ExceptionManagement addComments(ExceptionManagement em, String userName,String userComment,String userAction) {
+
+		ExceptionManagement.Builder exceptionManagement = ExceptionManagement.newBuilder(em)
+				.withUserComment(userComment)
+				.withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC)).withLastActionUser(userName)
+				.withLastAction(userAction);
+
+		return exceptionManagement.build();
+	}
+
+	public ExceptionManagement removeCommentsToException(AddTradeCommentRequest addTradeCommentRequest,
+			ExceptionManagement em, String userName) {
+
+		ExceptionManagement.Builder exceptionManagement = ExceptionManagement.newBuilder(em)
+                .withUserComment(null)
+				.withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC)).withLastActionUser(userName)
+				.withLastAction(addTradeCommentRequest.getAction());
+
+		return exceptionManagement.build();
+	}
+
+    public ExceptionManagement addJiraIdToException(AddTradeJiraReferenceRequest addTradeJiraReferenceRequest,
+                                                    ExceptionManagement em,
+                                                    String userName) {
+
+        ExceptionManagement.Builder exceptionManagement = ExceptionManagement.newBuilder(em)
+                .withIssueIds(getJiraIds(addTradeJiraReferenceRequest.getJiraReference(), em))
+                .withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC))
+                .withLastActionUser(userName)
+                .withLastAction(addTradeJiraReferenceRequest.getAction());
+
+        return exceptionManagement.build();
+    }
+
+    private List<String> getJiraIds(JiraReference jiraReference , ExceptionManagement exceptionManagement) {
+        List<String> lstJiraReference = exceptionManagement.getIssueIds();
+        if (jiraReference != null && StringUtils.isNotBlank(jiraReference.getJiraId())) {
+            if (lstJiraReference == null) {
+                lstJiraReference = new ArrayList<>();
+            }
+            if(!lstJiraReference.contains(jiraReference.getJiraId())) {
+                lstJiraReference.add(jiraReference.getJiraId());
+            }
+        }
+        return lstJiraReference;
+    }
+
+    public ExceptionManagement removeJiraIdFromException(AddTradeJiraReferenceRequest addTradeJiraReferenceRequest,
+                                                         ExceptionManagement em,
+                                                    String userName) {
+
+        ExceptionManagement.Builder exceptionManagement = ExceptionManagement.newBuilder(em)
+                .withIssueIds(removeJiraIds(addTradeJiraReferenceRequest.getJiraReference(), em))
+                .withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC))
+                .withLastActionUser(userName)
+                .withLastAction(addTradeJiraReferenceRequest.getAction());
+
+        return exceptionManagement.build();
+    }
+
+    private List<String> removeJiraIds(JiraReference jiraReference , ExceptionManagement exceptionManagement) {
+        List<String> lstJiraReference = exceptionManagement.getIssueIds();
+        if (jiraReference != null && StringUtils.isNotBlank(jiraReference.getJiraId()) && lstJiraReference != null && lstJiraReference.contains(jiraReference.getJiraId())) {
+                lstJiraReference.remove(jiraReference.getJiraId());
+        }
+        return lstJiraReference;
+    }
+
+
+    public ExceptionManagement addJiraTypeToException(AddTradeJiraTypeRequest addTradeJiraReferenceRequest,
+                                                      ExceptionManagement em,
+                                                      String userName) {
+
+        ExceptionManagement.Builder exceptionManagement = ExceptionManagement.newBuilder(em)
+                .withIssueType(IssueType.fromValue(addTradeJiraReferenceRequest.getJiraType().getIssueType()))
+                .withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC))
+                .withLastActionUser(userName)
+                .withLastAction(addTradeJiraReferenceRequest.getAction());
+
+        return exceptionManagement.build();
+    }
+
+    public ExceptionManagement removeJiraTypeFromException(AddTradeJiraTypeRequest addTradeJiraTypeRequest,
+                                                           ExceptionManagement em,
+                                                         String userName) {
+
+        ExceptionManagement.Builder exceptionManagement = ExceptionManagement.newBuilder(em)
+                .withIssueType(addTradeJiraTypeRequest.getJiraType().getIssueType().equals(em.getIssueType().value()) ? null : em.getIssueType())
+                .withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC))
+                .withLastActionUser(userName)
+                .withLastAction(addTradeJiraTypeRequest.getAction());
+
+        return exceptionManagement.build();
+    }
+
+    public String getEditedFields(Object actualObj, Object modifiedObj) {
+        List<EntityComparator.Delta> deltas = EntityComparator.compare(actualObj, modifiedObj, o -> "id");
+
+        StringBuilder fieldName = new StringBuilder();
+        for (EntityComparator.Delta d : deltas) {
+            fieldName.append(d.getFieldName());
+            fieldName.append(", ");
+        }
+
+        if(StringUtils.isNotBlank(fieldName.toString())) {
+            return fieldName.substring(0, fieldName.length() - 2);
+        }
+        return NO_FIELD_EDITED;
+    }
+
+    public ExceptionManagement addCommentTypeToException(AddTradeCommentTypeRequest addTradeCommentTypeRequest, ExceptionManagement em, String userName) {
+        ExceptionManagement.Builder exceptionManagement = ExceptionManagement.newBuilder(em)
+                .withUserCommentType(UserCommentType.fromValue(addTradeCommentTypeRequest.getCommentType().getUserCommentType()))
+                .withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC))
+                .withLastActionUser(userName)
+                .withLastAction(addTradeCommentTypeRequest.getAction());
+
+        return exceptionManagement.build();
+    }
+
+    public ExceptionManagement removeCommentTypeToException(AddTradeCommentTypeRequest addTradeCommentTypeRequest, ExceptionManagement em, String userName) {
+        ExceptionManagement.Builder exceptionManagement = ExceptionManagement.newBuilder(em)
+                .withUserCommentType(addTradeCommentTypeRequest.getCommentType().getUserCommentType().equals(em.getUserCommentType().value()) ? null : em.getUserCommentType())
+                .withUserComment(null)
+                .withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC)).withLastActionUser(userName)
+                .withLastAction(addTradeCommentTypeRequest.getAction());
+
+        return exceptionManagement.build();
+    }
+}
+
+Existing test class:
+
+package com.rbs.tntr.business.blotter.df.updater;
 
 import static org.mockito.Mockito.*;
 import static org.junit.Assert.*;
 
-import org.apache.poi.ss.usermodel.*;
-import org.apache.poi.xssf.streaming.SXSSFWorkbook;
+import com.nwm.tntr.commons.domain.persistence.constant.*;
+import com.rbs.tntr.domain.blotter.tntrBlotterView.CommentType;
+import com.rbs.tntr.domain.blotter.tntrBlotterView.JiraType;
+
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -12,32 +294,21 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.mockito.runners.MockitoJUnitRunner;
-import org.slf4j.Logger;
 
-import com.rbs.tntr.domain.blotter.exceptions.BlotterRunTimeException;
-
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.util.Arrays;
+import com.nwm.tntr.commons.domain.persistence.entity.ExceptionManagement;
+import com.rbs.tntr.business.blotter.web.request.regreportingTrade.*;
+import com.rbs.tntr.domain.blotter.tntrBlotterView.JiraReference;
+import java.util.ArrayList;
 import java.util.List;
 
 @RunWith(MockitoJUnitRunner.class)
-public class ExcelWriterImplTest {
+public class ExceptionManagmentUpdaterTest {
 
     @InjectMocks
-    private ExcelWriterImpl excelWriter;
+    private ExceptionManagmentUpdater updater;
 
     @Mock
-    private SXSSFWorkbook workBook;
-
-    @Mock
-    private Sheet excelSheet;
-
-    @Mock
-    private Logger logger;
+    private ExceptionManagement em;
 
     @Before
     public void setUp() {
@@ -45,305 +316,114 @@ public class ExcelWriterImplTest {
     }
 
     @Test
-    public void testGetCellStyle() throws Exception {
-        // Set up mock workbook in the instance
-        setPrivateField("workBook", workBook);
-        
-        Method method = ExcelWriterImpl.class.getDeclaredMethod("getCellStyle");
-        method.setAccessible(true);
+    public void testAssignException() {
+        AssignTradeRequest request = mock(AssignTradeRequest.class);
+        when(request.getAssignTo()).thenReturn("assignTo");
+        when(request.getAction()).thenReturn("action");
 
-        CellStyle style = mock(CellStyle.class);
-        when(workBook.createCellStyle()).thenReturn(style);
-
-        CellStyle result = (CellStyle) method.invoke(excelWriter);
+        ExceptionManagement result = updater.assignException(request, em, "userName");
 
         assertNotNull(result);
-        verify(style).setAlignment(HorizontalAlignment.CENTER);
+        assertEquals("assignTo", result.getAssignedTo());
+        assertEquals("userName", result.getLastActionUser());
+        assertEquals("action", result.getLastAction());
     }
 
     @Test
-    public void testFillHeader() throws Exception {
-        Method method = ExcelWriterImpl.class.getDeclaredMethod("fillHeader", String[].class, String.class);
-        method.setAccessible(true);
+    public void testAddComments() {
+        ExceptionManagement result = updater.addComments(em, "userName", "userComment", "userAction");
 
-        String[] columns = {"Column1", "Column2", "Column3"};
-        String sheetName = "TestSheet";
-
-        // Mock the workbook creation behavior
-        SXSSFWorkbook realWorkbook = mock(SXSSFWorkbook.class);
-        Sheet realSheet = mock(Sheet.class);
-        Row headerRow = mock(Row.class);
-        CellStyle headerStyle = mock(CellStyle.class);
-        
-        // Create mock cells for each column
-        Cell cell1 = mock(Cell.class);
-        Cell cell2 = mock(Cell.class);
-        Cell cell3 = mock(Cell.class);
-        
-        when(realWorkbook.createSheet(sheetName)).thenReturn(realSheet);
-        when(realWorkbook.createCellStyle()).thenReturn(headerStyle);
-        when(realSheet.createRow(0)).thenReturn(headerRow);
-        when(headerRow.createCell(0)).thenReturn(cell1);
-        when(headerRow.createCell(1)).thenReturn(cell2);
-        when(headerRow.createCell(2)).thenReturn(cell3);
-
-        // Use PowerMockito alternative - create a new instance for testing
-        ExcelWriterImpl testWriter = new ExcelWriterImpl();
-        method.invoke(testWriter, columns, sheetName);
-
-        // Verify that workBook and excelSheet fields are set
-        Field workBookField = ExcelWriterImpl.class.getDeclaredField("workBook");
-        workBookField.setAccessible(true);
-        SXSSFWorkbook workBookValue = (SXSSFWorkbook) workBookField.get(testWriter);
-        assertNotNull(workBookValue);
-
-        Field excelSheetField = ExcelWriterImpl.class.getDeclaredField("excelSheet");
-        excelSheetField.setAccessible(true);
-        Sheet excelSheetValue = (Sheet) excelSheetField.get(testWriter);
-        assertNotNull(excelSheetValue);
+        assertNotNull(result);
+        assertEquals("userComment", result.getUserComment());
+        assertEquals("userName", result.getLastActionUser());
+        assertEquals("userAction", result.getLastAction());
     }
 
     @Test
-    public void testFillData() throws Exception {
-        // Set up mock objects in the instance
-        setPrivateField("workBook", workBook);
-        setPrivateField("excelSheet", excelSheet);
-        
-        Method method = ExcelWriterImpl.class.getDeclaredMethod("fillData", List.class);
-        method.setAccessible(true);
+    public void testRemoveCommentsToException() {
+        AddTradeCommentRequest request = mock(AddTradeCommentRequest.class);
+        when(request.getAction()).thenReturn("action");
 
-        String[] header = {"Column1", "Column2"};
-        String[] row1 = {"Data1", "Data2"};
-        String[] row2 = {"Data3", "Data4"};
-        List<String[]> rows = Arrays.asList(header, row1, row2);
+        ExceptionManagement result = updater.removeCommentsToException(request, em, "userName");
 
-        CellStyle normalStyle = mock(CellStyle.class);
-        when(workBook.createCellStyle()).thenReturn(normalStyle);
-
-        // Mock rows
-        Row mockRow1 = mock(Row.class);
-        Row mockRow2 = mock(Row.class);
-        when(excelSheet.createRow(1)).thenReturn(mockRow1);
-        when(excelSheet.createRow(2)).thenReturn(mockRow2);
-
-        // Mock cells for row 1
-        Cell cell1_1 = mock(Cell.class);
-        Cell cell1_2 = mock(Cell.class);
-        when(mockRow1.createCell(0, CellType.STRING)).thenReturn(cell1_1);
-        when(mockRow1.createCell(1, CellType.STRING)).thenReturn(cell1_2);
-
-        // Mock cells for row 2
-        Cell cell2_1 = mock(Cell.class);
-        Cell cell2_2 = mock(Cell.class);
-        when(mockRow2.createCell(0, CellType.STRING)).thenReturn(cell2_1);
-        when(mockRow2.createCell(1, CellType.STRING)).thenReturn(cell2_2);
-
-        method.invoke(excelWriter, rows);
-
-        // Verify row 1
-        verify(cell1_1).setCellValue("Data1");
-        verify(cell1_1).setCellStyle(normalStyle);
-        verify(cell1_2).setCellValue("Data2");
-        verify(cell1_2).setCellStyle(normalStyle);
-
-        // Verify row 2
-        verify(cell2_1).setCellValue("Data3");
-        verify(cell2_1).setCellStyle(normalStyle);
-        verify(cell2_2).setCellValue("Data4");
-        verify(cell2_2).setCellStyle(normalStyle);
+        assertNotNull(result);
+        assertNull(result.getUserComment());
+        assertEquals("userName", result.getLastActionUser());
+        assertEquals("action", result.getLastAction());
     }
 
     @Test
-    public void testWriteExcelFile_Success() throws Exception {
-        // Set up mock objects
-        setPrivateField("workBook", workBook);
-        setPrivateField("logger", logger);
-        
-        Method method = ExcelWriterImpl.class.getDeclaredMethod("writeExcelFile", String.class);
-        method.setAccessible(true);
+    public void testAddJiraIdToException() {
+        AddTradeJiraReferenceRequest request = mock(AddTradeJiraReferenceRequest.class);
+        JiraReference jiraReference = new JiraReference("jiraId");
+        when(request.getJiraReference()).thenReturn(jiraReference);
+        when(request.getAction()).thenReturn("action");
 
-        String fileName = "test.xlsx";
+        ExceptionManagement result = updater.addJiraIdToException(request, em, "userName");
 
-        // Mock file operations - we can't really mock File and FileOutputStream easily
-        // So we'll test the exception path instead
-        method.invoke(excelWriter, fileName);
-
-        verify(workBook).dispose();
-        verify(workBook).close();
-    }
-
-    @Test(expected = BlotterRunTimeException.class)
-    public void testWriteExcelFile_IOException() throws Exception {
-        // Set up mock objects
-        setPrivateField("workBook", workBook);
-        setPrivateField("logger", logger);
-        
-        Method method = ExcelWriterImpl.class.getDeclaredMethod("writeExcelFile", String.class);
-        method.setAccessible(true);
-
-        String fileName = "/invalid/path/test.xlsx"; // Invalid path to trigger IOException
-
-        doThrow(new IOException("Test exception")).when(workBook).write(any(FileOutputStream.class));
-
-        method.invoke(excelWriter, fileName);
+        assertNotNull(result);
+        assertTrue(result.getIssueIds().contains("jiraId"));
+        assertEquals("userName", result.getLastActionUser());
+        assertEquals("action", result.getLastAction());
     }
 
     @Test
-    public void testExportExcel_Success() {
-        String[] header = {"Column1", "Column2"};
-        String[] row1 = {"Data1", "Data2"};
-        List<String[]> rows = Arrays.asList(header, row1);
-        String fileName = "test.xlsx";
-        String sheetName = "TestSheet";
+    public void testRemoveJiraIdFromException() {
+        AddTradeJiraReferenceRequest request = mock(AddTradeJiraReferenceRequest.class);
+        JiraReference jiraReference = new JiraReference("jiraId");
+        when(request.getJiraReference()).thenReturn(jiraReference);
+        when(request.getAction()).thenReturn("action");
 
-        boolean result = excelWriter.exportExcel(rows, fileName, sheetName);
+        List<String> issueIds = new ArrayList<>();
+        issueIds.add("jiraId");
+        when(em.getIssueIds()).thenReturn(issueIds);
 
-        assertTrue(result);
-    }
+        ExceptionManagement result = updater.removeJiraIdFromException(request, em, "userName");
 
-    @Test(expected = BlotterRunTimeException.class)
-    public void testExportExcel_Exception() {
-        // Test with null rows to trigger exception
-        List<String[]> rows = null;
-        String fileName = "test.xlsx";
-        String sheetName = "TestSheet";
-
-        excelWriter.exportExcel(rows, fileName, sheetName);
-    }
-
-    @Test(expected = BlotterRunTimeException.class)
-    public void testExportExcel_EmptyRows() {
-        // Test with empty rows list
-        List<String[]> rows = Arrays.asList();
-        String fileName = "test.xlsx";
-        String sheetName = "TestSheet";
-
-        excelWriter.exportExcel(rows, fileName, sheetName);
+        assertNotNull(result);
+        assertFalse(result.getIssueIds().contains("jiraId"));
+        assertEquals("userName", result.getLastActionUser());
+        assertEquals("action", result.getLastAction());
     }
 
     @Test
-    public void testExportExcel_SingleRow() {
-        String[] header = {"Column1", "Column2"};
-        List<String[]> rows = Arrays.asList(header);
-        String fileName = "test.xlsx";
-        String sheetName = "TestSheet";
+    public void testAddJiraTypeToException() {
+        AddTradeJiraTypeRequest request = mock(AddTradeJiraTypeRequest.class);
+        JiraType jiraType = new JiraType("issueType");
+        when(request.getJiraType()).thenReturn(jiraType);
+        when(request.getAction()).thenReturn("action");
 
-        boolean result = excelWriter.exportExcel(rows, fileName, sheetName);
+        ExceptionManagement result = updater.addJiraTypeToException(request, em, "userName");
 
-        assertTrue(result);
+        assertNotNull(result);
+        assertEquals(IssueType.fromValue("issueType"), result.getIssueType());
+        assertEquals("userName", result.getLastActionUser());
+        assertEquals("action", result.getLastAction());
     }
 
     @Test
-    public void testFillData_EmptyDataCells() throws Exception {
-        // Set up mock objects in the instance
-        setPrivateField("workBook", workBook);
-        setPrivateField("excelSheet", excelSheet);
-        
-        Method method = ExcelWriterImpl.class.getDeclaredMethod("fillData", List.class);
-        method.setAccessible(true);
+    public void testGetEditedFields() {
+        Object actualObj = new Object();
+        Object modifiedObj = new Object();
 
-        String[] header = {"Column1", "Column2"};
-        String[] row1 = {"", null}; // Test empty and null values
-        List<String[]> rows = Arrays.asList(header, row1);
+        String editedFields = updater.getEditedFields(actualObj, modifiedObj);
 
-        CellStyle normalStyle = mock(CellStyle.class);
-        when(workBook.createCellStyle()).thenReturn(normalStyle);
-
-        Row mockRow1 = mock(Row.class);
-        when(excelSheet.createRow(1)).thenReturn(mockRow1);
-
-        Cell cell1 = mock(Cell.class);
-        Cell cell2 = mock(Cell.class);
-        when(mockRow1.createCell(0, CellType.STRING)).thenReturn(cell1);
-        when(mockRow1.createCell(1, CellType.STRING)).thenReturn(cell2);
-
-        method.invoke(excelWriter, rows);
-
-        verify(cell1).setCellValue("");
-        verify(cell2).setCellValue((String) null);
+        assertEquals(ExceptionManagmentUpdater.NO_FIELD_EDITED, editedFields);
     }
 
     @Test
-    public void testFillData_SingleColumnData() throws Exception {
-        // Set up mock objects in the instance
-        setPrivateField("workBook", workBook);
-        setPrivateField("excelSheet", excelSheet);
-        
-        Method method = ExcelWriterImpl.class.getDeclaredMethod("fillData", List.class);
-        method.setAccessible(true);
+    public void testAddCommentTypeToException() {
+        AddTradeCommentTypeRequest request = mock(AddTradeCommentTypeRequest.class);
+        CommentType commentType = new CommentType("userCommentType");
+        when(request.getCommentType()).thenReturn(commentType);
+        when(request.getAction()).thenReturn("action");
 
-        String[] header = {"Column1"};
-        String[] row1 = {"Data1"};
-        List<String[]> rows = Arrays.asList(header, row1);
+        ExceptionManagement result = updater.addCommentTypeToException(request, em, "userName");
 
-        CellStyle normalStyle = mock(CellStyle.class);
-        when(workBook.createCellStyle()).thenReturn(normalStyle);
-
-        Row mockRow1 = mock(Row.class);
-        when(excelSheet.createRow(1)).thenReturn(mockRow1);
-
-        Cell cell1 = mock(Cell.class);
-        when(mockRow1.createCell(0, CellType.STRING)).thenReturn(cell1);
-
-        method.invoke(excelWriter, rows);
-
-        verify(cell1).setCellValue("Data1");
-        verify(cell1).setCellStyle(normalStyle);
+        assertNotNull(result);
+        assertEquals(UserCommentType.fromValue("userCommentType"), result.getUserCommentType());
+        assertEquals("userName", result.getLastActionUser());
+        assertEquals("action", result.getLastAction());
     }
 
-    @Test
-    public void testFillHeader_SingleColumn() throws Exception {
-        Method method = ExcelWriterImpl.class.getDeclaredMethod("fillHeader", String[].class, String.class);
-        method.setAccessible(true);
-
-        String[] columns = {"SingleColumn"};
-        String sheetName = "SingleColumnSheet";
-
-        ExcelWriterImpl testWriter = new ExcelWriterImpl();
-        method.invoke(testWriter, columns, sheetName);
-
-        // Verify that workBook and excelSheet fields are set
-        Field workBookField = ExcelWriterImpl.class.getDeclaredField("workBook");
-        workBookField.setAccessible(true);
-        SXSSFWorkbook workBookValue = (SXSSFWorkbook) workBookField.get(testWriter);
-        assertNotNull(workBookValue);
-    }
-
-    @Test
-    public void testFillHeader_EmptyColumns() throws Exception {
-        Method method = ExcelWriterImpl.class.getDeclaredMethod("fillHeader", String[].class, String.class);
-        method.setAccessible(true);
-
-        String[] columns = {};
-        String sheetName = "EmptySheet";
-
-        ExcelWriterImpl testWriter = new ExcelWriterImpl();
-        method.invoke(testWriter, columns, sheetName);
-
-        // Verify that workBook and excelSheet fields are set even with empty columns
-        Field workBookField = ExcelWriterImpl.class.getDeclaredField("workBook");
-        workBookField.setAccessible(true);
-        SXSSFWorkbook workBookValue = (SXSSFWorkbook) workBookField.get(testWriter);
-        assertNotNull(workBookValue);
-    }
-
-    @Test
-    public void testExportExcel_WithSpecialCharacters() {
-        String[] header = {"Column with spaces", "Column@#$%"};
-        String[] row1 = {"Data with spaces", "Special@#$%Data"};
-        List<String[]> rows = Arrays.asList(header, row1);
-        String fileName = "special_chars_test.xlsx";
-        String sheetName = "Special Characters Sheet";
-
-        boolean result = excelWriter.exportExcel(rows, fileName, sheetName);
-
-        assertTrue(result);
-    }
-
-    // Helper method to set private fields using reflection
-    private void setPrivateField(String fieldName, Object value) throws Exception {
-        Field field = ExcelWriterImpl.class.getDeclaredField(fieldName);
-        field.setAccessible(true);
-        field.set(excelWriter, value);
-    }
 }
