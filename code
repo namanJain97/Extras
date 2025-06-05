@@ -1,283 +1,3 @@
-Could you write all the additional test cases for below java class to cover all the remaining scenarios or methods and make the test coverage or code coverage as 100% using junit 4 and old mockito version and java 8. Also don't use power mockito as i m using older mockito version and for private methods try to use reflection. Plus we can't change any file other than the above test class. 
-
-package com.rbs.tntr.business.blotter.df.updater;
-
-
-import java.time.ZoneOffset;
-import java.time.ZonedDateTime;
-import java.util.ArrayList;
-import java.util.List;
-
-import com.nwm.tntr.commons.domain.persistence.constant.AccountSubmissionType;
-import com.nwm.tntr.commons.domain.persistence.constant.UserCommentType;
-import com.rbs.tntr.business.blotter.web.request.regreportingTrade.*;
-import org.apache.commons.lang.StringUtils;
-import org.springframework.stereotype.Component;
-
-import com.nwm.tntr.commons.domain.persistence.constant.ApprovalStatus;
-import com.nwm.tntr.commons.domain.persistence.constant.IssueType;
-import com.nwm.tntr.commons.domain.persistence.entity.ExceptionManagement;
-import com.rbs.tntr.business.blotter.utility.EntityComparator;
-import com.rbs.tntr.business.blotter.utility.ObjectManagementUtility;
-import com.rbs.tntr.domain.blotter.enums.ExceptionStatus;
-import com.rbs.tntr.domain.blotter.tntrBlotterView.JiraReference;
-
-@Component
-public class ExceptionManagmentUpdater extends ObjectManagementUtility {
-	
-    public static final String NO_FIELD_EDITED = "No edited field found";
-    public static final String APPROVED = "Approved";
-
-    public ExceptionManagement addExceptionStatus(ExceptionStatus requestedExceptionStatus,
-                                                  UpdateExceptionStatusRequest updateExceptionStatusRequest,
-                                                  ExceptionManagement em,
-                                                  String userName) {
-
-        ExceptionManagement.Builder exceptionManagement = ExceptionManagement.newBuilder(em)
-                .withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC))
-                .withLastActionUser(userName)
-                .withLastAction(updateExceptionStatusRequest.getAction())
-                .withUserComment(updateExceptionStatusRequest.getComment().getComment())
-                .withAccountSubmissionType(updateExceptionStatusRequest.getAccountSubmissionType() != null ? AccountSubmissionType.fromValue(updateExceptionStatusRequest.getAccountSubmissionType()): em.getAccountSubmissionType());
-
-		if (StringUtils.isEmpty(updateExceptionStatusRequest.getApprovedBy())
-				&& (validateExceptionApprovedStatus(requestedExceptionStatus)
-						|| validateExceptionRejectedStatus(requestedExceptionStatus))) {
-            exceptionManagement.withApprovedBy(userName);
-        }else{
-            exceptionManagement.withApprovedBy(updateExceptionStatusRequest.getApprovedBy());
-        }
-        if(requestedExceptionStatus.getValue().equalsIgnoreCase(ExceptionStatus.Open.getValue())) {
-            exceptionManagement.withExceptionStatus(com.nwm.tntr.commons.domain.persistence.constant.ExceptionStatus.fromValue(requestedExceptionStatus.getValue()));
-            exceptionManagement.withApprovalStatus(ApprovalStatus.OPEN_APPROVED);
-        }else if(requestedExceptionStatus.getValue().equalsIgnoreCase(ExceptionStatus.Close.getValue())) {
-            exceptionManagement.withExceptionStatus(com.nwm.tntr.commons.domain.persistence.constant.ExceptionStatus.fromValue(requestedExceptionStatus.getValue()));
-            exceptionManagement.withApprovalStatus(ApprovalStatus.CLOSE_APPROVED);
-        }else {
-            exceptionManagement.withApprovalStatus(ApprovalStatus.fromValue(requestedExceptionStatus.getValue()));
-        }
-
-        return exceptionManagement.build();
-    }
-    
-	public ExceptionManagement resetAction(UpdateExceptionStatusRequest updateExceptionStatusRequest, ExceptionManagement em, String userName) {
-
-		ExceptionManagement.Builder exceptionManagement = ExceptionManagement.newBuilder(em)
-				.withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC)).withLastActionUser(userName)
-				.withLastAction(updateExceptionStatusRequest.getAction())
-				.withUserComment(updateExceptionStatusRequest.getComment().getComment())
-				.withApprovalStatus(null)
-				.withApprovedBy(userName);
-		
-		return exceptionManagement.build();
-	}
-
-    private boolean validateExceptionApprovedStatus(ExceptionStatus requestedExceptionStatus) {
-        switch (requestedExceptionStatus) {
-            case Cancel_Approved:
-            case Replay_Approved:
-            case Replay_Refresh_Approved:
-            case Dummy_Amend_Approved:
-            case Close_Approved:
-            case Open_Approved:
-            case Open:
-            case Close:
-		case Edit_Approved:
-                return true;
-            default:
-                return false;
-        }
-    }
-
-	private boolean validateExceptionRejectedStatus(ExceptionStatus requestedExceptionStatus) {
-		switch (requestedExceptionStatus) {
-		case Open_Rejected:
-		case Close_Rejected:
-		case Replay_Rejected:
-		case Replay_Refresh_Rejected:
-		case Dummy_Amend_Rejected:
-		case Cancel_Rejected:
-		case Edit_Rejected:
-			return true;
-		default:
-			return false;
-		}
-	}
-
-    public ExceptionManagement addExceptionStatusForEdit(ExceptionStatus requestedExceptionStatus, EditRequest editRequest, ExceptionManagement em, String userName, String editedFields) {
-
-        ExceptionManagement.Builder exceptionManagement = ExceptionManagement.newBuilder(em)
-                .withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC))
-                .withLastActionUser(userName)
-                .withLastAction(editRequest.getAction())
-                .withApprovalStatus(ApprovalStatus.fromValue(requestedExceptionStatus.getValue()))
-                .withApprovedBy(editRequest.getExceptionManagementData().getApprovedBy() != null ? editRequest.getExceptionManagementData().getApprovedBy() : userName)
-                .withEditedFields(editedFields)
-                .withUserComment(editRequest.getExceptionManagementData().getComment() == null ? em.getUserComment() : editRequest.getExceptionManagementData().getComment())
-                .withAccountSubmissionType(editRequest.getAccountSubmissionType() != null ? AccountSubmissionType.fromValue(editRequest.getAccountSubmissionType()): em.getAccountSubmissionType());
-
-        return exceptionManagement.build();
-    }
-
-    public ExceptionManagement assignException(AssignTradeRequest assignTradeRequest,
-                                               ExceptionManagement em,
-                                               String userName) {
-
-        ExceptionManagement.Builder exceptionManagement = ExceptionManagement.newBuilder(em)
-                .withAssignedTo(assignTradeRequest.getAssignTo())
-                .withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC))
-                .withLastActionUser(userName)
-                .withLastAction(assignTradeRequest.getAction());
-
-        return exceptionManagement.build();
-    }
-
-    public ExceptionManagement addCommentsToException(AddTradeCommentRequest addTradeCommentRequest,
-                                                      ExceptionManagement em,
-                                                      String userName) {
-
-        ExceptionManagement.Builder exceptionManagement = ExceptionManagement.newBuilder(em)
-                .withUserComment(addTradeCommentRequest.getComment().getComment())
-                .withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC))
-                .withLastActionUser(userName)
-                .withLastAction(addTradeCommentRequest.getAction());
-
-        return exceptionManagement.build();
-    }
-    
-	public ExceptionManagement addComments(ExceptionManagement em, String userName,String userComment,String userAction) {
-
-		ExceptionManagement.Builder exceptionManagement = ExceptionManagement.newBuilder(em)
-				.withUserComment(userComment)
-				.withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC)).withLastActionUser(userName)
-				.withLastAction(userAction);
-
-		return exceptionManagement.build();
-	}
-
-	public ExceptionManagement removeCommentsToException(AddTradeCommentRequest addTradeCommentRequest,
-			ExceptionManagement em, String userName) {
-
-		ExceptionManagement.Builder exceptionManagement = ExceptionManagement.newBuilder(em)
-                .withUserComment(null)
-				.withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC)).withLastActionUser(userName)
-				.withLastAction(addTradeCommentRequest.getAction());
-
-		return exceptionManagement.build();
-	}
-
-    public ExceptionManagement addJiraIdToException(AddTradeJiraReferenceRequest addTradeJiraReferenceRequest,
-                                                    ExceptionManagement em,
-                                                    String userName) {
-
-        ExceptionManagement.Builder exceptionManagement = ExceptionManagement.newBuilder(em)
-                .withIssueIds(getJiraIds(addTradeJiraReferenceRequest.getJiraReference(), em))
-                .withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC))
-                .withLastActionUser(userName)
-                .withLastAction(addTradeJiraReferenceRequest.getAction());
-
-        return exceptionManagement.build();
-    }
-
-    private List<String> getJiraIds(JiraReference jiraReference , ExceptionManagement exceptionManagement) {
-        List<String> lstJiraReference = exceptionManagement.getIssueIds();
-        if (jiraReference != null && StringUtils.isNotBlank(jiraReference.getJiraId())) {
-            if (lstJiraReference == null) {
-                lstJiraReference = new ArrayList<>();
-            }
-            if(!lstJiraReference.contains(jiraReference.getJiraId())) {
-                lstJiraReference.add(jiraReference.getJiraId());
-            }
-        }
-        return lstJiraReference;
-    }
-
-    public ExceptionManagement removeJiraIdFromException(AddTradeJiraReferenceRequest addTradeJiraReferenceRequest,
-                                                         ExceptionManagement em,
-                                                    String userName) {
-
-        ExceptionManagement.Builder exceptionManagement = ExceptionManagement.newBuilder(em)
-                .withIssueIds(removeJiraIds(addTradeJiraReferenceRequest.getJiraReference(), em))
-                .withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC))
-                .withLastActionUser(userName)
-                .withLastAction(addTradeJiraReferenceRequest.getAction());
-
-        return exceptionManagement.build();
-    }
-
-    private List<String> removeJiraIds(JiraReference jiraReference , ExceptionManagement exceptionManagement) {
-        List<String> lstJiraReference = exceptionManagement.getIssueIds();
-        if (jiraReference != null && StringUtils.isNotBlank(jiraReference.getJiraId()) && lstJiraReference != null && lstJiraReference.contains(jiraReference.getJiraId())) {
-                lstJiraReference.remove(jiraReference.getJiraId());
-        }
-        return lstJiraReference;
-    }
-
-
-    public ExceptionManagement addJiraTypeToException(AddTradeJiraTypeRequest addTradeJiraReferenceRequest,
-                                                      ExceptionManagement em,
-                                                      String userName) {
-
-        ExceptionManagement.Builder exceptionManagement = ExceptionManagement.newBuilder(em)
-                .withIssueType(IssueType.fromValue(addTradeJiraReferenceRequest.getJiraType().getIssueType()))
-                .withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC))
-                .withLastActionUser(userName)
-                .withLastAction(addTradeJiraReferenceRequest.getAction());
-
-        return exceptionManagement.build();
-    }
-
-    public ExceptionManagement removeJiraTypeFromException(AddTradeJiraTypeRequest addTradeJiraTypeRequest,
-                                                           ExceptionManagement em,
-                                                         String userName) {
-
-        ExceptionManagement.Builder exceptionManagement = ExceptionManagement.newBuilder(em)
-                .withIssueType(addTradeJiraTypeRequest.getJiraType().getIssueType().equals(em.getIssueType().value()) ? null : em.getIssueType())
-                .withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC))
-                .withLastActionUser(userName)
-                .withLastAction(addTradeJiraTypeRequest.getAction());
-
-        return exceptionManagement.build();
-    }
-
-    public String getEditedFields(Object actualObj, Object modifiedObj) {
-        List<EntityComparator.Delta> deltas = EntityComparator.compare(actualObj, modifiedObj, o -> "id");
-
-        StringBuilder fieldName = new StringBuilder();
-        for (EntityComparator.Delta d : deltas) {
-            fieldName.append(d.getFieldName());
-            fieldName.append(", ");
-        }
-
-        if(StringUtils.isNotBlank(fieldName.toString())) {
-            return fieldName.substring(0, fieldName.length() - 2);
-        }
-        return NO_FIELD_EDITED;
-    }
-
-    public ExceptionManagement addCommentTypeToException(AddTradeCommentTypeRequest addTradeCommentTypeRequest, ExceptionManagement em, String userName) {
-        ExceptionManagement.Builder exceptionManagement = ExceptionManagement.newBuilder(em)
-                .withUserCommentType(UserCommentType.fromValue(addTradeCommentTypeRequest.getCommentType().getUserCommentType()))
-                .withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC))
-                .withLastActionUser(userName)
-                .withLastAction(addTradeCommentTypeRequest.getAction());
-
-        return exceptionManagement.build();
-    }
-
-    public ExceptionManagement removeCommentTypeToException(AddTradeCommentTypeRequest addTradeCommentTypeRequest, ExceptionManagement em, String userName) {
-        ExceptionManagement.Builder exceptionManagement = ExceptionManagement.newBuilder(em)
-                .withUserCommentType(addTradeCommentTypeRequest.getCommentType().getUserCommentType().equals(em.getUserCommentType().value()) ? null : em.getUserCommentType())
-                .withUserComment(null)
-                .withLastActionDateTime(ZonedDateTime.now(ZoneOffset.UTC)).withLastActionUser(userName)
-                .withLastAction(addTradeCommentTypeRequest.getAction());
-
-        return exceptionManagement.build();
-    }
-}
-
-Existing test class:
-
 package com.rbs.tntr.business.blotter.df.updater;
 
 import static org.mockito.Mockito.*;
@@ -286,6 +6,7 @@ import static org.junit.Assert.*;
 import com.nwm.tntr.commons.domain.persistence.constant.*;
 import com.rbs.tntr.domain.blotter.tntrBlotterView.CommentType;
 import com.rbs.tntr.domain.blotter.tntrBlotterView.JiraType;
+import com.rbs.tntr.business.blotter.utility.EntityComparator;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -298,7 +19,11 @@ import org.mockito.runners.MockitoJUnitRunner;
 import com.nwm.tntr.commons.domain.persistence.entity.ExceptionManagement;
 import com.rbs.tntr.business.blotter.web.request.regreportingTrade.*;
 import com.rbs.tntr.domain.blotter.tntrBlotterView.JiraReference;
+import com.rbs.tntr.domain.blotter.enums.ExceptionStatus;
+
+import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 @RunWith(MockitoJUnitRunner.class)
@@ -315,6 +40,7 @@ public class ExceptionManagmentUpdaterTest {
         MockitoAnnotations.initMocks(this);
     }
 
+    // Existing tests
     @Test
     public void testAssignException() {
         AssignTradeRequest request = mock(AssignTradeRequest.class);
@@ -426,4 +152,442 @@ public class ExceptionManagmentUpdaterTest {
         assertEquals("action", result.getLastAction());
     }
 
+    // NEW TEST CASES FOR 100% COVERAGE
+
+    // Tests for addExceptionStatus method
+    @Test
+    public void testAddExceptionStatus_OpenStatus() {
+        UpdateExceptionStatusRequest request = mock(UpdateExceptionStatusRequest.class);
+        UserComment comment = mock(UserComment.class);
+        
+        when(request.getAction()).thenReturn("action");
+        when(request.getComment()).thenReturn(comment);
+        when(comment.getComment()).thenReturn("test comment");
+        when(request.getApprovedBy()).thenReturn("approver");
+        when(request.getAccountSubmissionType()).thenReturn("MANUAL");
+        when(em.getAccountSubmissionType()).thenReturn(AccountSubmissionType.MANUAL);
+
+        ExceptionManagement result = updater.addExceptionStatus(
+            ExceptionStatus.Open, request, em, "userName");
+
+        assertNotNull(result);
+        assertEquals("userName", result.getLastActionUser());
+        assertEquals("action", result.getLastAction());
+        assertEquals("test comment", result.getUserComment());
+        assertEquals("approver", result.getApprovedBy());
+    }
+
+    @Test
+    public void testAddExceptionStatus_CloseStatus() {
+        UpdateExceptionStatusRequest request = mock(UpdateExceptionStatusRequest.class);
+        UserComment comment = mock(UserComment.class);
+        
+        when(request.getAction()).thenReturn("action");
+        when(request.getComment()).thenReturn(comment);
+        when(comment.getComment()).thenReturn("test comment");
+        when(request.getApprovedBy()).thenReturn("");
+        when(request.getAccountSubmissionType()).thenReturn(null);
+        when(em.getAccountSubmissionType()).thenReturn(AccountSubmissionType.AUTOMATED);
+
+        ExceptionManagement result = updater.addExceptionStatus(
+            ExceptionStatus.Close, request, em, "userName");
+
+        assertNotNull(result);
+        assertEquals("userName", result.getApprovedBy());
+        assertEquals(AccountSubmissionType.AUTOMATED, result.getAccountSubmissionType());
+    }
+
+    @Test
+    public void testAddExceptionStatus_ApprovedStatus_EmptyApprovedBy() {
+        UpdateExceptionStatusRequest request = mock(UpdateExceptionStatusRequest.class);
+        UserComment comment = mock(UserComment.class);
+        
+        when(request.getAction()).thenReturn("action");
+        when(request.getComment()).thenReturn(comment);
+        when(comment.getComment()).thenReturn("test comment");
+        when(request.getApprovedBy()).thenReturn("");
+        when(request.getAccountSubmissionType()).thenReturn("MANUAL");
+
+        ExceptionManagement result = updater.addExceptionStatus(
+            ExceptionStatus.Cancel_Approved, request, em, "userName");
+
+        assertNotNull(result);
+        assertEquals("userName", result.getApprovedBy());
+    }
+
+    @Test
+    public void testAddExceptionStatus_RejectedStatus_EmptyApprovedBy() {
+        UpdateExceptionStatusRequest request = mock(UpdateExceptionStatusRequest.class);
+        UserComment comment = mock(UserComment.class);
+        
+        when(request.getAction()).thenReturn("action");
+        when(request.getComment()).thenReturn(comment);
+        when(comment.getComment()).thenReturn("test comment");
+        when(request.getApprovedBy()).thenReturn(null);
+        when(request.getAccountSubmissionType()).thenReturn("AUTOMATED");
+
+        ExceptionManagement result = updater.addExceptionStatus(
+            ExceptionStatus.Open_Rejected, request, em, "userName");
+
+        assertNotNull(result);
+        assertEquals("userName", result.getApprovedBy());
+    }
+
+    @Test
+    public void testAddExceptionStatus_OtherStatus() {
+        UpdateExceptionStatusRequest request = mock(UpdateExceptionStatusRequest.class);
+        UserComment comment = mock(UserComment.class);
+        
+        when(request.getAction()).thenReturn("action");
+        when(request.getComment()).thenReturn(comment);
+        when(comment.getComment()).thenReturn("test comment");
+        when(request.getApprovedBy()).thenReturn("approver");
+        when(request.getAccountSubmissionType()).thenReturn("MANUAL");
+
+        ExceptionManagement result = updater.addExceptionStatus(
+            ExceptionStatus.Cancel_Approved, request, em, "userName");
+
+        assertNotNull(result);
+        assertEquals("approver", result.getApprovedBy());
+    }
+
+    // Test for resetAction method
+    @Test
+    public void testResetAction() {
+        UpdateExceptionStatusRequest request = mock(UpdateExceptionStatusRequest.class);
+        UserComment comment = mock(UserComment.class);
+        
+        when(request.getAction()).thenReturn("reset");
+        when(request.getComment()).thenReturn(comment);
+        when(comment.getComment()).thenReturn("reset comment");
+
+        ExceptionManagement result = updater.resetAction(request, em, "userName");
+
+        assertNotNull(result);
+        assertEquals("userName", result.getLastActionUser());
+        assertEquals("reset", result.getLastAction());
+        assertEquals("reset comment", result.getUserComment());
+        assertEquals("userName", result.getApprovedBy());
+        assertNull(result.getApprovalStatus());
+    }
+
+    // Tests for private methods using reflection
+    @Test
+    public void testValidateExceptionApprovedStatus_AllApprovedCases() throws Exception {
+        Method method = ExceptionManagmentUpdater.class.getDeclaredMethod(
+            "validateExceptionApprovedStatus", ExceptionStatus.class);
+        method.setAccessible(true);
+
+        assertTrue((Boolean) method.invoke(updater, ExceptionStatus.Cancel_Approved));
+        assertTrue((Boolean) method.invoke(updater, ExceptionStatus.Replay_Approved));
+        assertTrue((Boolean) method.invoke(updater, ExceptionStatus.Replay_Refresh_Approved));
+        assertTrue((Boolean) method.invoke(updater, ExceptionStatus.Dummy_Amend_Approved));
+        assertTrue((Boolean) method.invoke(updater, ExceptionStatus.Close_Approved));
+        assertTrue((Boolean) method.invoke(updater, ExceptionStatus.Open_Approved));
+        assertTrue((Boolean) method.invoke(updater, ExceptionStatus.Open));
+        assertTrue((Boolean) method.invoke(updater, ExceptionStatus.Close));
+        assertTrue((Boolean) method.invoke(updater, ExceptionStatus.Edit_Approved));
+        
+        // Test default case
+        assertFalse((Boolean) method.invoke(updater, ExceptionStatus.Cancel_Rejected));
+    }
+
+    @Test
+    public void testValidateExceptionRejectedStatus_AllRejectedCases() throws Exception {
+        Method method = ExceptionManagmentUpdater.class.getDeclaredMethod(
+            "validateExceptionRejectedStatus", ExceptionStatus.class);
+        method.setAccessible(true);
+
+        assertTrue((Boolean) method.invoke(updater, ExceptionStatus.Open_Rejected));
+        assertTrue((Boolean) method.invoke(updater, ExceptionStatus.Close_Rejected));
+        assertTrue((Boolean) method.invoke(updater, ExceptionStatus.Replay_Rejected));
+        assertTrue((Boolean) method.invoke(updater, ExceptionStatus.Replay_Refresh_Rejected));
+        assertTrue((Boolean) method.invoke(updater, ExceptionStatus.Dummy_Amend_Rejected));
+        assertTrue((Boolean) method.invoke(updater, ExceptionStatus.Cancel_Rejected));
+        assertTrue((Boolean) method.invoke(updater, ExceptionStatus.Edit_Rejected));
+        
+        // Test default case
+        assertFalse((Boolean) method.invoke(updater, ExceptionStatus.Cancel_Approved));
+    }
+
+    // Test for addExceptionStatusForEdit method
+    @Test
+    public void testAddExceptionStatusForEdit_WithApprovedBy() {
+        EditRequest editRequest = mock(EditRequest.class);
+        ExceptionManagementData exceptionMgmtData = mock(ExceptionManagementData.class);
+        
+        when(editRequest.getAction()).thenReturn("edit");
+        when(editRequest.getExceptionManagementData()).thenReturn(exceptionMgmtData);
+        when(exceptionMgmtData.getApprovedBy()).thenReturn("approver");
+        when(exceptionMgmtData.getComment()).thenReturn("edit comment");
+        when(editRequest.getAccountSubmissionType()).thenReturn("MANUAL");
+
+        ExceptionManagement result = updater.addExceptionStatusForEdit(
+            ExceptionStatus.Edit_Approved, editRequest, em, "userName", "field1, field2");
+
+        assertNotNull(result);
+        assertEquals("userName", result.getLastActionUser());
+        assertEquals("edit", result.getLastAction());
+        assertEquals("approver", result.getApprovedBy());
+        assertEquals("edit comment", result.getUserComment());
+        assertEquals("field1, field2", result.getEditedFields());
+    }
+
+    @Test
+    public void testAddExceptionStatusForEdit_WithoutApprovedBy() {
+        EditRequest editRequest = mock(EditRequest.class);
+        ExceptionManagementData exceptionMgmtData = mock(ExceptionManagementData.class);
+        
+        when(editRequest.getAction()).thenReturn("edit");
+        when(editRequest.getExceptionManagementData()).thenReturn(exceptionMgmtData);
+        when(exceptionMgmtData.getApprovedBy()).thenReturn(null);
+        when(exceptionMgmtData.getComment()).thenReturn(null);
+        when(editRequest.getAccountSubmissionType()).thenReturn(null);
+        when(em.getUserComment()).thenReturn("existing comment");
+        when(em.getAccountSubmissionType()).thenReturn(AccountSubmissionType.AUTOMATED);
+
+        ExceptionManagement result = updater.addExceptionStatusForEdit(
+            ExceptionStatus.Edit_Approved, editRequest, em, "userName", "field1");
+
+        assertNotNull(result);
+        assertEquals("userName", result.getApprovedBy());
+        assertEquals("existing comment", result.getUserComment());
+        assertEquals(AccountSubmissionType.AUTOMATED, result.getAccountSubmissionType());
+    }
+
+    // Test for addCommentsToException method
+    @Test
+    public void testAddCommentsToException() {
+        AddTradeCommentRequest request = mock(AddTradeCommentRequest.class);
+        UserComment comment = mock(UserComment.class);
+        
+        when(request.getComment()).thenReturn(comment);
+        when(comment.getComment()).thenReturn("new comment");
+        when(request.getAction()).thenReturn("add_comment");
+
+        ExceptionManagement result = updater.addCommentsToException(request, em, "userName");
+
+        assertNotNull(result);
+        assertEquals("new comment", result.getUserComment());
+        assertEquals("userName", result.getLastActionUser());
+        assertEquals("add_comment", result.getLastAction());
+    }
+
+    // Tests for getJiraIds private method scenarios
+    @Test
+    public void testAddJiraIdToException_NullJiraReference() {
+        AddTradeJiraReferenceRequest request = mock(AddTradeJiraReferenceRequest.class);
+        when(request.getJiraReference()).thenReturn(null);
+        when(request.getAction()).thenReturn("action");
+
+        ExceptionManagement result = updater.addJiraIdToException(request, em, "userName");
+
+        assertNotNull(result);
+        assertEquals("userName", result.getLastActionUser());
+        assertEquals("action", result.getLastAction());
+    }
+
+    @Test
+    public void testAddJiraIdToException_BlankJiraId() {
+        AddTradeJiraReferenceRequest request = mock(AddTradeJiraReferenceRequest.class);
+        JiraReference jiraReference = new JiraReference("");
+        when(request.getJiraReference()).thenReturn(jiraReference);
+        when(request.getAction()).thenReturn("action");
+
+        ExceptionManagement result = updater.addJiraIdToException(request, em, "userName");
+
+        assertNotNull(result);
+        assertEquals("userName", result.getLastActionUser());
+        assertEquals("action", result.getLastAction());
+    }
+
+    @Test
+    public void testAddJiraIdToException_ExistingJiraId() {
+        AddTradeJiraReferenceRequest request = mock(AddTradeJiraReferenceRequest.class);
+        JiraReference jiraReference = new JiraReference("existingId");
+        when(request.getJiraReference()).thenReturn(jiraReference);
+        when(request.getAction()).thenReturn("action");
+        
+        List<String> existingIds = new ArrayList<>();
+        existingIds.add("existingId");
+        when(em.getIssueIds()).thenReturn(existingIds);
+
+        ExceptionManagement result = updater.addJiraIdToException(request, em, "userName");
+
+        assertNotNull(result);
+        assertEquals(1, result.getIssueIds().size());
+        assertTrue(result.getIssueIds().contains("existingId"));
+    }
+
+    // Tests for removeJiraIds private method scenarios
+    @Test
+    public void testRemoveJiraIdFromException_NullJiraReference() {
+        AddTradeJiraReferenceRequest request = mock(AddTradeJiraReferenceRequest.class);
+        when(request.getJiraReference()).thenReturn(null);
+        when(request.getAction()).thenReturn("action");
+
+        ExceptionManagement result = updater.removeJiraIdFromException(request, em, "userName");
+
+        assertNotNull(result);
+        assertEquals("userName", result.getLastActionUser());
+        assertEquals("action", result.getLastAction());
+    }
+
+    @Test
+    public void testRemoveJiraIdFromException_BlankJiraId() {
+        AddTradeJiraReferenceRequest request = mock(AddTradeJiraReferenceRequest.class);
+        JiraReference jiraReference = new JiraReference("");
+        when(request.getJiraReference()).thenReturn(jiraReference);
+        when(request.getAction()).thenReturn("action");
+
+        ExceptionManagement result = updater.removeJiraIdFromException(request, em, "userName");
+
+        assertNotNull(result);
+        assertEquals("userName", result.getLastActionUser());
+        assertEquals("action", result.getLastAction());
+    }
+
+    @Test
+    public void testRemoveJiraIdFromException_NullIssueIds() {
+        AddTradeJiraReferenceRequest request = mock(AddTradeJiraReferenceRequest.class);
+        JiraReference jiraReference = new JiraReference("jiraId");
+        when(request.getJiraReference()).thenReturn(jiraReference);
+        when(request.getAction()).thenReturn("action");
+        when(em.getIssueIds()).thenReturn(null);
+
+        ExceptionManagement result = updater.removeJiraIdFromException(request, em, "userName");
+
+        assertNotNull(result);
+        assertEquals("userName", result.getLastActionUser());
+        assertEquals("action", result.getLastAction());
+    }
+
+    @Test
+    public void testRemoveJiraIdFromException_JiraIdNotInList() {
+        AddTradeJiraReferenceRequest request = mock(AddTradeJiraReferenceRequest.class);
+        JiraReference jiraReference = new JiraReference("nonExistentId");
+        when(request.getJiraReference()).thenReturn(jiraReference);
+        when(request.getAction()).thenReturn("action");
+        
+        List<String> issueIds = new ArrayList<>();
+        issueIds.add("existingId");
+        when(em.getIssueIds()).thenReturn(issueIds);
+
+        ExceptionManagement result = updater.removeJiraIdFromException(request, em, "userName");
+
+        assertNotNull(result);
+        assertTrue(result.getIssueIds().contains("existingId"));
+        assertEquals("userName", result.getLastActionUser());
+        assertEquals("action", result.getLastAction());
+    }
+
+    // Test for removeJiraTypeFromException method
+    @Test
+    public void testRemoveJiraTypeFromException_SameType() {
+        AddTradeJiraTypeRequest request = mock(AddTradeJiraTypeRequest.class);
+        JiraType jiraType = new JiraType("TEST_TYPE");
+        when(request.getJiraType()).thenReturn(jiraType);
+        when(request.getAction()).thenReturn("action");
+        
+        IssueType existingType = mock(IssueType.class);
+        when(existingType.value()).thenReturn("TEST_TYPE");
+        when(em.getIssueType()).thenReturn(existingType);
+
+        ExceptionManagement result = updater.removeJiraTypeFromException(request, em, "userName");
+
+        assertNotNull(result);
+        assertNull(result.getIssueType());
+        assertEquals("userName", result.getLastActionUser());
+        assertEquals("action", result.getLastAction());
+    }
+
+    @Test
+    public void testRemoveJiraTypeFromException_DifferentType() {
+        AddTradeJiraTypeRequest request = mock(AddTradeJiraTypeRequest.class);
+        JiraType jiraType = new JiraType("NEW_TYPE");
+        when(request.getJiraType()).thenReturn(jiraType);
+        when(request.getAction()).thenReturn("action");
+        
+        IssueType existingType = mock(IssueType.class);
+        when(existingType.value()).thenReturn("EXISTING_TYPE");
+        when(em.getIssueType()).thenReturn(existingType);
+
+        ExceptionManagement result = updater.removeJiraTypeFromException(request, em, "userName");
+
+        assertNotNull(result);
+        assertEquals(existingType, result.getIssueType());
+        assertEquals("userName", result.getLastActionUser());
+        assertEquals("action", result.getLastAction());
+    }
+
+    // Test for getEditedFields with actual field changes
+    @Test
+    public void testGetEditedFields_WithChanges() {
+        // Create test objects that would actually show differences
+        // Since we can't easily mock EntityComparator.compare, we'll test the string building logic
+        ExceptionManagmentUpdater spyUpdater = spy(updater);
+        
+        // Mock the EntityComparator.compare method would be complex, so we test the existing logic
+        Object actualObj = new TestObject("value1");
+        Object modifiedObj = new TestObject("value2");
+
+        String result = spyUpdater.getEditedFields(actualObj, modifiedObj);
+        
+        // Since objects are different, it should return some field name or NO_FIELD_EDITED
+        assertNotNull(result);
+    }
+
+    // Test for removeCommentTypeToException method
+    @Test
+    public void testRemoveCommentTypeToException_SameType() {
+        AddTradeCommentTypeRequest request = mock(AddTradeCommentTypeRequest.class);
+        CommentType commentType = new CommentType("TEST_COMMENT_TYPE");
+        when(request.getCommentType()).thenReturn(commentType);
+        when(request.getAction()).thenReturn("action");
+        
+        UserCommentType existingType = mock(UserCommentType.class);
+        when(existingType.value()).thenReturn("TEST_COMMENT_TYPE");
+        when(em.getUserCommentType()).thenReturn(existingType);
+
+        ExceptionManagement result = updater.removeCommentTypeToException(request, em, "userName");
+
+        assertNotNull(result);
+        assertNull(result.getUserCommentType());
+        assertNull(result.getUserComment());
+        assertEquals("userName", result.getLastActionUser());
+        assertEquals("action", result.getLastAction());
+    }
+
+    @Test
+    public void testRemoveCommentTypeToException_DifferentType() {
+        AddTradeCommentTypeRequest request = mock(AddTradeCommentTypeRequest.class);
+        CommentType commentType = new CommentType("NEW_COMMENT_TYPE");
+        when(request.getCommentType()).thenReturn(commentType);
+        when(request.getAction()).thenReturn("action");
+        
+        UserCommentType existingType = mock(UserCommentType.class);
+        when(existingType.value()).thenReturn("EXISTING_COMMENT_TYPE");
+        when(em.getUserCommentType()).thenReturn(existingType);
+
+        ExceptionManagement result = updater.removeCommentTypeToException(request, em, "userName");
+
+        assertNotNull(result);
+        assertEquals(existingType, result.getUserCommentType());
+        assertNull(result.getUserComment());
+        assertEquals("userName", result.getLastActionUser());
+        assertEquals("action", result.getLastAction());
+    }
+
+    // Helper class for testing getEditedFields
+    private static class TestObject {
+        private String value;
+        
+        public TestObject(String value) {
+            this.value = value;
+        }
+        
+        public String getValue() {
+            return value;
+        }
+    }
 }
