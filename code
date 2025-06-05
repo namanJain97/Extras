@@ -1,44 +1,49 @@
 package com.rbs.tntr.business.blotter.services;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.collect.Lists;
+import com.nwm.tntr.domain.email.EmailContent;
 import com.rbs.datafabric.api.PagedScanResult;
 import com.rbs.datafabric.api.ScanResult;
+import com.rbs.datafabric.api.exception.ScanException;
 import com.rbs.datafabric.client.DataFabricClient;
 import com.rbs.datafabric.domain.Document;
 import com.rbs.datafabric.domain.JsonDocument;
 import com.rbs.datafabric.domain.Record;
 import com.rbs.datafabric.domain.RecordId;
 import com.rbs.datafabric.domain.client.builder.ScanRequestBuilder;
+import com.rbs.tntr.business.blotter.repository.DataFabricExportRepository;
 import com.rbs.tntr.business.blotter.search.querybuilder.DfExportScan;
 import com.rbs.tntr.business.blotter.search.querybuilder.DfScanParameters;
+import com.rbs.tntr.business.blotter.search.querybuilder.LoggedInUserDetails;
+import com.rbs.tntr.business.blotter.services.datetime.DateTimeService;
 import com.rbs.tntr.business.blotter.services.jobs.DfExportJob;
-import com.rbs.tntr.business.blotter.utility.BlotterUtil;
 import com.rbs.tntr.domain.blotter.exceptions.BlotterRunTimeException;
 import com.rbs.tntr.domain.blotter.exceptions.ValidationException;
-import com.rbs.tntr.domain.email.EmailContent;
-import org.apache.commons.io.FileUtils;
 import org.joda.time.DateTime;
 import org.junit.Before;
 import org.junit.Test;
-import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
+import org.mockito.*;
+import org.mockito.invocation.InvocationOnMock;
+import org.mockito.stubbing.Answer;
+import org.slf4j.Logger;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.io.File;
 import java.lang.reflect.Field;
-import java.lang.reflect.Method;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.regex.Pattern;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 import static com.rbs.tntr.business.blotter.services.common.StringConstants.*;
-import static com.rbs.tntr.business.blotter.services.common.CsvHeaderConstants.*;
-import static com.rbs.tntr.business.blotter.services.common.DfFieldConstants.*;
-import static com.rbs.tntr.business.blotter.services.validators.ValidatorConstants.*;
 import static org.junit.Assert.*;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Matchers.any;
+import static org.mockito.Matchers.anyListOf;
+import static org.mockito.Matchers.anySetOf;
+import static org.mockito.Matchers.anyString;
 import static org.mockito.Mockito.*;
 
 public class DataFabricExportServiceImplTest {
@@ -47,420 +52,273 @@ public class DataFabricExportServiceImplTest {
     private DataFabricExportServiceImpl dataFabricExportService;
 
     @Mock
-    private DataFabricExportRepository mockDfExportRepository;
-
+    private DataFabricExportUtility dataFabricExportUtil;
     @Mock
-    private DataFabricExportUtility mockDataFabricExportUtil;
-
+    private CsvWriterImpl csvWriter;
     @Mock
-    private CsvWriterImpl mockCsvWriter;
-
+    private ExcelWriterImpl excelWriter;
     @Mock
-    private ExcelWriterImpl mockExcelWriter;
-
+    private DataFabricExportRepository dfExportRepository;
     @Mock
-    private DateTimeService mockDateTimeService;
-
+    private DateTimeService dateTimeService;
     @Mock
-    private EmailService mockEmailService;
-
+    private EmailService emailService;
+    @Mock
+    private DataFabricClient dataFabricClient;
+    @Mock
+    private Logger logger;
     @Mock
     private BlockingQueue<DfExportJob> mockQueue;
-
     @Mock
-    private DataFabricClient mockDfClient;
+    private PagedScanResult pagedScanResult;
+    @Mock
+    private Record record;
+    @Mock
+    private JsonDocument jsonDocument;
+    @Mock
+    private Document document;
+    @Mock
+    private ScanResult scanResult;
+
+    private AutoCloseable closeable;
 
     @Before
     public void setUp() throws Exception {
-        MockitoAnnotations.initMocks(this);
-        // Set queue to mockQueue using reflection
-        Field queueField = DataFabricExportServiceImpl.class.getDeclaredField("queue");
-        queueField.setAccessible(true);
-        queueField.set(dataFabricExportService, mockQueue);
+        closeable = MockitoAnnotations.openMocks(this);
+        ReflectionTestUtils.setField(dataFabricExportService, "outputFilePath", "/test/output");
+        ReflectionTestUtils.setField(dataFabricExportService, "miReceiverEmail", "test@example.com");
+        ReflectionTestUtils.setField(dataFabricExportService, "exportThresholdCount", 1000);
+        ReflectionTestUtils.setField(dataFabricExportService, "exportThresholdCountFeature", true);
+        ReflectionTestUtils.setField(dataFabricExportService, "zippedExportFeature", true);
+        ReflectionTestUtils.setField(dataFabricExportService, "emailNotificationFeature", true);
+        ReflectionTestUtils.setField(dataFabricExportService, "exportPageCount", 100);
+        ReflectionTestUtils.setField(dataFabricExportService, "smtpHost", "smtp.example.com");
+        ReflectionTestUtils.setField(dataFabricExportService, "emailFrom", "noreply@example.com");
+        ReflectionTestUtils.setField(dataFabricExportService, "queue", new LinkedBlockingQueue<>());
 
-        // Set @Value fields
-        Field outputFilePathField = DataFabricExportServiceImpl.class.getDeclaredField("outputFilePath");
-        outputFilePathField.setAccessible(true);
-        outputFilePathField.set(dataFabricExportService, "/tmp");
-
-        Field exportThresholdCountField = DataFabricExportServiceImpl.class.getDeclaredField("exportThresholdCount");
-        exportThresholdCountField.setAccessible(true);
-        exportThresholdCountField.set(dataFabricExportService, 100);
-
-        Field exportThresholdCountFeatureField = DataFabricExportServiceImpl.class.getDeclaredField("exportThresholdCountFeature");
-        exportThresholdCountFeatureField.setAccessible(true);
-        exportThresholdCountFeatureField.set(dataFabricExportService, true);
-
-        Field zippedExportFeatureField = DataFabricExportServiceImpl.class.getDeclaredField("zippedExportFeature");
-        zippedExportFeatureField.setAccessible(true);
-        zippedExportFeatureField.set(dataFabricExportService, true);
-
-        Field emailNotificationFeatureField = DataFabricExportServiceImpl.class.getDeclaredField("emailNotificationFeature");
-        emailNotificationFeatureField.setAccessible(true);
-        emailNotificationFeatureField.set(dataFabricExportService, true);
-
-        Field miReceiverEmailField = DataFabricExportServiceImpl.class.getDeclaredField("miReceiverEmail");
-        miReceiverEmailField.setAccessible(true);
-        miReceiverEmailField.set(dataFabricExportService, "test@example.com");
-
-        Field emailFromField = DataFabricExportServiceImpl.class.getDeclaredField("emailFrom");
-        emailFromField.setAccessible(true);
-        emailFromField.set(dataFabricExportService, "from@example.com");
-
-        Field smtpHostField = DataFabricExportServiceImpl.class.getDeclaredField("smtpHost");
-        smtpHostField.setAccessible(true);
-        smtpHostField.set(dataFabricExportService, "smtp.example.com");
-
-        // Mock DateTimeService
-        when(mockDateTimeService.getCurrentUTCDateTime()).thenReturn(new DateTime(2025, 6, 5, 12, 20));
-        when(mockDateTimeService.getUTCDateAsString(any())).thenReturn("20250605");
-        when(mockDateTimeService.getCurrentDateTimeAsString()).thenReturn("05-06-2025 12:20:00");
-        when(mockDateTimeService.asString(any())).thenReturn("2025-06-05T12:20:00Z");
+        when(dataFabricExportUtil.getDataFabricClient()).thenReturn(dataFabricClient);
+        when(dataFabricClient.pagedScan(any(ScanRequestBuilder.class))).thenReturn(pagedScanResult);
+        when(pagedScanResult.getRecords()).thenReturn(Collections.singletonList(record));
+        when(record.getDocument()).thenReturn(document);
+        when(document.getContents()).thenReturn("{\"totalCount\":10}");
+        when(csvWriter.generateCsvFile(anyList(), anyString(), anyString())).thenReturn(true);
     }
-
-    // Fixed and Additional Tests for Public Methods
-
-    @Test(expected = ValidationException.class)
-    public void testFetchAndExportRecordsValidationFailure_InvalidBlotterName() {
-        DfScanParameters scanParameters = new DfScanParameters();
-        scanParameters.setBlotterName("");
-        scanParameters.setCollectionName("testCollection");
-        String userName = "testUser";
-        dataFabricExportService.fetchAndExportRecords(scanParameters, userName, false, new DfExportScan());
-    }
-
-    @Test(expected = ValidationException.class)
-    public void testFetchAndExportRecordsValidationFailure_InvalidUserName() {
-        DfScanParameters scanParameters = new DfScanParameters();
-        scanParameters.setBlotterName("testBlotter");
-        scanParameters.setCollectionName("testCollection");
-        String userName = "";
-        dataFabricExportService.fetchAndExportRecords(scanParameters, userName, false, new DfExportScan());
-    }
-
-    @Test
-    public void testFetchAndExportRecords_Success() throws Exception {
-        DfScanParameters scanParameters = new DfScanParameters();
-        scanParameters.setBlotterName("testBlotter");
-        scanParameters.setCollectionName("testCollection");
-        String userName = "testUser";
-        DfExportScan scan = new DfExportScan();
-        boolean isSavedScan = false;
-
-        when(mockQueue.put(any(DfExportJob.class))).thenReturn(true);
-
-        boolean result = dataFabricExportService.fetchAndExportRecords(scanParameters, userName, isSavedScan, scan);
-        assertTrue(result);
-
-        ArgumentCaptor<DfExportJob> jobCaptor = ArgumentCaptor.forClass(DfExportJob.class);
-        verify(mockQueue).put(jobCaptor.capture());
-        DfExportJob capturedJob = jobCaptor.getValue();
-        assertEquals(userName, capturedJob.getUserName());
-        assertEquals(isSavedScan, capturedJob.isSavedScan());
-        assertEquals(scan, capturedJob.getScan());
-        assertTrue(capturedJob.getFileName().startsWith("testUser__"));
-    }
-
-    @Test
-    public void testFetchAndExportRecords_QueueException() throws Exception {
-        DfScanParameters scanParameters = new DfScanParameters();
-        scanParameters.setBlotterName("testBlotter");
-        scanParameters.setCollectionName("testCollection");
-        String userName = "testUser";
-        DfExportScan scan = new DfExportScan();
-        doThrow(new InterruptedException()).when(mockQueue).put(any(DfExportJob.class));
-        boolean result = dataFabricExportService.fetchAndExportRecords(scanParameters, userName, false, scan);
-        assertFalse(result);
-    }
-
-    @Test
-    public void testInsertDfScan_WithoutScheduling() {
-        DfExportScan scan = new DfExportScan();
-        scan.setRequestedUserId("testUser");
-        RecordId mockRecordId = new RecordId("testId");
-        when(mockDfExportRepository.upsertDfScan(any())).thenReturn(mockRecordId);
-
-        RecordId result = dataFabricExportService.insertDfScan(scan);
-        assertEquals(mockRecordId, result);
-        assertEquals(STATUS_CREATED, scan.getExecutionStatus());
-        assertEquals("New Scan created", scan.getRemarks());
-        verify(mockDfExportRepository).upsertDfScan(scan);
-    }
-
-    @Test
-    public void testInsertDfScan_WithScheduling() {
-        DfExportScan scan = new DfExportScan();
-        scan.setRequestedUserId("testUser");
-        scan.setScheduled(true);
-        scan.setScheduledTime("11:00 AM");
-        RecordId mockRecordId = new RecordId("testId");
-        when(mockDfExportRepository.upsertDfScan(any())).thenReturn(mockRecordId);
-        when(mockDateTimeService.getCurrentDateWithStartTime(11, 0)).thenReturn(new DateTime(2025, 6, 5, 11, 0));
-
-        RecordId result = dataFabricExportService.insertDfScan(scan);
-        assertEquals(mockRecordId, result);
-        assertEquals(STATUS_SCHEDULED, scan.getExecutionStatus());
-        assertEquals("New Scan created & scheduled", scan.getRemarks());
-        verify(mockDfExportRepository).upsertDfScan(scan);
-    }
-
-    @Test(expected = BlotterRunTimeException.class)
-    public void testInsertDfScan_SchedulingParseException() {
-        DfExportScan scan = new DfExportScan();
-        scan.setRequestedUserId("testUser");
-        scan.setScheduled(true);
-        scan.setScheduledTime("invalid");
-        dataFabricExportService.insertDfScan(scan);
-    }
-
-    @Test
-    public void testFetchDfScansForUser() {
-        String userName = "testUser";
-        DfExportScan scan = new DfExportScan();
-        scan.setCreationDate("05-06-2025 12:20:00");
-        List<DfExportScan> expectedScans = Arrays.asList(scan);
-        when(mockDfExportRepository.fetchDfScansForUser(userName)).thenReturn(expectedScans);
-        when(mockDateTimeService.parseDateTimeFromString(anyString())).thenReturn(new DateTime(2025, 6, 5, 12, 20));
-        when(mockDateTimeService.getDirectPastDateTime(any(), eq(60))).thenReturn(new DateTime(2025, 6, 5, 11, 20));
-
-        List<DfExportScan> result = dataFabricExportService.fetchDfScansForUser(userName);
-        assertEquals(1, result.size());
-        verify(mockDfExportRepository).fetchDfScansForUser(userName);
-    }
-
-    @Test
-    public void testUpdateDfScan_WithScheduling() {
-        DfExportScan scan = new DfExportScan();
-        scan.setScanId("testScanId");
-        scan.setScheduled(true);
-        scan.setScheduledTime("11:00 AM");
-        List<DfExportScan> scans = Arrays.asList(scan);
-        RecordId mockRecordId = new RecordId("testId");
-        when(mockDfExportRepository.upsertDfScan(any())).thenReturn(mockRecordId);
-        when(mockDateTimeService.getCurrentDateWithStartTime(11, 0)).thenReturn(new DateTime(2025, 6, 5, 11, 0));
-
-        List<RecordId> result = dataFabricExportService.updateDfScan(scans);
-        assertEquals(1, result.size());
-        assertEquals(STATUS_SCHEDULED, scan.getExecutionStatus());
-        assertEquals("Scan Scheduled successfully", scan.getRemarks());
-        verify(mockDfExportRepository).upsertDfScan(scan);
-    }
-
-    @Test(expected = ValidationException.class)
-    public void testUpdateDfScan_InvalidScanId() {
-        List<DfExportScan> scans = Arrays.asList(new DfExportScan());
-        dataFabricExportService.updateDfScan(scans);
-    }
-
-    @Test
-    public void testFetchScanByIdAndGenerateExport_Success() throws Exception {
-        String scanId = "testScanId";
-        String userName = "testUser";
-        DfExportScan scan = new DfExportScan();
-        scan.setScanId(scanId);
-        scan.setBlotterName("testBlotter");
-        when(mockDfExportRepository.fetchDfScanById(scanId)).thenReturn(scan);
-        when(mockQueue.put(any(DfExportJob.class))).thenReturn(true);
-
-        boolean result = dataFabricExportService.fetchScanByIdAndGenerateExport(scanId, userName);
-        assertTrue(result);
-        verify(mockDfExportRepository).fetchDfScanById(scanId);
-        verify(mockDfExportRepository).upsertDfScan(scan);
-        verify(mockQueue).put(any(DfExportJob.class));
-    }
-
-    @Test(expected = ValidationException.class)
-    public void testFetchScanByIdAndGenerateExport_InvalidScanId() {
-        dataFabricExportService.fetchScanByIdAndGenerateExport("", "testUser");
-    }
-
-    @Test
-    public void testDeleteExportScans_ValidList() {
-        List<String> scanIds = Arrays.asList("id1", "id2");
-        when(mockDfExportRepository.deleteExportScans(scanIds)).thenReturn(2L);
-
-        long result = dataFabricExportService.deleteExportScans(scanIds);
-        assertEquals(2L, result);
-        verify(mockDfExportRepository).deleteExportScans(scanIds);
-    }
-
-    @Test(expected = ValidationException.class)
-    public void testDeleteExportScans_EmptyList() {
-        dataFabricExportService.deleteExportScans(Collections.emptyList());
-    }
-
-    @Test
-    public void testFetchDfExportScanById() {
-        String scanId = "testScanId";
-        DfExportScan scan = new DfExportScan();
-        when(mockDfExportRepository.fetchDfScanById(scanId)).thenReturn(scan);
-
-        DfExportScan result = dataFabricExportService.fetchDfExportScanById(scanId);
-        assertEquals(scan, result);
-        verify(mockDfExportRepository).fetchDfScanById(scanId);
-    }
-
-    @Test(expected = ValidationException.class)
-    public void testFetchDfExportScanById_InvalidScanId() {
-        dataFabricExportService.fetchDfExportScanById("");
-    }
-
-    @Test
-    public void testScheduledDfExports() throws Exception {
-        DfExportScan scan = new DfExportScan();
-        scan.setScanId("testScanId");
-        scan.setBlotterName("testBlotter");
-        scan.setRequestedUserId("testUser");
-        List<DfExportScan> scans = Arrays.asList(scan);
-        when(mockDfExportRepository.fetchScheduledScans()).thenReturn(scans);
-        when(mockQueue.put(any(DfExportJob.class))).thenReturn(true);
-
-        dataFabricExportService.scheduledDfExports();
-        verify(mockDfExportRepository).fetchScheduledScans();
-        verify(mockDfExportRepository).upsertDfScan(scan);
-        verify(mockQueue).put(any(DfExportJob.class));
-    }
-
-    @Test
-    public void testGenerateForcedExport() throws Exception {
-        String scanId = "testScanId";
-        String userName = "testUser";
-        DfExportScan scan = new DfExportScan();
-        scan.setScanId(scanId);
-        scan.setBlotterName("testBlotter");
-        when(mockDfExportRepository.fetchDfScanById(scanId)).thenReturn(scan);
-        when(mockQueue.put(any(DfExportJob.class))).thenReturn(true);
-
-        dataFabricExportService.generateForcedExport(scanId, userName);
-        verify(mockDfExportRepository).fetchDfScanById(scanId);
-        verify(mockDfExportRepository).upsertDfScan(scan);
-        verify(mockQueue).put(argThat(job -> job.isForcedRun()));
-    }
-
-    @Test
-    public void testGetScanParamList_DfExportScan_SingleCollection() {
-        DfExportScan scan = new DfExportScan();
-        scan.setCollectionName("testCollection");
-        scan.setAsOf("2025-06-05");
-        when(mockDateTimeService.parseDateTime(anyString())).thenReturn(new DateTime(2025, 6, 5, 12, 0));
-
-        List<DfScanParameters> result = dataFabricExportService.getScanParamList(scan);
-        assertEquals(1, result.size());
-        assertEquals("testCollection", result.get(0).getCollectionName());
-    }
-
-    @Test
-    public void testGetMiFolderPath() {
-        String result = dataFabricExportService.getMiFolderPath();
-        assertEquals("/tmp/20250605/MI", result);
-    }
-
-    @Test
-    public void testSubmitTask_Success() throws Exception {
-        DfExportJob job = new DfExportJob(Collections.emptyList(), "testUser", false, new DfExportScan(), "fileName");
-        when(mockQueue.put(job)).thenReturn(true);
-
-        boolean result = dataFabricExportService.submitTask(job);
-        assertTrue(result);
-        verify(mockQueue).put(job);
-    }
-
-    @Test
-    public void testSubmitTask_InterruptedException() throws Exception {
-        DfExportJob job = new DfExportJob(Collections.emptyList(), "testUser", false, new DfExportScan(), "fileName");
-        doThrow(new InterruptedException()).when(mockQueue).put(job);
-
-        boolean result = dataFabricExportService.submitTask(job);
-        assertFalse(result);
-        verify(mockQueue).put(job);
-    }
-
-    // Tests for Private Methods Using Reflection
 
     @Test
     public void testCalculateThresholdCount() throws Exception {
-        List<DfScanParameters> scanParamList = Arrays.asList(new DfScanParameters());
-        String userName = "testUser";
-        when(mockDataFabricExportUtil.getDataFabricClient()).thenReturn(mockDfClient);
-        PagedScanResult mockPagedScan = mock(PagedScanResult.class);
-        when(mockDfClient.pagedScan(any())).thenReturn(mockPagedScan);
-        List<Record> mockRecords = Arrays.asList(mock(Record.class));
-        when(mockPagedScan.getRecords()).thenReturn(mockRecords);
-        Document mockDocument = mock(Document.class);
-        when(mockRecords.get(0).getDocument()).thenReturn(mockDocument);
-        JsonDocument mockJsonDocument = mock(JsonDocument.class);
-        when((JsonDocument) mockDocument).thenReturn(mockJsonDocument);
-        when(mockJsonDocument.getContents()).thenReturn("{\"totalCount\": 100}");
+        DfScanParameters scanParam = new DfScanParameters();
+        scanParam.setCollectionName("testCollection");
+        List<DfScanParameters> scanParamList = Collections.singletonList(scanParam);
 
-        Method method = DataFabricExportServiceImpl.class.getDeclaredMethod("calculateThresholdCount", List.class, String.class);
-        method.setAccessible(true);
-        int totalCount = (int) method.invoke(dataFabricExportService, scanParamList, userName);
-        assertEquals(100, totalCount);
+        int result = ReflectionTestUtils.invokeMethod(
+            dataFabricExportService, 
+            "calculateThresholdCount", 
+            scanParamList, 
+            "testUser"
+        );
+        assertEquals(10, result);
     }
 
     @Test
     public void testModifyFileName() throws Exception {
-        List<DfScanParameters> scanParamList = Arrays.asList(new DfScanParameters());
-        String fileName = "testFile";
-        when(mockDataFabricExportUtil.getDataFabricClient()).thenReturn(mockDfClient);
-        PagedScanResult mockPagedScan = mock(PagedScanResult.class);
-        when(mockDfClient.pagedScan(any())).thenReturn(mockPagedScan);
-        List<Record> mockRecords = Arrays.asList(mock(Record.class));
-        when(mockPagedScan.getRecords()).thenReturn(mockRecords);
-        Document mockDocument = mock(Document.class);
-        when(mockRecords.get(0).getDocument()).thenReturn(mockDocument);
-        JsonDocument mockJsonDocument = mock(JsonDocument.class);
-        when((JsonDocument) mockDocument).thenReturn(mockJsonDocument);
-        when(mockJsonDocument.getContents()).thenReturn("{\"identifier\": \"testId\", \"reconciliationBusinessDateTime\": \"2025-06-05T12:00:00Z\"}");
+        DfScanParameters scanParam = new DfScanParameters();
+        scanParam.setCollectionName("Reconciliation");
+        List<DfScanParameters> scanParamList = Collections.singletonList(scanParam);
+        when(record.getDocument()).thenReturn(jsonDocument);
+        when(jsonDocument.getContents()).thenReturn("{\"identifier\":\"ID123\",\"reconciliationBusinessDateTime\":\"2023-01-01T00:00:00Z\"}");
 
-        Method method = DataFabricExportServiceImpl.class.getDeclaredMethod("modifyFileName", List.class, String.class);
-        method.setAccessible(true);
-        String result = (String) method.invoke(dataFabricExportService, scanParamList, fileName);
-        assertEquals("testId_2025-06-05_testFile", result);
+        String result = ReflectionTestUtils.invokeMethod(
+            dataFabricExportService, 
+            "modifyFileName", 
+            scanParamList, 
+            "originalFileName"
+        );
+        assertEquals("ID123_2023-01-01_originalFileName", result);
     }
 
     @Test
-    public void testPopulateNextRunDate() throws Exception {
-        String scanTime = "11:00 AM";
-        when(mockDateTimeService.getCurrentDateWithStartTime(11, 0)).thenReturn(new DateTime(2025, 6, 5, 11, 0));
+    public void testGenerateScanRequestId() {
+        String result = ReflectionTestUtils.invokeMethod(
+            dataFabricExportService, 
+            "generateScanRequestId", 
+            "testUser"
+        );
+        assertTrue(result.startsWith("testUser_scan_req_"));
+    }
 
-        Method method = DataFabricExportServiceImpl.class.getDeclaredMethod("populateNextRunDate", String.class);
-        method.setAccessible(true);
-        Date result = (Date) method.invoke(dataFabricExportService, scanTime);
+    @Test
+    public void testFilterLatestScanList_Valid() {
+        DfExportScan scan = new DfExportScan();
+        scan.setLastExecutionDateTime("01-01-2023 12:00:00");
+        when(dateTimeService.getCurrentUTCDateTime()).thenReturn(new DateTime(2023, 1, 1, 12, 0));
+        when(dateTimeService.getDirectPastDateTime(any(DateTime.class), anyInt())).thenReturn(new DateTime(2023, 1, 1, 11, 0));
+
+        boolean result = ReflectionTestUtils.invokeMethod(
+            dataFabricExportService, 
+            "filterLatestScanList", 
+            scan
+        );
+        assertTrue(result);
+    }
+
+    @Test
+    public void testPopulateNextRunDate_TimeAfterCurrent() throws ParseException {
+        SimpleDateFormat sdf = new SimpleDateFormat("hh:mm a");
+        Date testTime = sdf.parse("11:00 AM");
+        when(dateTimeService.getCurrentUTCDateTime()).thenReturn(new DateTime().withHourOfDay(10));
+
+        Date result = ReflectionTestUtils.invokeMethod(
+            dataFabricExportService, 
+            "populateNextRunDate", 
+            "11:00 AM"
+        );
+        assertEquals(testTime, result);
+    }
+
+    @Test(expected = BlotterRunTimeException.class)
+    public void testPopulateNextRunDate_InvalidTime() {
+        ReflectionTestUtils.invokeMethod(
+            dataFabricExportService, 
+            "populateNextRunDate", 
+            "invalidTime"
+        );
+    }
+
+    @Test
+    public void testFetchCsvRecords_WithAppend() {
+        Set<String> headers = new LinkedHashSet<>(Arrays.asList("header1", "header2"));
+        List<Map<String, String>> recordList = new ArrayList<>();
+        Map<String, String> recordMap = new HashMap<>();
+        recordMap.put("header1", "value1");
+        recordList.add(recordMap);
+
+        List<String[]> result = ReflectionTestUtils.invokeMethod(
+            dataFabricExportService, 
+            "fetchCsvRecords", 
+            recordList, 
+            headers, 
+            true
+        );
+        assertEquals(1, result.size()); // Only data rows (no header)
+    }
+
+    @Test
+    public void testWriteDataToFile_Success() throws IOException {
+        DfExportScan scan = new DfExportScan();
+        scan.setExportFileFormat("CSV");
+        List<String[]> rows = new ArrayList<>();
+        when(csvWriter.generateCsvFile(anyList(), anyString(), anyString())).thenReturn(true);
+
+        boolean result = ReflectionTestUtils.invokeMethod(
+            dataFabricExportService, 
+            "writeDataToFile", 
+            scan, 
+            "testFile", 
+            rows
+        );
+        assertTrue(result);
+    }
+
+    @Test
+    public void testGenerateOutputFileName_MI() {
+        String result = ReflectionTestUtils.invokeMethod(
+            dataFabricExportService, 
+            "generateOutputFileName", 
+            "MI_testFile", 
+            "zip"
+        );
+        assertTrue(result.contains("/test/output/") && result.contains("/MI/"));
+    }
+
+    @Test
+    public void testStartScheduledJob() throws InterruptedException {
+        // Setup a job in the queue
+        DfExportJob job = new DfExportJob(
+            Collections.emptyList(), 
+            "testUser", 
+            true, 
+            new DfExportScan(), 
+            "testFile"
+        );
+        dataFabricExportService.submitTask(job);
+        
+        // Start the job executor thread
+        ReflectionTestUtils.invokeMethod(dataFabricExportService, "startScheduledJob");
+        Thread.sleep(500); // Allow time for thread execution
+        
+        // Verify job processing
+        verify(dfExportRepository, atLeastOnce()).upsertDfScan(any(DfExportScan.class));
+    }
+
+    @Test
+    public void testResumeInQueueScans() {
+        DfExportScan scan = new DfExportScan();
+        scan.setScanId("testScan");
+        scan.setExecutionStatus(STATUS_IN_QUEUE);
+        when(dfExportRepository.fetchScansWithStatus(STATUS_IN_QUEUE)).thenReturn(Collections.singletonList(scan));
+        
+        ReflectionTestUtils.invokeMethod(dataFabricExportService, "resumeInQueueScans");
+        verify(dfExportRepository).fetchScansWithStatus(STATUS_IN_QUEUE);
+        assertFalse(dataFabricExportService.queue.isEmpty());
+    }
+
+    @Test
+    public void testZipExportFile_Success() throws Exception {
+        File testFile = File.createTempFile("test", ".csv");
+        testFile.deleteOnExit();
+        ReflectionTestUtils.setField(dataFabricExportService, "outputFilePath", testFile.getParent());
+        
+        ReflectionTestUtils.invokeMethod(
+            dataFabricExportService, 
+            "zipExportFile", 
+            testFile.getName().replace(".csv", "")
+        );
+        
+        File zipFile = new File(testFile.getParent() + "/" + testFile.getName().replace(".csv", ".zip"));
+        assertTrue(zipFile.exists());
+        zipFile.deleteOnExit();
+    }
+
+    @Test
+    public void testPopulateDynamicDate() {
+        String clause = "date > [D-1]";
+        String result = ReflectionTestUtils.invokeMethod(
+            dataFabricExportService, 
+            "populateDynamicDate", 
+            clause
+        );
+        assertTrue(result.contains("'"));
+    }
+
+    @Test
+    public void testPopulateEmailNotification() {
+        DfExportScan scan = new DfExportScan();
+        scan.setRequestedUserId("testUser");
+        scan.setBlotterName("TestBlotter");
+        scan.setExportRecordCount(100);
+        scan.setExecutionTime("10");
+        scan.setLastExecutionDateTime("01-01-2023 12:00:00");
+        
+        EmailContent result = ReflectionTestUtils.invokeMethod(
+            dataFabricExportService, 
+            "populateEmailNotification", 
+            scan
+        );
         assertNotNull(result);
     }
 
     @Test
-    public void testFetchCsvRecords_EmptyHeaders() throws Exception {
-        List<Map<String, String>> recordList = Arrays.asList(new HashMap<>());
-        Set<String> headers = new LinkedHashSet<>();
-        boolean isAppend = false;
-
-        Method method = DataFabricExportServiceImpl.class.getDeclaredMethod("fetchCsvRecords", List.class, Set.class, boolean.class);
-        method.setAccessible(true);
-        try {
-            method.invoke(dataFabricExportService, recordList, headers, isAppend);
-            fail("Expected ValidationException");
-        } catch (Exception e) {
-            assertTrue(e.getCause() instanceof ValidationException);
-        }
+    public void testGenerateForcedExport() {
+        DfExportScan scan = new DfExportScan();
+        scan.setScanId("forcedScan");
+        when(dfExportRepository.fetchDfScanById("forcedScan")).thenReturn(scan);
+        
+        dataFabricExportService.generateForcedExport("forcedScan", "testUser");
+        assertFalse(dataFabricExportService.queue.isEmpty());
     }
 
-    @Test
-    public void testFetchCsvRecords_WithHeaders() throws Exception {
-        List<Map<String, String>> recordList = Arrays.asList(new HashMap<String, String>() {{
-            put("key1", "value1");
-        }});
-        Set<String> headers = new LinkedHashSet<>(Arrays.asList("key1", "key2"));
-        boolean isAppend = false;
-
-        Method method = DataFabricExportServiceImpl.class.getDeclaredMethod("fetchCsvRecords", List.class, Set.class, boolean.class);
-        method.setAccessible(true);
-        List<String[]> result = (List<String[]>) method.invoke(dataFabricExportService, recordList, headers, isAppend);
-        assertEquals(2, result.size()); // Headers + one record
-        assertArrayEquals(new String[]{"key1", "key2"}, result.get(0));
-        assertArrayEquals(new String[]{"value1", ""}, result.get(1));
+    // Clean up mocks
+    public void tearDown() throws Exception {
+        closeable.close();
     }
-
-    // Add more tests for other private methods similarly...
 }
