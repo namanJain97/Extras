@@ -1,5 +1,3 @@
-Could you write all the additional test cases for below java class to cover all the remaining scenarios or methods and make the test coverage or code coverage as 100% using junit 4 and old mockito version and java 8. Also don't use power mockito as i m using older mockito version and for private methods try to use reflection. Plus we can't change any file other than the above test class. 
-
 package com.rbs.tntr.business.blotter.services.common;
 
 import com.nwm.tntr.commons.core.SpringContext;
@@ -18,90 +16,22 @@ import com.rbs.tntr.business.blotter.web.request.futures.FuturesDashboardSearchR
 import com.rbs.tntr.domain.blotter.enums.FlowType;
 import com.tdx.client.api.exception.TDXClientFactoryException;
 import com.tdx.client.api.exception.TDXException;
-import org.apache.commons.lang.StringUtils;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
-import java.io.IOException;
-import java.util.*;
-
-@Component
-public class TdxFacade implements TdxService {
-
-    final ReconTdxService reconTdxService;
-    final ReconBatchTriggerRepository reconBatchTriggerRepository;
-    final ReconciliationActionService reconciliationActionService;
-
-    @Autowired
-    public TdxFacade(ReconTdxService reconTdxService, ReconBatchTriggerRepository reconBatchTriggerRepository, ReconciliationActionService reconciliationActionService) {
-        this.reconTdxService = reconTdxService;
-        this.reconBatchTriggerRepository = reconBatchTriggerRepository;
-        this.reconciliationActionService = reconciliationActionService;
-    }
-
-    @Override
-    public List<HashMap> executeReadCommand(FuturesDashboardSearchRequest futuresDashboardSearchRequest) throws TDXException, TDXClientFactoryException, IOException, StartableException, ScanException {
-        EnumMap<ApiQueryFilter, Object> apiQueryFilterMap = new EnumMap<>(ApiQueryFilter.class);
-        apiQueryFilterMap.put(ApiQueryFilter.SELECT, futuresDashboardSearchRequest.getSelectClause());
-        apiQueryFilterMap.put(ApiQueryFilter.WHERE, futuresDashboardSearchRequest.getWhereClause());
-        apiQueryFilterMap.put(ApiQueryFilter.GROUP_BY, futuresDashboardSearchRequest.getGroupByClause());
-        apiQueryFilterMap.put(ApiQueryFilter.HISTORY, futuresDashboardSearchRequest.isHistory());
-        if(futuresDashboardSearchRequest.getRowLimit()>0) {
-            apiQueryFilterMap.put(ApiQueryFilter.ROW_LIMIT, futuresDashboardSearchRequest.getRowLimit());
-        }
-        if(StringUtils.isNotBlank(futuresDashboardSearchRequest.getAsOf())){
-            apiQueryFilterMap.put(ApiQueryFilter.AS_OF, futuresDashboardSearchRequest.getAsOf());
-        }
-
-        List<HashMap> lstTDXDocument;
-        if(futuresDashboardSearchRequest.getFlow().equalsIgnoreCase(FlowType.RECONC_BATCH_TRIGGER.getValue())) {
-            lstTDXDocument = reconBatchTriggerRepository.getReconBatchByCriteria(futuresDashboardSearchRequest.getWhereClause(),
-                    futuresDashboardSearchRequest.getGroupByClause(),
-                    null,
-                    futuresDashboardSearchRequest.isHistory(),
-                    futuresDashboardSearchRequest.getRowLimit());
-        }else if(futuresDashboardSearchRequest.getFlow().equalsIgnoreCase(FlowType.RECONCILIATION.getValue())) {
-            ReconTdxRepository reconTdxRepository = SpringContext.getBean(ReconTdxRepository.class);
-            lstTDXDocument = reconTdxRepository.getTdxService().getDocumentByTdxServiceWithGroupBy(reconTdxRepository.getTdxDataSetName(), apiQueryFilterMap);
-        }else if(futuresDashboardSearchRequest.getFlow().equalsIgnoreCase(FlowType.RECONCILIATION_DF.getValue())) {
-            lstTDXDocument = reconciliationActionService.executeReadCommand(futuresDashboardSearchRequest);
-        }else if(futuresDashboardSearchRequest.getFlow().equalsIgnoreCase(FlowType.COLLATERAL.getValue())) {
-            CollateralTdxRepository collTdxRepository = SpringContext.getBean(CollateralTdxRepository.class);
-            lstTDXDocument = collTdxRepository.getTdxService().getDocumentByTdxServiceWithGroupBy(collTdxRepository.getTdxDataSetName(), apiQueryFilterMap);
-        }else{
-            TdxRepository tradeTdxRepository;
-            if(futuresDashboardSearchRequest.getFlow().equalsIgnoreCase(FlowType.VALUATION.getValue())) {
-                tradeTdxRepository = SpringContext.getBean(ValuationsTdxRepository.class);
-            }else {
-                tradeTdxRepository = SpringContext.getBean(TradeTdxRepository.class);
-            }
-
-            lstTDXDocument = tradeTdxRepository.getTdxService().getDocumentByTdxServiceWithGroupBy(tradeTdxRepository.getTdxDataSetName(), apiQueryFilterMap);
-        }
-
-        return lstTDXDocument;
-    }
-
-}
-
-Exisitng test class:
-
-package com.rbs.tntr.business.blotter.services.common;
-
-import com.rbs.datafabric.agile.commons.lang.StartableException;
-import com.rbs.datafabric.api.exception.ScanException;
-import com.rbs.tntr.business.blotter.web.request.futures.FuturesDashboardSearchRequest;
-import com.rbs.tntr.domain.blotter.enums.FlowType;
-import com.tdx.client.api.exception.TDXClientFactoryException;
-import com.tdx.client.api.exception.TDXException;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.MockedStatic;
 import org.mockito.MockitoAnnotations;
 import org.mockito.runners.MockitoJUnitRunner;
+
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.util.*;
+
 import static org.junit.Assert.*;
+import static org.mockito.Matchers.*;
+import static org.mockito.Mockito.*;
 
 @RunWith(MockitoJUnitRunner.class)
 public class TdxFacadeTest {
@@ -109,16 +39,432 @@ public class TdxFacadeTest {
     @InjectMocks
     private TdxFacade tdxFacade;
 
+    @Mock
+    private ReconTdxService reconTdxService;
+
+    @Mock
+    private ReconBatchTriggerRepository reconBatchTriggerRepository;
+
+    @Mock
+    private ReconciliationActionService reconciliationActionService;
+
+    @Mock
+    private ReconTdxRepository reconTdxRepository;
+
+    @Mock
+    private CollateralTdxRepository collateralTdxRepository;
+
+    @Mock
+    private TradeTdxRepository tradeTdxRepository;
+
+    @Mock
+    private ValuationsTdxRepository valuationsTdxRepository;
+
+    @Mock
+    private TdxRepository mockTdxRepository;
+
+    private List<HashMap> mockResultList;
+
     @Before
     public void setUp() throws Exception {
         MockitoAnnotations.initMocks(this);
+        
+        // Initialize mock result list
+        mockResultList = new ArrayList<>();
+        HashMap<String, Object> mockData = new HashMap<>();
+        mockData.put("id", "123");
+        mockData.put("status", "active");
+        mockResultList.add(mockData);
+        
+        // Set up field injection using reflection for final fields
+        setPrivateField(tdxFacade, "reconTdxService", reconTdxService);
+        setPrivateField(tdxFacade, "reconBatchTriggerRepository", reconBatchTriggerRepository);
+        setPrivateField(tdxFacade, "reconciliationActionService", reconciliationActionService);
     }
 
+    private void setPrivateField(Object target, String fieldName, Object value) throws Exception {
+        Field field = target.getClass().getDeclaredField(fieldName);
+        field.setAccessible(true);
+        field.set(target, value);
+    }
+
+    @Test
+    public void testConstructor() {
+        // Test constructor
+        TdxFacade facade = new TdxFacade(reconTdxService, reconBatchTriggerRepository, reconciliationActionService);
+        assertNotNull(facade);
+    }
+
+    @Test
+    public void testReconBatchTriggerFlow() throws Exception {
+        // Test RECONC_BATCH_TRIGGER flow
+        FuturesDashboardSearchRequest searchRequest = new FuturesDashboardSearchRequest();
+        searchRequest.setFlow(FlowType.RECONC_BATCH_TRIGGER.getValue());
+        searchRequest.setWhereClause("WHERE status = 'active'");
+        searchRequest.setGroupByClause("GROUP BY id");
+        searchRequest.setHistory(true);
+        searchRequest.setRowLimit(10);
+
+        when(reconBatchTriggerRepository.getReconBatchByCriteria(
+                anyString(), anyString(), isNull(), anyBoolean(), anyInt()))
+                .thenReturn(mockResultList);
+
+        List<HashMap> result = tdxFacade.executeReadCommand(searchRequest);
+
+        assertNotNull(result);
+        assertEquals(1, result.size());
+        verify(reconBatchTriggerRepository).getReconBatchByCriteria(
+                "WHERE status = 'active'", "GROUP BY id", null, true, 10);
+    }
+
+    @Test
+    public void testReconBatchTriggerFlowWithZeroRowLimit() throws Exception {
+        // Test RECONC_BATCH_TRIGGER flow with rowLimit = 0
+        FuturesDashboardSearchRequest searchRequest = new FuturesDashboardSearchRequest();
+        searchRequest.setFlow(FlowType.RECONC_BATCH_TRIGGER.getValue());
+        searchRequest.setWhereClause("WHERE status = 'active'");
+        searchRequest.setRowLimit(0); // This should not be added to apiQueryFilterMap
+
+        when(reconBatchTriggerRepository.getReconBatchByCriteria(
+                anyString(), isNull(), isNull(), anyBoolean(), anyInt()))
+                .thenReturn(mockResultList);
+
+        List<HashMap> result = tdxFacade.executeReadCommand(searchRequest);
+
+        assertNotNull(result);
+        verify(reconBatchTriggerRepository).getReconBatchByCriteria(
+                "WHERE status = 'active'", null, null, false, 0);
+    }
+
+    @Test
+    public void testReconciliationFlow() throws Exception {
+        // Test RECONCILIATION flow
+        FuturesDashboardSearchRequest searchRequest = new FuturesDashboardSearchRequest();
+        searchRequest.setFlow(FlowType.RECONCILIATION.getValue());
+        searchRequest.setSelectClause("SELECT * FROM table");
+        searchRequest.setWhereClause("WHERE id = 1");
+        searchRequest.setGroupByClause("GROUP BY status");
+        searchRequest.setHistory(false);
+        searchRequest.setRowLimit(5);
+        searchRequest.setAsOf("2023-01-01");
+
+        // Mock SpringContext
+        MockedStatic<SpringContext> springContextMock = mockStatic(SpringContext.class);
+        springContextMock.when(() -> SpringContext.getBean(ReconTdxRepository.class))
+                .thenReturn(reconTdxRepository);
+
+        when(reconTdxRepository.getTdxService()).thenReturn(reconTdxService);
+        when(reconTdxRepository.getTdxDataSetName()).thenReturn("reconDataSet");
+        when(reconTdxService.getDocumentByTdxServiceWithGroupBy(anyString(), any(EnumMap.class)))
+                .thenReturn(mockResultList);
+
+        List<HashMap> result = tdxFacade.executeReadCommand(searchRequest);
+
+        assertNotNull(result);
+        assertEquals(1, result.size());
+        verify(reconTdxService).getDocumentByTdxServiceWithGroupBy(eq("reconDataSet"), any(EnumMap.class));
+        
+        springContextMock.close();
+    }
+
+    @Test
+    public void testReconciliationDfFlow() throws Exception {
+        // Test RECONCILIATION_DF flow
+        FuturesDashboardSearchRequest searchRequest = new FuturesDashboardSearchRequest();
+        searchRequest.setFlow(FlowType.RECONCILIATION_DF.getValue());
+        searchRequest.setSelectClause("SELECT * FROM df_table");
+
+        when(reconciliationActionService.executeReadCommand(any(FuturesDashboardSearchRequest.class)))
+                .thenReturn(mockResultList);
+
+        List<HashMap> result = tdxFacade.executeReadCommand(searchRequest);
+
+        assertNotNull(result);
+        assertEquals(1, result.size());
+        verify(reconciliationActionService).executeReadCommand(searchRequest);
+    }
+
+    @Test
+    public void testCollateralFlow() throws Exception {
+        // Test COLLATERAL flow
+        FuturesDashboardSearchRequest searchRequest = new FuturesDashboardSearchRequest();
+        searchRequest.setFlow(FlowType.COLLATERAL.getValue());
+        searchRequest.setSelectClause("SELECT * FROM collateral");
+        searchRequest.setWhereClause("WHERE type = 'bond'");
+
+        // Mock SpringContext
+        MockedStatic<SpringContext> springContextMock = mockStatic(SpringContext.class);
+        springContextMock.when(() -> SpringContext.getBean(CollateralTdxRepository.class))
+                .thenReturn(collateralTdxRepository);
+
+        when(collateralTdxRepository.getTdxService()).thenReturn(reconTdxService);
+        when(collateralTdxRepository.getTdxDataSetName()).thenReturn("collateralDataSet");
+        when(reconTdxService.getDocumentByTdxServiceWithGroupBy(anyString(), any(EnumMap.class)))
+                .thenReturn(mockResultList);
+
+        List<HashMap> result = tdxFacade.executeReadCommand(searchRequest);
+
+        assertNotNull(result);
+        assertEquals(1, result.size());
+        verify(reconTdxService).getDocumentByTdxServiceWithGroupBy(eq("collateralDataSet"), any(EnumMap.class));
+        
+        springContextMock.close();
+    }
+
+    @Test
+    public void testValuationFlow() throws Exception {
+        // Test VALUATION flow
+        FuturesDashboardSearchRequest searchRequest = new FuturesDashboardSearchRequest();
+        searchRequest.setFlow(FlowType.VALUATION.getValue());
+        searchRequest.setSelectClause("SELECT * FROM valuations");
+        searchRequest.setWhereClause("WHERE date > '2023-01-01'");
+
+        // Mock SpringContext
+        MockedStatic<SpringContext> springContextMock = mockStatic(SpringContext.class);
+        springContextMock.when(() -> SpringContext.getBean(ValuationsTdxRepository.class))
+                .thenReturn(valuationsTdxRepository);
+
+        when(valuationsTdxRepository.getTdxService()).thenReturn(reconTdxService);
+        when(valuationsTdxRepository.getTdxDataSetName()).thenReturn("valuationsDataSet");
+        when(reconTdxService.getDocumentByTdxServiceWithGroupBy(anyString(), any(EnumMap.class)))
+                .thenReturn(mockResultList);
+
+        List<HashMap> result = tdxFacade.executeReadCommand(searchRequest);
+
+        assertNotNull(result);
+        assertEquals(1, result.size());
+        verify(reconTdxService).getDocumentByTdxServiceWithGroupBy(eq("valuationsDataSet"), any(EnumMap.class));
+        
+        springContextMock.close();
+    }
+
+    @Test
+    public void testTradeFlow() throws Exception {
+        // Test default TRADE flow (else branch)
+        FuturesDashboardSearchRequest searchRequest = new FuturesDashboardSearchRequest();
+        searchRequest.setFlow(FlowType.TRADE.getValue());
+        searchRequest.setSelectClause("SELECT * FROM trades");
+        searchRequest.setWhereClause("WHERE status = 'completed'");
+
+        // Mock SpringContext
+        MockedStatic<SpringContext> springContextMock = mockStatic(SpringContext.class);
+        springContextMock.when(() -> SpringContext.getBean(TradeTdxRepository.class))
+                .thenReturn(tradeTdxRepository);
+
+        when(tradeTdxRepository.getTdxService()).thenReturn(reconTdxService);
+        when(tradeTdxRepository.getTdxDataSetName()).thenReturn("tradesDataSet");
+        when(reconTdxService.getDocumentByTdxServiceWithGroupBy(anyString(), any(EnumMap.class)))
+                .thenReturn(mockResultList);
+
+        List<HashMap> result = tdxFacade.executeReadCommand(searchRequest);
+
+        assertNotNull(result);
+        assertEquals(1, result.size());
+        verify(reconTdxService).getDocumentByTdxServiceWithGroupBy(eq("tradesDataSet"), any(EnumMap.class));
+        
+        springContextMock.close();
+    }
+
+    @Test
+    public void testUnknownFlow() throws Exception {
+        // Test unknown flow type (should default to TRADE flow)
+        FuturesDashboardSearchRequest searchRequest = new FuturesDashboardSearchRequest();
+        searchRequest.setFlow("UNKNOWN_FLOW");
+        searchRequest.setSelectClause("SELECT * FROM unknown");
+
+        // Mock SpringContext
+        MockedStatic<SpringContext> springContextMock = mockStatic(SpringContext.class);
+        springContextMock.when(() -> SpringContext.getBean(TradeTdxRepository.class))
+                .thenReturn(tradeTdxRepository);
+
+        when(tradeTdxRepository.getTdxService()).thenReturn(reconTdxService);
+        when(tradeTdxRepository.getTdxDataSetName()).thenReturn("tradesDataSet");
+        when(reconTdxService.getDocumentByTdxServiceWithGroupBy(anyString(), any(EnumMap.class)))
+                .thenReturn(mockResultList);
+
+        List<HashMap> result = tdxFacade.executeReadCommand(searchRequest);
+
+        assertNotNull(result);
+        assertEquals(1, result.size());
+        verify(reconTdxService).getDocumentByTdxServiceWithGroupBy(eq("tradesDataSet"), any(EnumMap.class));
+        
+        springContextMock.close();
+    }
+
+    @Test
+    public void testWithBlankAsOfDate() throws Exception {
+        // Test with blank AsOf date (should not be added to apiQueryFilterMap)
+        FuturesDashboardSearchRequest searchRequest = new FuturesDashboardSearchRequest();
+        searchRequest.setFlow(FlowType.RECONCILIATION.getValue());
+        searchRequest.setAsOf(""); // Blank AsOf date
+
+        // Mock SpringContext
+        MockedStatic<SpringContext> springContextMock = mockStatic(SpringContext.class);
+        springContextMock.when(() -> SpringContext.getBean(ReconTdxRepository.class))
+                .thenReturn(reconTdxRepository);
+
+        when(reconTdxRepository.getTdxService()).thenReturn(reconTdxService);
+        when(reconTdxRepository.getTdxDataSetName()).thenReturn("reconDataSet");
+        when(reconTdxService.getDocumentByTdxServiceWithGroupBy(anyString(), any(EnumMap.class)))
+                .thenReturn(mockResultList);
+
+        List<HashMap> result = tdxFacade.executeReadCommand(searchRequest);
+
+        assertNotNull(result);
+        verify(reconTdxService).getDocumentByTdxServiceWithGroupBy(eq("reconDataSet"), any(EnumMap.class));
+        
+        springContextMock.close();
+    }
+
+    @Test
+    public void testWithNullAsOfDate() throws Exception {
+        // Test with null AsOf date
+        FuturesDashboardSearchRequest searchRequest = new FuturesDashboardSearchRequest();
+        searchRequest.setFlow(FlowType.RECONCILIATION.getValue());
+        searchRequest.setAsOf(null); // Null AsOf date
+
+        // Mock SpringContext
+        MockedStatic<SpringContext> springContextMock = mockStatic(SpringContext.class);
+        springContextMock.when(() -> SpringContext.getBean(ReconTdxRepository.class))
+                .thenReturn(reconTdxRepository);
+
+        when(reconTdxRepository.getTdxService()).thenReturn(reconTdxService);
+        when(reconTdxRepository.getTdxDataSetName()).thenReturn("reconDataSet");
+        when(reconTdxService.getDocumentByTdxServiceWithGroupBy(anyString(), any(EnumMap.class)))
+                .thenReturn(mockResultList);
+
+        List<HashMap> result = tdxFacade.executeReadCommand(searchRequest);
+
+        assertNotNull(result);
+        verify(reconTdxService).getDocumentByTdxServiceWithGroupBy(eq("reconDataSet"), any(EnumMap.class));
+        
+        springContextMock.close();
+    }
+
+    @Test
+    public void testWithNegativeRowLimit() throws Exception {
+        // Test with negative row limit (should not be added to apiQueryFilterMap)
+        FuturesDashboardSearchRequest searchRequest = new FuturesDashboardSearchRequest();
+        searchRequest.setFlow(FlowType.RECONCILIATION.getValue());
+        searchRequest.setRowLimit(-1); // Negative row limit
+
+        // Mock SpringContext
+        MockedStatic<SpringContext> springContextMock = mockStatic(SpringContext.class);
+        springContextMock.when(() -> SpringContext.getBean(ReconTdxRepository.class))
+                .thenReturn(reconTdxRepository);
+
+        when(reconTdxRepository.getTdxService()).thenReturn(reconTdxService);
+        when(reconTdxRepository.getTdxDataSetName()).thenReturn("reconDataSet");
+        when(reconTdxService.getDocumentByTdxServiceWithGroupBy(anyString(), any(EnumMap.class)))
+                .thenReturn(mockResultList);
+
+        List<HashMap> result = tdxFacade.executeReadCommand(searchRequest);
+
+        assertNotNull(result);
+        verify(reconTdxService).getDocumentByTdxServiceWithGroupBy(eq("reconDataSet"), any(EnumMap.class));
+        
+        springContextMock.close();
+    }
+
+    @Test(expected = TDXException.class)
+    public void testTDXExceptionHandling() throws Exception {
+        // Test TDXException propagation
+        FuturesDashboardSearchRequest searchRequest = new FuturesDashboardSearchRequest();
+        searchRequest.setFlow(FlowType.RECONCILIATION.getValue());
+
+        // Mock SpringContext
+        MockedStatic<SpringContext> springContextMock = mockStatic(SpringContext.class);
+        springContextMock.when(() -> SpringContext.getBean(ReconTdxRepository.class))
+                .thenReturn(reconTdxRepository);
+
+        when(reconTdxRepository.getTdxService()).thenReturn(reconTdxService);
+        when(reconTdxRepository.getTdxDataSetName()).thenReturn("reconDataSet");
+        when(reconTdxService.getDocumentByTdxServiceWithGroupBy(anyString(), any(EnumMap.class)))
+                .thenThrow(new TDXException("Test TDX Exception"));
+
+        try {
+            tdxFacade.executeReadCommand(searchRequest);
+        } finally {
+            springContextMock.close();
+        }
+    }
+
+    @Test(expected = IOException.class)
+    public void testIOExceptionHandling() throws Exception {
+        // Test IOException propagation
+        FuturesDashboardSearchRequest searchRequest = new FuturesDashboardSearchRequest();
+        searchRequest.setFlow(FlowType.RECONCILIATION_DF.getValue());
+
+        when(reconciliationActionService.executeReadCommand(any(FuturesDashboardSearchRequest.class)))
+                .thenThrow(new IOException("Test IO Exception"));
+
+        tdxFacade.executeReadCommand(searchRequest);
+    }
+
+    @Test(expected = StartableException.class)
+    public void testStartableExceptionHandling() throws Exception {
+        // Test StartableException propagation
+        FuturesDashboardSearchRequest searchRequest = new FuturesDashboardSearchRequest();
+        searchRequest.setFlow(FlowType.RECONC_BATCH_TRIGGER.getValue());
+
+        when(reconBatchTriggerRepository.getReconBatchByCriteria(
+                anyString(), anyString(), isNull(), anyBoolean(), anyInt()))
+                .thenThrow(new StartableException("Test Startable Exception"));
+
+        tdxFacade.executeReadCommand(searchRequest);
+    }
+
+    @Test
+    public void testEmptyResultList() throws Exception {
+        // Test with empty result list
+        FuturesDashboardSearchRequest searchRequest = new FuturesDashboardSearchRequest();
+        searchRequest.setFlow(FlowType.RECONC_BATCH_TRIGGER.getValue());
+
+        when(reconBatchTriggerRepository.getReconBatchByCriteria(
+                anyString(), anyString(), isNull(), anyBoolean(), anyInt()))
+                .thenReturn(new ArrayList<>());
+
+        List<HashMap> result = tdxFacade.executeReadCommand(searchRequest);
+
+        assertNotNull(result);
+        assertTrue(result.isEmpty());
+    }
+
+    @Test
+    public void testCaseInsensitiveFlowComparison() throws Exception {
+        // Test case insensitive flow comparison
+        FuturesDashboardSearchRequest searchRequest = new FuturesDashboardSearchRequest();
+        searchRequest.setFlow(FlowType.RECONCILIATION.getValue().toUpperCase()); // Upper case
+
+        // Mock SpringContext
+        MockedStatic<SpringContext> springContextMock = mockStatic(SpringContext.class);
+        springContextMock.when(() -> SpringContext.getBean(ReconTdxRepository.class))
+                .thenReturn(reconTdxRepository);
+
+        when(reconTdxRepository.getTdxService()).thenReturn(reconTdxService);
+        when(reconTdxRepository.getTdxDataSetName()).thenReturn("reconDataSet");
+        when(reconTdxService.getDocumentByTdxServiceWithGroupBy(anyString(), any(EnumMap.class)))
+                .thenReturn(mockResultList);
+
+        List<HashMap> result = tdxFacade.executeReadCommand(searchRequest);
+
+        assertNotNull(result);
+        assertEquals(1, result.size());
+        
+        springContextMock.close();
+    }
+
+    // Test to ensure we're testing the original existing test case scenario
     @Test
     public void testReconBatchFlow() throws TDXException, TDXClientFactoryException, IOException, StartableException, ScanException {
         FuturesDashboardSearchRequest searchRequest = new FuturesDashboardSearchRequest();
         searchRequest.setFlow(FlowType.RECONC_BATCH_TRIGGER.getValue());
         searchRequest.setWhereClause("WHERE status = 'active'");
+        
+        when(reconBatchTriggerRepository.getReconBatchByCriteria(
+                anyString(), isNull(), isNull(), anyBoolean(), anyInt()))
+                .thenReturn(new ArrayList<>());
+        
         List<HashMap> result = tdxFacade.executeReadCommand(searchRequest);
         assertNotNull(result);
         assertTrue(result.isEmpty());
