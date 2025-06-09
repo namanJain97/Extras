@@ -1,71 +1,27 @@
-Could you write all the additional test cases for below java class to cover all the remaining scenarios or methods and make the test coverage or code coverage as 100% using junit 4 and old mockito version and java 8. Also don't use power mockito as i m using older mockito version and for private methods try to use reflection. Plus we can't change any file other than the above test class. 
-
 package com.rbs.tntr.business.blotter.configurer;
 
-import com.rbs.ignite.security.spring.BaseSecurityConfigurer;
 import com.rbs.ignite.security.spring.SecurityProvider;
 import com.rbs.ignite.security.spring.SsoTokenAuthenticationFilter;
-import com.rbs.tntr.business.blotter.configuration.SsoConfiguration;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Import;
-import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.stereotype.Component;
-import org.springframework.web.cors.CorsConfiguration;
-import org.springframework.web.cors.CorsConfigurationSource;
-import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
-
-import java.util.Arrays;
-
-/**
- * An implementation of {@link BaseSecurityConfigurer} for the exemplar service. Defines the secured URL pattern and allocates the
- * {@link SecurityProvider} to the parent so that all authentication and authorization calls for this service are handled by
- * that provider.
- */
-@Component
-@Import(SsoConfiguration.class)
-public class BlotterSecurityConfigurer extends BaseSecurityConfigurer {
-
-    public BlotterSecurityConfigurer(SecurityProvider securityProvider,
-                                     @Value("${sso.security.secureEndpointAddressPattern}")
-                                             String secureEndPointAddressPattern) {
-        super(securityProvider,
-                secureEndPointAddressPattern,
-                new SsoTokenAuthenticationFilter(secureEndPointAddressPattern));
-    }
-
-    @Override
-    protected void configure(HttpSecurity http) throws Exception {
-        super.configure(http.cors().and());
-
-    }
-
-    @Bean
-    CorsConfigurationSource corsConfigurationSource() {
-        //TODO: Pick the settings from cnofig map.
-        CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(Arrays.asList("*"));
-        configuration.setAllowedMethods(Arrays.asList("GET","POST"));
-        configuration.setAllowedHeaders(Arrays.asList("Access-Control-Allow-Headers", "Origin","Accept", "X-Requested-With", "Content-Type", "Access-Control-Request-Method", "Access-Control-Request-Headers","sso-token","Cookie"));
-        configuration.setAllowCredentials(true);
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", configuration);
-        return source;
-    }
-}
-
-Existing test class:
-
-package com.rbs.tntr.business.blotter.configurer;
-
-import com.rbs.ignite.security.spring.SecurityProvider;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.mockito.runners.MockitoJUnitRunner;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configurers.CorsConfigurer;
+import org.springframework.security.config.annotation.web.configurers.ExpressionUrlAuthorizationConfigurer;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.util.Arrays;
+import java.util.List;
+
 import static org.junit.Assert.*;
+import static org.mockito.Mockito.*;
 
 @RunWith(MockitoJUnitRunner.class)
 public class BlotterSecurityConfigurerTest {
@@ -73,7 +29,17 @@ public class BlotterSecurityConfigurerTest {
     @Mock
     private SecurityProvider mockSecurityProvider;
 
+    @Mock
+    private HttpSecurity mockHttpSecurity;
+
+    @Mock
+    private CorsConfigurer<HttpSecurity> mockCorsConfigurer;
+
+    @Mock
+    private ExpressionUrlAuthorizationConfigurer<HttpSecurity>.ExpressionInterceptUrlRegistry mockExpressionInterceptUrlRegistry;
+
     private String testSecureEndpointPattern = "/secure/**";
+    private BlotterSecurityConfigurer configurer;
 
     @Before
     public void setUp() {
@@ -90,4 +56,276 @@ public class BlotterSecurityConfigurerTest {
         assertNotNull(configurer);
     }
 
+    @Test
+    public void testConstructorWithValidParameters() {
+        // Test constructor with valid parameters
+        configurer = new BlotterSecurityConfigurer(
+                mockSecurityProvider,
+                testSecureEndpointPattern
+        );
+        assertNotNull(configurer);
+    }
+
+    @Test
+    public void testConstructorWithNullSecurityProvider() {
+        // Test constructor with null security provider
+        configurer = new BlotterSecurityConfigurer(
+                null,
+                testSecureEndpointPattern
+        );
+        assertNotNull(configurer);
+    }
+
+    @Test
+    public void testConstructorWithNullEndpointPattern() {
+        // Test constructor with null endpoint pattern
+        configurer = new BlotterSecurityConfigurer(
+                mockSecurityProvider,
+                null
+        );
+        assertNotNull(configurer);
+    }
+
+    @Test
+    public void testConstructorInitializesParentCorrectly() throws Exception {
+        // Test that constructor properly initializes parent class
+        configurer = new BlotterSecurityConfigurer(
+                mockSecurityProvider,
+                testSecureEndpointPattern
+        );
+
+        // Use reflection to verify parent class fields are set
+        Field securityProviderField = getFieldFromHierarchy(configurer.getClass(), "securityProvider");
+        if (securityProviderField != null) {
+            securityProviderField.setAccessible(true);
+            SecurityProvider actualProvider = (SecurityProvider) securityProviderField.get(configurer);
+            assertEquals(mockSecurityProvider, actualProvider);
+        }
+
+        Field patternField = getFieldFromHierarchy(configurer.getClass(), "secureEndPointAddressPattern");
+        if (patternField != null) {
+            patternField.setAccessible(true);
+            String actualPattern = (String) patternField.get(configurer);
+            assertEquals(testSecureEndpointPattern, actualPattern);
+        }
+
+        Field filterField = getFieldFromHierarchy(configurer.getClass(), "ssoTokenAuthenticationFilter");
+        if (filterField != null) {
+            filterField.setAccessible(true);
+            SsoTokenAuthenticationFilter actualFilter = (SsoTokenAuthenticationFilter) filterField.get(configurer);
+            assertNotNull(actualFilter);
+        }
+    }
+
+    @Test
+    public void testConfigure() throws Exception {
+        // Test the configure method
+        configurer = new BlotterSecurityConfigurer(
+                mockSecurityProvider,
+                testSecureEndpointPattern
+        );
+
+        // Mock the chain of method calls: http.cors().and()
+        when(mockHttpSecurity.cors()).thenReturn(mockCorsConfigurer);
+        when(mockCorsConfigurer.and()).thenReturn(mockHttpSecurity);
+
+        // Call the configure method using reflection
+        Method configureMethod = getMethodFromHierarchy(configurer.getClass(), "configure", HttpSecurity.class);
+        configureMethod.setAccessible(true);
+        configureMethod.invoke(configurer, mockHttpSecurity);
+
+        // Verify the method calls
+        verify(mockHttpSecurity, times(1)).cors();
+        verify(mockCorsConfigurer, times(1)).and();
+    }
+
+    @Test
+    public void testConfigureThrowsException() throws Exception {
+        // Test configure method when an exception is thrown
+        configurer = new BlotterSecurityConfigurer(
+                mockSecurityProvider,
+                testSecureEndpointPattern
+        );
+
+        // Mock to throw exception
+        when(mockHttpSecurity.cors()).thenThrow(new RuntimeException("Test exception"));
+
+        try {
+            Method configureMethod = getMethodFromHierarchy(configurer.getClass(), "configure", HttpSecurity.class);
+            configureMethod.setAccessible(true);
+            configureMethod.invoke(configurer, mockHttpSecurity);
+            fail("Expected exception to be thrown");
+        } catch (Exception e) {
+            // Expected exception due to mocked behavior
+            assertTrue(e.getCause() instanceof RuntimeException);
+        }
+    }
+
+    @Test
+    public void testCorsConfigurationSource() {
+        // Test the corsConfigurationSource bean method
+        configurer = new BlotterSecurityConfigurer(
+                mockSecurityProvider,
+                testSecureEndpointPattern
+        );
+
+        CorsConfigurationSource source = configurer.corsConfigurationSource();
+
+        assertNotNull(source);
+        assertTrue(source instanceof UrlBasedCorsConfigurationSource);
+    }
+
+    @Test
+    public void testCorsConfigurationSourceSettings() {
+        // Test the CORS configuration settings
+        configurer = new BlotterSecurityConfigurer(
+                mockSecurityProvider,
+                testSecureEndpointPattern
+        );
+
+        CorsConfigurationSource source = configurer.corsConfigurationSource();
+        UrlBasedCorsConfigurationSource urlBasedSource = (UrlBasedCorsConfigurationSource) source;
+
+        // Get the configuration for "/**" pattern
+        CorsConfiguration config = urlBasedSource.getCorsConfiguration(null);
+        assertNotNull(config);
+
+        // Verify allowed origins
+        List<String> allowedOrigins = config.getAllowedOrigins();
+        assertNotNull(allowedOrigins);
+        assertEquals(1, allowedOrigins.size());
+        assertEquals("*", allowedOrigins.get(0));
+
+        // Verify allowed methods
+        List<String> allowedMethods = config.getAllowedMethods();
+        assertNotNull(allowedMethods);
+        assertEquals(2, allowedMethods.size());
+        assertTrue(allowedMethods.contains("GET"));
+        assertTrue(allowedMethods.contains("POST"));
+
+        // Verify allowed headers
+        List<String> allowedHeaders = config.getAllowedHeaders();
+        assertNotNull(allowedHeaders);
+        assertEquals(8, allowedHeaders.size());
+        assertTrue(allowedHeaders.contains("Access-Control-Allow-Headers"));
+        assertTrue(allowedHeaders.contains("Origin"));
+        assertTrue(allowedHeaders.contains("Accept"));
+        assertTrue(allowedHeaders.contains("X-Requested-With"));
+        assertTrue(allowedHeaders.contains("Content-Type"));
+        assertTrue(allowedHeaders.contains("Access-Control-Request-Method"));
+        assertTrue(allowedHeaders.contains("Access-Control-Request-Headers"));
+        assertTrue(allowedHeaders.contains("sso-token"));
+        assertTrue(allowedHeaders.contains("Cookie"));
+
+        // Verify allow credentials
+        assertTrue(config.getAllowCredentials());
+    }
+
+    @Test
+    public void testCorsConfigurationSourceMultipleCalls() {
+        // Test that multiple calls to corsConfigurationSource return different instances
+        configurer = new BlotterSecurityConfigurer(
+                mockSecurityProvider,
+                testSecureEndpointPattern
+        );
+
+        CorsConfigurationSource source1 = configurer.corsConfigurationSource();
+        CorsConfigurationSource source2 = configurer.corsConfigurationSource();
+
+        assertNotNull(source1);
+        assertNotNull(source2);
+        // Each call should return a new instance
+        assertNotSame(source1, source2);
+    }
+
+    @Test
+    public void testCorsConfigurationWithDifferentPatterns() {
+        // Test CORS configuration with different URL patterns
+        configurer = new BlotterSecurityConfigurer(
+                mockSecurityProvider,
+                testSecureEndpointPattern
+        );
+
+        UrlBasedCorsConfigurationSource source = (UrlBasedCorsConfigurationSource) configurer.corsConfigurationSource();
+
+        // Test with different mock requests
+        CorsConfiguration config1 = source.getCorsConfiguration(mockHttpServletRequest("/api/test"));
+        CorsConfiguration config2 = source.getCorsConfiguration(mockHttpServletRequest("/secure/test"));
+
+        // Both should return the same configuration since we register for "/**"
+        assertNotNull(config1);
+        assertNotNull(config2);
+        assertEquals(config1.getAllowedOrigins(), config2.getAllowedOrigins());
+        assertEquals(config1.getAllowedMethods(), config2.getAllowedMethods());
+    }
+
+    @Test
+    public void testConfigureWithNullHttpSecurity() throws Exception {
+        configurer = new BlotterSecurityConfigurer(
+                mockSecurityProvider,
+                testSecureEndpointPattern
+        );
+
+        try {
+            Method configureMethod = getMethodFromHierarchy(configurer.getClass(), "configure", HttpSecurity.class);
+            configureMethod.setAccessible(true);
+            configureMethod.invoke(configurer, (HttpSecurity) null);
+            fail("Expected NullPointerException");
+        } catch (Exception e) {
+            // Expected exception due to null parameter
+            assertTrue(e.getCause() instanceof NullPointerException);
+        }
+    }
+
+    @Test
+    public void testConstructorWithSpecialCharactersInPattern() {
+        // Test constructor with special characters in endpoint pattern
+        String specialPattern = "/secure/**/test?param=value&other=123";
+        configurer = new BlotterSecurityConfigurer(
+                mockSecurityProvider,
+                specialPattern
+        );
+        assertNotNull(configurer);
+    }
+
+    @Test
+    public void testCorsConfigurationSourceBeanAnnotation() throws Exception {
+        // Test that the corsConfigurationSource method has @Bean annotation
+        Method method = BlotterSecurityConfigurer.class.getMethod("corsConfigurationSource");
+        assertNotNull(method);
+        assertTrue(method.isAnnotationPresent(org.springframework.context.annotation.Bean.class));
+    }
+
+    // Helper method to get field from class hierarchy
+    private Field getFieldFromHierarchy(Class<?> clazz, String fieldName) {
+        Class<?> currentClass = clazz;
+        while (currentClass != null) {
+            try {
+                return currentClass.getDeclaredField(fieldName);
+            } catch (NoSuchFieldException e) {
+                currentClass = currentClass.getSuperclass();
+            }
+        }
+        return null;
+    }
+
+    // Helper method to get method from class hierarchy
+    private Method getMethodFromHierarchy(Class<?> clazz, String methodName, Class<?>... parameterTypes) {
+        Class<?> currentClass = clazz;
+        while (currentClass != null) {
+            try {
+                return currentClass.getDeclaredMethod(methodName, parameterTypes);
+            } catch (NoSuchMethodException e) {
+                currentClass = currentClass.getSuperclass();
+            }
+        }
+        return null;
+    }
+
+    // Helper method to create a mock HttpServletRequest
+    private javax.servlet.http.HttpServletRequest mockHttpServletRequest(String requestURI) {
+        javax.servlet.http.HttpServletRequest request = mock(javax.servlet.http.HttpServletRequest.class);
+        when(request.getRequestURI()).thenReturn(requestURI);
+        return request;
+    }
 }
