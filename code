@@ -1,1004 +1,260 @@
-package com.rbs.tntr.business.blotter.services.actions;
+@Test
+    public void testAddComment_UserValidationFailure() throws Exception {
+        AddTradeCommentRequest request = new AddTradeCommentRequest();
+        request.setDocumentId(new ActionDocumentId("key", 1L));
+        List<AddTradeCommentRequest> requests = Collections.singletonList(request);
 
-import com.google.common.collect.Lists;
-import com.nwm.tntr.commons.domain.persistence.entity.DocumentId;
-import com.nwm.tntr.commons.domain.persistence.entity.ExceptionManagement;
-import com.nwm.tntr.commons.domain.persistence.entity.NonReportableData;
-import com.nwm.tntr.commons.domain.persistence.entity.trade.TradeReport;
-import com.nwm.tntr.commons.domain.persistence.entity.valuation.ValuationReport;
-import com.nwm.tntr.commons.domain.persistence.entity.valuation.ValuationReportDocument;
-import com.nwm.tntr.commons.repository.regreporting.WriteResult;
-import com.rbs.tntr.business.blotter.df.manager.DfValuationPersistManager;
-import com.rbs.tntr.business.blotter.df.updater.ValuationDataUpdater;
-import com.rbs.tntr.business.blotter.services.validators.ActionRequestValidator;
-import com.rbs.tntr.business.blotter.web.request.regreportingTrade.*;
-import com.rbs.tntr.domain.blotter.enums.ExceptionStatus;
-import com.rbs.tntr.domain.blotter.exceptions.BlotterRunTimeException;
-import com.rbs.tntr.domain.blotter.tntrBlotterView.ActionDocumentId;
-import org.apache.commons.lang3.tuple.Pair;
-import org.junit.Before;
-import org.junit.Test;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
-
-import java.lang.reflect.Method;
-import java.util.*;
-
-import static org.junit.Assert.*;
-import static org.mockito.Matchers.*;
-import static org.mockito.Mockito.*;
-
-public class ValuationActionServiceTest {
-
-    @InjectMocks
-    private ValuationActionService valuationActionService;
-
-    @Mock
-    private DfValuationPersistManager dfTradePersistManager;
-
-    @Mock
-    private ValuationDataUpdater dataUpdater;
-
-    @Mock
-    private ActionRequestValidator requestValidator;
-
-    @Before
-    public void setUp() {
-        MockitoAnnotations.initMocks(this);
-    }
-
-    // Helper method to create a ValuationReportDocument
-    private ValuationReportDocument createReportDocument(String key, Long version) {
         ValuationReportDocument doc = mock(ValuationReportDocument.class);
-        DocumentId docId = DocumentId.from(key, version);
-        when(doc.getDocumentId()).thenReturn(docId);
+        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
         ValuationReport report = mock(ValuationReport.class);
         when(doc.getValuationReport()).thenReturn(report);
-        ExceptionManagement em = mock(ExceptionManagement.class);
-        when(report.getExceptionManagement()).thenReturn(em);
-        NonReportableData nrd = mock(NonReportableData.class);
-        when(report.getNonReportableData()).thenReturn(nrd);
-        when(em.getApprovalStatus()).thenReturn("Pending");
-        when(em.getIssueIds()).thenReturn(new ArrayList<>());
-        return doc;
-    }
+        ExceptionManagement exceptionManagement = mock(ExceptionManagement.class);
+        when(report.getExceptionManagement()).thenReturn(exceptionManagement);
 
-    private WriteResult<ValuationReport> createWriteResult(boolean success, String key, Long version, String error) {
-        WriteResult<ValuationReport> wr = mock(WriteResult.class);
-        when(wr.isSuccess()).thenReturn(success);
-        if (success) {
-            when(wr.getDocumentId()).thenReturn(DocumentId.from(key, version));
-        } else {
-            WriteResult.ErrorDetail ed = mock(WriteResult.ErrorDetail.class);
-            when(wr.getErrorDetail()).thenReturn(ed);
-            when(ed.getDescription()).thenReturn(error);
-            when(ed.getCause()).thenReturn(null);
-        }
-        return wr;
-    }
-
-    // addComment Tests
-    @Test
-    public void testAddComment_EmptyRequests() {
-        List<AddTradeCommentRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = valuationActionService.addComment(requests, "username");
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testAddComment_Successful() {
-        AddTradeCommentRequest request = mock(AddTradeCommentRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        List<AddTradeCommentRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = createReportDocument("key1", 1L);
         when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateUser("username", doc.getValuationReport().getExceptionManagement())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(anyString())).thenReturn(false);
-        ExceptionManagement updatedEm = mock(ExceptionManagement.class);
-        when(dataUpdater.addCommentsToException(request, doc.getValuationReport().getExceptionManagement(), "username")).thenReturn(updatedEm);
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Collections.singletonList(createWriteResult(true, "key1", 2L, null)));
+        when(requestValidator.validateUser(anyString(), any())).thenReturn(false);
 
         List<ActionUpdateResult> results = valuationActionService.addComment(requests, "username");
+        assertEquals(1, results.size());
+        assertTrue(results.get(0).getErrorMessage().contains(ActionRequestValidator.USER_VALIDATION_ERROR));
+    }
+
+    // Test cases for updateExceptionStatus method
+    @Test
+    public void testUpdateExceptionStatus_EditRejectedRollback() throws Exception {
+        UpdateExceptionStatusRequest request = new UpdateExceptionStatusRequest();
+        request.setDocumentId(new ActionDocumentId("key", 1L));
+        List<UpdateExceptionStatusRequest> requests = Collections.singletonList(request);
+
+        ValuationReportDocument doc = mock(ValuationReportDocument.class);
+        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
+        ValuationReport report = mock(ValuationReport.class);
+        when(doc.getValuationReport()).thenReturn(report);
+        ExceptionManagement exceptionManagement = mock(ExceptionManagement.class);
+        when(report.getExceptionManagement()).thenReturn(exceptionManagement);
+
+        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
+        when(requestValidator.validateUser(anyString(), any())).thenReturn(true);
+        when(requestValidator.validateExceptionStatus(any(), any())).thenReturn(true);
+        when(dataUpdater.addExceptionStatus(any(), any(), any(), anyString())).thenReturn(exceptionManagement);
+        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Collections.emptyList());
+
+        // Mock rollback
+        when(dfTradePersistManager.upsertAllRecords(anyList())).thenReturn(Collections.singletonList(
+                new WriteResult<>(DocumentId.from("key", 1L), new ValuationReport())
+        ));
+
+        List<ActionUpdateResult> results = valuationActionService.updateExceptionStatus(
+                requests, ExceptionStatus.Edit_Rejected, "username"
+        );
         assertEquals(1, results.size());
         assertTrue(results.get(0).isSuccess());
-        assertEquals("key1", results.get(0).getKey());
-        assertEquals(2L, results.get(0).getVersion().longValue());
     }
 
+    // Test cases for updateEditedFields method
     @Test
-    public void testAddComment_UserValidationFails() {
-        AddTradeCommentRequest request = mock(AddTradeCommentRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        List<AddTradeCommentRequest> requests = Collections.singletonList(request);
+    public void testUpdateEditedFields_BlotterRuntimeException() throws Exception {
+        EditRequest request = new EditRequest();
+        request.setDocumentId(new ActionDocumentId("key", 1L));
+        List<EditRequest> requests = Collections.singletonList(request);
 
-        ValuationReportDocument doc = createReportDocument("key1", 1L);
+        ValuationReportDocument doc = mock(ValuationReportDocument.class);
+        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
+        ValuationReport report = mock(ValuationReport.class);
+        when(doc.getValuationReport()).thenReturn(report);
+        ExceptionManagement exceptionManagement = mock(ExceptionManagement.class);
+        when(report.getExceptionManagement()).thenReturn(exceptionManagement);
+
         when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateUser("username", doc.getValuationReport().getExceptionManagement())).thenReturn(false);
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
+        doThrow(new BlotterRunTimeException("Edit error")).when(dataUpdater)
+                .updateTradeReportData(any(), any(), anyString(), any());
 
-        List<ActionUpdateResult> results = valuationActionService.addComment(requests, "username");
+        List<ActionUpdateResult> results = valuationActionService.updateEditedFields(
+                requests, "username", ExceptionStatus.Edit_Requested
+        );
         assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-        assertEquals(ActionRequestValidator.USER_VALIDATION_ERROR, results.get(0).getErrorMessage());
+        assertTrue(results.get(0).getErrorMessage().contains("Edit error"));
     }
 
+    // Test cases for addJiraId method
     @Test
-    public void testAddComment_ApprovalStatusFails() {
-        AddTradeCommentRequest request = mock(AddTradeCommentRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        List<AddTradeCommentRequest> requests = Collections.singletonList(request);
+    public void testAddJiraId_JiraIdAlreadyPresent() throws Exception {
+        AddTradeJiraReferenceRequest request = new AddTradeJiraReferenceRequest();
+        request.setDocumentId(new ActionDocumentId("key", 1L));
+        List<AddTradeJiraReferenceRequest> requests = Collections.singletonList(request);
 
-        ValuationReportDocument doc = createReportDocument("key1", 1L);
+        ValuationReportDocument doc = mock(ValuationReportDocument.class);
+        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
+        ValuationReport report = mock(ValuationReport.class);
+        when(doc.getValuationReport()).thenReturn(report);
+        ExceptionManagement exceptionManagement = mock(ExceptionManagement.class);
+        when(report.getExceptionManagement()).thenReturn(exceptionManagement);
+
         when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateUser("username", doc.getValuationReport().getExceptionManagement())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(anyString())).thenReturn(true);
+        when(requestValidator.validateUser(anyString(), any())).thenReturn(true);
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
+        when(requestValidator.isJiraIdPresent(any(), anyString())).thenReturn(true);
 
-        List<ActionUpdateResult> results = valuationActionService.addComment(requests, "username");
+        List<ActionUpdateResult> results = valuationActionService.addJiraId(requests, "username");
         assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-        assertEquals(ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR, results.get(0).getErrorMessage());
+        assertTrue(results.get(0).getErrorMessage().contains(ActionRequestValidator.JIRA_ID_PRESENT));
     }
 
+    // Test cases for removeJiraId method
     @Test
-    public void testAddComment_ExceptionDuringProcessing() {
-        AddTradeCommentRequest request = mock(AddTradeCommentRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        List<AddTradeCommentRequest> requests = Collections.singletonList(request);
+    public void testRemoveJiraId_JiraIdNotPresent() throws Exception {
+        AddTradeJiraReferenceRequest request = new AddTradeJiraReferenceRequest();
+        request.setDocumentId(new ActionDocumentId("key", 1L));
+        List<AddTradeJiraReferenceRequest> requests = Collections.singletonList(request);
 
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenThrow(new RuntimeException("DB error"));
+        ValuationReportDocument doc = mock(ValuationReportDocument.class);
+        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
+        ValuationReport report = mock(ValuationReport.class);
+        when(doc.getValuationReport()).thenReturn(report);
+        ExceptionManagement exceptionManagement = mock(ExceptionManagement.class);
+        when(report.getExceptionManagement()).thenReturn(exceptionManagement);
 
-        List<ActionUpdateResult> results = valuationActionService.addComment(requests, "username");
+        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
+        when(requestValidator.validateUser(anyString(), any())).thenReturn(true);
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
+        when(requestValidator.isJiraIdPresent(any(), anyString())).thenReturn(false);
+
+        List<ActionUpdateResult> results = valuationActionService.removeJiraId(requests, "username");
         assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
+        assertTrue(results.get(0).getErrorMessage().contains(ActionRequestValidator.JIRA_ID_NOT_PRESENT));
+    }
+
+    // Test cases for removeJiraType method
+    @Test
+    public void testRemoveJiraType_JiraTypeNotPresent() throws Exception {
+        AddTradeJiraTypeRequest request = new AddTradeJiraTypeRequest();
+        request.setDocumentId(new ActionDocumentId("key", 1L));
+        List<AddTradeJiraTypeRequest> requests = Collections.singletonList(request);
+
+        ValuationReportDocument doc = mock(ValuationReportDocument.class);
+        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
+        ValuationReport report = mock(ValuationReport.class);
+        when(doc.getValuationReport()).thenReturn(report);
+        ExceptionManagement exceptionManagement = mock(ExceptionManagement.class);
+        when(report.getExceptionManagement()).thenReturn(exceptionManagement);
+        when(exceptionManagement.getIssueType()).thenReturn(new ExceptionManagement.IssueType("differentType"));
+
+        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
+        when(requestValidator.validateUser(anyString(), any())).thenReturn(true);
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
+
+        List<ActionUpdateResult> results = valuationActionService.removeJiraType(requests, "username");
+        assertEquals(1, results.size());
+        assertTrue(results.get(0).getErrorMessage().contains(ActionRequestValidator.JIRA_TYPE_NOT_PRESENT));
+    }
+
+    // Test cases for updateUserActionType method
+    @Test
+    public void testUpdateUserActionType_Success() throws Exception {
+        UpdateUserActionTypeRequest request = new UpdateUserActionTypeRequest();
+        request.setDocumentId(new ActionDocumentId("key", 1L));
+        request.setComment(new Comment("comment"));
+        request.setUserActionType("APPROVE");
+        List<UpdateUserActionTypeRequest> requests = Collections.singletonList(request);
+
+        ValuationReportDocument doc = mock(ValuationReportDocument.class);
+        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
+        ValuationReport report = mock(ValuationReport.class);
+        when(doc.getValuationReport()).thenReturn(report);
+        ExceptionManagement exceptionManagement = mock(ExceptionManagement.class);
+        when(report.getExceptionManagement()).thenReturn(exceptionManagement);
+        NonReportableData nonReportableData = mock(NonReportableData.class);
+        when(report.getNonReportableData()).thenReturn(nonReportableData);
+
+        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
+        when(dataUpdater.addComments(any(), anyString(), anyString(), any())).thenReturn(exceptionManagement);
+        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Collections.singletonList(
+                new WriteResult<>(DocumentId.from("key", 2L), new ValuationReport())
+        ));
+
+        List<ActionUpdateResult> results = valuationActionService.updateUserActionType(requests, "username");
+        assertEquals(1, results.size());
+        assertTrue(results.get(0).isSuccess());
+    }
+
+    // Test cases for performResetAction method
+    @Test
+    public void testPerformResetAction_ApprovalStatusValidationFailure() throws Exception {
+        UpdateExceptionStatusRequest request = new UpdateExceptionStatusRequest();
+        request.setDocumentId(new ActionDocumentId("key", 1L));
+        List<UpdateExceptionStatusRequest> requests = Collections.singletonList(request);
+
+        ValuationReportDocument doc = mock(ValuationReportDocument.class);
+        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
+        ValuationReport report = mock(ValuationReport.class);
+        when(doc.getValuationReport()).thenReturn(report);
+        ExceptionManagement exceptionManagement = mock(ExceptionManagement.class);
+        when(report.getExceptionManagement()).thenReturn(exceptionManagement);
+
+        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
+        when(requestValidator.validateResetActionApprovalStatus(any(), any())).thenReturn(false);
+
+        List<ActionUpdateResult> results = valuationActionService.performResetAction(requests, "username");
+        assertEquals(1, results.size());
+        assertTrue(results.get(0).getErrorMessage().contains(ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
+    }
+
+    // Test cases for removeCommentType method
+    @Test
+    public void testRemoveCommentType_ApprovalStatusValidationFailure() throws Exception {
+        AddTradeCommentTypeRequest request = new AddTradeCommentTypeRequest();
+        request.setDocumentId(new ActionDocumentId("key", 1L));
+        List<AddTradeCommentTypeRequest> requests = Collections.singletonList(request);
+
+        ValuationReportDocument doc = mock(ValuationReportDocument.class);
+        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
+        ValuationReport report = mock(ValuationReport.class);
+        when(doc.getValuationReport()).thenReturn(report);
+        ExceptionManagement exceptionManagement = mock(ExceptionManagement.class);
+        when(report.getExceptionManagement()).thenReturn(exceptionManagement);
+
+        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
+        when(requestValidator.validateUser(anyString(), any())).thenReturn(true);
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(true);
+
+        List<ActionUpdateResult> results = valuationActionService.removeCommentType(requests, "username");
+        assertEquals(1, results.size());
+        assertTrue(results.get(0).getErrorMessage().contains(ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
+    }
+
+    // Test cases for getTradePrimaryKey method using reflection
+    @Test
+    public void testGetTradePrimaryKey_Reflection() throws Exception {
+        DocumentId documentId = DocumentId.from("key", 1L);
+        Method method = ValuationActionService.class.getDeclaredMethod("getTradePrimaryKey", DocumentId.class);
+        method.setAccessible(true);
+        ActionDocumentId result = (ActionDocumentId) method.invoke(valuationActionService, documentId);
+        assertEquals("key", result.getKey());
+        assertEquals(1L, result.getVersion().longValue());
+    }
+
+    // Test cases for saveAllRecords method error handling
+    @Test
+    public void testSaveAllRecords_ErrorHandling() throws Exception {
+        ValuationReportDocument doc = mock(ValuationReportDocument.class);
+        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
+        List<ValuationReportDocument> docs = Collections.singletonList(doc);
+
+        WriteResult<ValuationReport> writeResult = new WriteResult<>(
+                DocumentId.from("key", 1L),
+                new BlotterRunTimeException("DB error", new RuntimeException("Cause"))
+        );
+        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Collections.singletonList(writeResult));
+
+        Method method = ValuationActionService.class.getDeclaredMethod(
+                "getResult", List.class, List.class
+        );
+        method.setAccessible(true);
+        List<ActionUpdateResult> results = (List<ActionUpdateResult>) method.invoke(
+                valuationActionService, docs, Collections.singletonList(writeResult)
+        );
+
+        assertEquals(1, results.size());
         assertTrue(results.get(0).getErrorMessage().contains("DB error"));
     }
-
-    @Test
-    public void testAddComment_MultipleRequestsPartialSuccess() {
-        AddTradeCommentRequest req1 = mock(AddTradeCommentRequest.class);
-        when(req1.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        AddTradeCommentRequest req2 = mock(AddTradeCommentRequest.class);
-        when(req2.getDocumentId()).thenReturn(new ActionDocumentId("key2", 1L));
-        List<AddTradeCommentRequest> requests = Arrays.asList(req1, req2);
-
-        ValuationReportDocument doc1 = createReportDocument("key1", 1L);
-        ValuationReportDocument doc2 = createReportDocument("key2", 1L);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Arrays.asList(doc1, doc2));
-        when(requestValidator.validateUser("username", doc1.getValuationReport().getExceptionManagement())).thenReturn(true);
-        when(requestValidator.validateUser("username", doc2.getValuationReport().getExceptionManagement())).thenReturn(false);
-        when(requestValidator.validateApprovalStatus(anyString())).thenReturn(false);
-        when(dataUpdater.addCommentsToException(req1, doc1.getValuationReport().getExceptionManagement(), "username")).thenReturn(mock(ExceptionManagement.class));
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Collections.singletonList(createWriteResult(true, "key1", 2L, null)));
-
-        List<ActionUpdateResult> results = valuationActionService.addComment(requests, "username");
-        assertEquals(2, results.size());
-        assertTrue(results.get(0).isSuccess());
-        assertFalse(results.get(1).isSuccess());
-    }
-
-    // removeComment Tests
-    @Test
-    public void testRemoveComment_EmptyRequests() {
-        List<AddTradeCommentRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = valuationActionService.removeComment(requests, "username");
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testRemoveComment_Successful() {
-        AddTradeCommentRequest request = mock(AddTradeCommentRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        List<AddTradeCommentRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = createReportDocument("key1", 1L);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateUser("username", doc.getValuationReport().getExceptionManagement())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(anyString())).thenReturn(false);
-        when(dataUpdater.removeCommentsToException(request, doc.getValuationReport().getExceptionManagement(), "username")).thenReturn(mock(ExceptionManagement.class));
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Collections.singletonList(createWriteResult(true, "key1", 2L, null)));
-
-        List<ActionUpdateResult> results = valuationActionService.removeComment(requests, "username");
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).isSuccess());
-    }
-
-    @Test
-    public void testRemoveComment_UserValidationFails() {
-        AddTradeCommentRequest request = mock(AddTradeCommentRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        List<AddTradeCommentRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = createReportDocument("key1", 1L);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateUser("username", doc.getValuationReport().getExceptionManagement())).thenReturn(false);
-
-        List<ActionUpdateResult> results = valuationActionService.removeComment(requests, "username");
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-    }
-
-    @Test
-    public void testRemoveComment_ApprovalStatusFails() {
-        AddTradeCommentRequest request = mock(AddTradeCommentRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        List<AddTradeCommentRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = createReportDocument("key1", 1L);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateUser("username", doc.getValuationReport().getExceptionManagement())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(anyString())).thenReturn(true);
-
-        List<ActionUpdateResult> results = valuationActionService.removeComment(requests, "username");
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-    }
-
-    @Test
-    public void testRemoveComment_ExceptionDuringProcessing() {
-        AddTradeCommentRequest request = mock(AddTradeCommentRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        List<AddTradeCommentRequest> requests = Collections.singletonList(request);
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenThrow(new RuntimeException("DB error"));
-
-        List<ActionUpdateResult> results = valuationActionService.removeComment(requests, "username");
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-    }
-
-    // addCommentType Tests
-    @Test
-    public void testAddCommentType_EmptyRequests() {
-        List<AddTradeCommentTypeRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = valuationActionService.addCommentType(requests, "username");
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testAddCommentType_Successful() {
-        AddTradeCommentTypeRequest request = mock(AddTradeCommentTypeRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        List<AddTradeCommentTypeRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = createReportDocument("key1", 1L);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateUser("username", doc.getValuationReport().getExceptionManagement())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(anyString())).thenReturn(false);
-        when(dataUpdater.addCommentTypeToException(request, doc.getValuationReport().getExceptionManagement(), "username")).thenReturn(mock(ExceptionManagement.class));
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Collections.singletonList(createWriteResult(true, "key1", 2L, null)));
-
-        List<ActionUpdateResult> results = valuationActionService.addCommentType(requests, "username");
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).isSuccess());
-    }
-
-    @Test
-    public void testAddCommentType_UserValidationFails() {
-        AddTradeCommentTypeRequest request = mock(AddTradeCommentTypeRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        List<AddTradeCommentTypeRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = createReportDocument("key1", 1L);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateUser("username", doc.getValuationReport().getExceptionManagement())).thenReturn(false);
-
-        List<ActionUpdateResult> results = valuationActionService.addCommentType(requests, "username");
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-    }
-
-    @Test
-    public void testAddCommentType_ApprovalStatusFails() {
-        AddTradeCommentTypeRequest request = mock(AddTradeCommentTypeRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        List<AddTradeCommentTypeRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = createReportDocument("key1", 1L);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateUser("username", doc.getValuationReport().getExceptionManagement())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(anyString())).thenReturn(true);
-
-        List<ActionUpdateResult> results = valuationActionService.addCommentType(requests, "username");
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-    }
-
-    @Test
-    public void testAddCommentType_ExceptionDuringProcessing() {
-        AddTradeCommentTypeRequest request = mock(AddTradeCommentTypeRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        List<AddTradeCommentTypeRequest> requests = Collections.singletonList(request);
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenThrow(new RuntimeException("DB error"));
-
-        List<ActionUpdateResult> results = valuationActionService.addCommentType(requests, "username");
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-    }
-
-    // removeCommentType Tests
-    @Test
-    public void testRemoveCommentType_EmptyRequests() {
-        List<AddTradeCommentTypeRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = valuationActionService.removeCommentType(requests, "username");
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testRemoveCommentType_Successful() {
-        AddTradeCommentTypeRequest request = mock(AddTradeCommentTypeRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        List<AddTradeCommentTypeRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = createReportDocument("key1", 1L);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateUser("username", doc.getValuationReport().getExceptionManagement())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(anyString())).thenReturn(false);
-        when(dataUpdater.removeCommentTypeToException(request, doc.getValuationReport().getExceptionManagement(), "username")).thenReturn(mock(ExceptionManagement.class));
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Collections.singletonList(createWriteResult(true, "key1", 2L, null)));
-
-        List<ActionUpdateResult> results = valuationActionService.removeCommentType(requests, "username");
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).isSuccess());
-    }
-
-    @Test
-    public void testRemoveCommentType_UserValidationFails() {
-        AddTradeCommentTypeRequest request = mock(AddTradeCommentTypeRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        List<AddTradeCommentTypeRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = createReportDocument("key1", 1L);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateUser("username", doc.getValuationReport().getExceptionManagement())).thenReturn(false);
-
-        List<ActionUpdateResult> results = valuationActionService.removeCommentType(requests, "username");
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-    }
-
-    @Test
-    public void testRemoveCommentType_ApprovalStatusFails() {
-        AddTradeCommentTypeRequest request = mock(AddTradeCommentTypeRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        List<AddTradeCommentTypeRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = createReportDocument("key1", 1L);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateUser("username", doc.getValuationReport().getExceptionManagement())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(anyString())).thenReturn(true);
-
-        List<ActionUpdateResult> results = valuationActionService.removeCommentType(requests, "username");
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-    }
-
-    @Test
-    public void testRemoveCommentType_ExceptionDuringProcessing() {
-        AddTradeCommentTypeRequest request = mock(AddTradeCommentTypeRequest.class);
-        when(request.getDocumentId()).thenReturn Misses().thenReturn(new ActionDocumentId("key1", 1L));
-        List<AddTradeCommentTypeRequest> requests = Collections.singletonList(request);
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenThrow(new RuntimeException("DB error"));
-
-        List<ActionUpdateResult> results = valuationActionService.removeCommentType(requests, "username");
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-    }
-
-    // updateEditedFields Tests
-    @Test
-    public void testUpdateEditedFields_EmptyRequests() {
-        List<EditRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = valuationActionService.updateEditedFields(requests, "username", ExceptionStatus.Edit_Requested);
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testUpdateEditedFields_Successful() {
-        EditRequest request = mock(EditRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        List<EditRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = createReportDocument("key1", 1L);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateApprovalStatus(anyString())).thenReturn(false);
-        ValuationReport updatedReport = mock(ValuationReport.class);
-        when(dataUpdater.updateTradeReportData(request, doc.getValuationReport(), "username", ExceptionStatus.Edit_Requested)).thenReturn(updatedReport);
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Collections.singletonList(createWriteResult(true, "key1", 2L, null)));
-
-        List<ActionUpdateResult> results = valuationActionService.updateEditedFields(requests, "username", ExceptionStatus.Edit_Requested);
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).isSuccess());
-    }
-
-    @Test
-    public void testUpdateEditedFields_ApprovalStatusFails() {
-        EditRequest request = mock(EditRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        List<EditRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = createReportDocument("key1", 1L);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateApprovalStatus(anyString())).thenReturn(true);
-
-        List<ActionUpdateResult> results = valuationActionService.updateEditedFields(requests, "username", ExceptionStatus.Edit_Requested);
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-    }
-
-    @Test
-    public void testUpdateEditedFields_BlotterException() {
-        EditRequest request = mock(EditRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        List<EditRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = createReportDocument("key1", 1L);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateApprovalStatus(anyString())).thenReturn(false);
-        when(dataUpdater.updateTradeReportData(request, doc.getValuationReport(), "username", ExceptionStatus.Edit_Requested)).thenThrow(new BlotterRunTimeException("Edit failed"));
-
-        List<ActionUpdateResult> results = valuationActionService.updateEditedFields(requests, "username", ExceptionStatus.Edit_Requested);
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-        assertEquals("Edit failed", results.get(0).getErrorMessage());
-    }
-
-    @Test
-    public void testUpdateEditedFields_ExceptionDuringProcessing() {
-        EditRequest request = mock(EditRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        List<EditRequest> requests = Collections.singletonList(request);
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenThrow(new RuntimeException("DB error"));
-
-        List<ActionUpdateResult> results = valuationActionService.updateEditedFields(requests, "username", ExceptionStatus.Edit_Requested);
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-    }
-
-    // updateExceptionStatus Tests
-    @Test
-    public void testUpdateExceptionStatus_EmptyRequests() {
-        List<UpdateExceptionStatusRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = valuationActionService.updateExceptionStatus(requests, ExceptionStatus.Edit_Requested, "username");
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testUpdateExceptionStatus_InvalidStatus() {
-        UpdateExceptionStatusRequest request = mock(UpdateExceptionStatusRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        List<UpdateExceptionStatusRequest> requests = Collections.singletonList(request);
-
-        when(requestValidator.validateExceptionStatus(ExceptionStatus.Edit_Requested)).thenReturn(true);
-
-        List<ActionUpdateResult> results = valuationActionService.updateExceptionStatus(requests, ExceptionStatus.Edit_Requested, "username");
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testUpdateExceptionStatus_Successful() {
-        UpdateExceptionStatusRequest request = mock(UpdateExceptionStatusRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        List<UpdateExceptionStatusRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = createReportDocument("key1", 1L);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateExceptionStatus(ExceptionStatus.Edit_Requested)).thenReturn(false);
-        doNothing().when(requestValidator).validatePermittedExceptionStatusForVal(anyList(), anyList(), eq(ExceptionStatus.Edit_Requested));
-        when(requestValidator.validateUser("username", doc.getValuationReport().getExceptionManagement())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(anyString())).thenReturn(false);
-        when(requestValidator.validateExceptionStatus(eq(ExceptionStatus.Edit_Requested), anyString())).thenReturn(true);
-        when(requestValidator.validateApprover(eq(ExceptionStatus.Edit_Requested), anyString(), anyString(), eq("username"))).thenReturn(false);
-        when(dataUpdater.addExceptionStatus(eq(ExceptionStatus.Edit_Requested), eq(request), any(ExceptionManagement.class), eq("username"))).thenReturn(mock(ExceptionManagement.class));
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Collections.singletonList(createWriteResult(true, "key1", 2L, null)));
-
-        List<ActionUpdateResult> results = valuationActionService.updateExceptionStatus(requests, ExceptionStatus.Edit_Requested, "username");
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).isSuccess());
-    }
-
-    @Test
-    public void testUpdateExceptionStatus_UserValidationFails() {
-        UpdateExceptionStatusRequest request = mock(UpdateExceptionStatusRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        List<UpdateExceptionStatusRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = createReportDocument("key1", 1L);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateExceptionStatus(ExceptionStatus.Edit_Requested)).thenReturn(false);
-        doNothing().when(requestValidator).validatePermittedExceptionStatusForVal(anyList(), anyList(), eq(ExceptionStatus.Edit_Requested));
-        when(requestValidator.validateUser("username", doc.getValuationReport().getExceptionManagement())).thenReturn(false);
-
-        List<ActionUpdateResult> results = valuationActionService.updateExceptionStatus(requests, ExceptionStatus.Edit_Requested, "username");
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-    }
-
-    @Test
-    public void testUpdateExceptionStatus_ApproverValidationFails() {
-        UpdateExceptionStatusRequest request = mock(UpdateExceptionStatusRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        List<UpdateExceptionStatusRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = createReportDocument("key1", 1L);
-        when(doc.getValuationReport().getValuationReportId().getTradeSourceSystemTransactionId()).thenReturn("trade1");
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateExceptionStatus(ExceptionStatus.Edit_Requested)).thenReturn(false);
-        doNothing().when(requestValidator).validatePermittedExceptionStatusForVal(anyList(), anyList(), eq(ExceptionStatus.Edit_Requested));
-        when(requestValidator.validateUser("username", doc.getValuationReport().getExceptionManagement())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(anyString())).thenReturn(false);
-        when(requestValidator.validateExceptionStatus(eq(ExceptionStatus.Edit_Requested), anyString())).thenReturn(true);
-        when(requestValidator.validateApprover(eq(ExceptionStatus.Edit_Requested), eq("trade1"), eq("Valuation"), eq("username"))).thenReturn(true);
-
-        List<ActionUpdateResult> results = valuationActionService.updateExceptionStatus(requests, ExceptionStatus.Edit_Requested, "username");
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-    }
-
-    @Test
-    public void testUpdateExceptionStatus_EditRejected() throws Exception {
-        UpdateExceptionStatusRequest request = mock(UpdateExceptionStatusRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 3L));
-        List<UpdateExceptionStatusRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = createReportDocument("key1", 3L);
-        when(dfTradePersistManager.getAllRecordsById(argThat(list -> list.contains(DocumentId.from("key1", 3L))))).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateExceptionStatus(ExceptionStatus.Edit_Rejected)).thenReturn(false);
-        doNothing().when(requestValidator).validatePermittedExceptionStatusForVal(anyList(), anyList(), eq(ExceptionStatus.Edit_Rejected));
-        when(requestValidator.validateUser("username", doc.getValuationReport().getExceptionManagement())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(anyString())).thenReturn(false);
-        when(requestValidator.validateExceptionStatus(eq(ExceptionStatus.Edit_Rejected), anyString())).thenReturn(true);
-        when(requestValidator.validateApprover(eq(ExceptionStatus.Edit_Rejected), anyString(), anyString(), eq("username"))).thenReturn(false);
-        when(dataUpdater.addExceptionStatus(eq(ExceptionStatus.Edit_Rejected), eq(request), any(ExceptionManagement.class), eq("username"))).thenReturn(mock(ExceptionManagement.class));
-        ValuationReportDocument prevDoc = createReportDocument("key1", 1L);
-        when(dfTradePersistManager.getAllRecordsById(argThat(list -> list.contains(DocumentId.from("key1", 1L))))).thenReturn(Collections.singletonList(prevDoc));
-        when(dfTradePersistManager.upsertAllRecords(anyList())).thenReturn(Collections.singletonList(createWriteResult(true, "key1", 4L, null)));
-
-        List<ActionUpdateResult> results = valuationActionService.updateExceptionStatus(requests, ExceptionStatus.Edit_Rejected, "username");
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).isSuccess());
-        assertEquals(4L, results.get(0).getVersion().longValue());
-    }
-
-    @Test
-    public void testUpdateExceptionStatus_ExceptionDuringProcessing() {
-        UpdateExceptionStatusRequest request = mock(UpdateExceptionStatusRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        List<UpdateExceptionStatusRequest> requests = Collections.singletonList(request);
-
-        when(requestValidator.validateExceptionStatus(ExceptionStatus.Edit_Requested)).thenReturn(false);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenThrow(new RuntimeException("DB error"));
-
-        List<ActionUpdateResult> results = valuationActionService.updateExceptionStatus(requests, ExceptionStatus.Edit_Requested, "username");
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-    }
-
-    // performResetAction Tests
-    @Test
-    public void testPerformResetAction_EmptyRequests() {
-        List<UpdateExceptionStatusRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = valuationActionService.performResetAction(requests, "username");
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testPerformResetAction_Successful() {
-        UpdateExceptionStatusRequest request = mock(UpdateExceptionStatusRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        when(request.getFlow()).thenReturn("flow1");
-        List<UpdateExceptionStatusRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = createReportDocument("key1", 1L);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateResetActionApprovalStatus(anyString(), eq("flow1"))).thenReturn(true);
-        when(dataUpdater.resetAction(request, doc.getValuationReport().getExceptionManagement(), "username")).thenReturn(mock(ExceptionManagement.class));
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Collections.singletonList(createWriteResult(true, "key1", 2L, null)));
-
-        List<ActionUpdateResult> results = valuationActionService.performResetAction(requests, "username");
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).isSuccess());
-    }
-
-    @Test
-    public void testPerformResetAction_ApprovalStatusFails() {
-        UpdateExceptionStatusRequest request = mock(UpdateExceptionStatusRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        when(request.getFlow()).thenReturn("flow1");
-        List<UpdateExceptionStatusRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = createReportDocument("key1", 1L);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateResetActionApprovalStatus(anyString(), eq("flow1"))).thenReturn(false);
-
-        List<ActionUpdateResult> results = valuationActionService.performResetAction(requests, "username");
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-    }
-
-    @Test
-    public void testPerformResetAction_ExceptionDuringProcessing() {
-        UpdateExceptionStatusRequest request = mock(UpdateExceptionStatusRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        List<UpdateExceptionStatusRequest> requests = Collections.singletonList(request);
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenThrow(new RuntimeException("DB error"));
-
-        List<ActionUpdateResult> results = valuationActionService.performResetAction(requests, "username");
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-    }
-
-    // assignExceptionToUser Tests
-    @Test
-    public void testAssignExceptionToUser_EmptyRequests() {
-        List<AssignTradeRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = valuationActionService.assignExceptionToUser(requests, "username");
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testAssignExceptionToUser_Successful() {
-        AssignTradeRequest request = mock(AssignTradeRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        List<AssignTradeRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = createReportDocument("key1", 1L);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateApprovalStatus(anyString())).thenReturn(false);
-        when(dataUpdater.assignException(request, doc.getValuationReport().getExceptionManagement(), "username")).thenReturn(mock(ExceptionManagement.class));
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Collections.singletonList(createWriteResult(true, "key1", 2L, null)));
-
-        List<ActionUpdateResult> results = valuationActionService.assignExceptionToUser(requests, "username");
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).isSuccess());
-    }
-
-    @Test
-    public void testAssignExceptionToUser_ApprovalStatusFails() {
-        AssignTradeRequest request = mock(AssignTradeRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        List<AssignTradeRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = createReportDocument("key1", 1L);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateApprovalStatus(anyString())).thenReturn(true);
-
-        List<ActionUpdateResult> results = valuationActionService.assignExceptionToUser(requests, "username");
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-    }
-
-    @Test
-    public void testAssignExceptionToUser_ExceptionDuringProcessing() {
-        AssignTradeRequest request = mock(AssignTradeRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        List<AssignTradeRequest> requests = Collections.singletonList(request);
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenThrow(new RuntimeException("DB error"));
-
-        List<ActionUpdateResult> results = valuationActionService.assignExceptionToUser(requests, "username");
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-    }
-
-    // addJiraId Tests
-    @Test
-    public void testAddJiraId_EmptyRequests() {
-        List<AddTradeJiraReferenceRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = valuationActionService.addJiraId(requests, "username");
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testAddJiraId_Successful() {
-        AddTradeJiraReferenceRequest request = mock(AddTradeJiraReferenceRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        when(request.getJiraReference().getJiraId()).thenReturn("JIRA-123");
-        List<AddTradeJiraReferenceRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = createReportDocument("key1", 1L);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateUser("username", doc.getValuationReport().getExceptionManagement())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(anyString())).thenReturn(false);
-        when(requestValidator.isJiraIdPresent(anyList(), eq("JIRA-123"))).thenReturn(false);
-        when(dataUpdater.addJiraIdToException(request, doc.getValuationReport().getExceptionManagement(), "username")).thenReturn(mock(ExceptionManagement.class));
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Collections.singletonList(createWriteResult(true, "key1", 2L, null)));
-
-        List<ActionUpdateResult> results = valuationActionService.addJiraId(requests, "username");
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).isSuccess());
-    }
-
-    @Test
-    public void testAddJiraId_JiraIdPresent() {
-        AddTradeJiraReferenceRequest request = mock(AddTradeJiraReferenceRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        when(request.getJiraReference().getJiraId()).thenReturn("JIRA-123");
-        List<AddTradeJiraReferenceRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = createReportDocument("key1", 1L);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateUser("username", doc.getValuationReport().getExceptionManagement())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(anyString())).thenReturn(false);
-        when(requestValidator.isJiraIdPresent(anyList(), eq("JIRA-123"))).thenReturn(true);
-
-        List<ActionUpdateResult> results = valuationActionService.addJiraId(requests, "username");
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-        assertEquals(ActionRequestValidator.JIRA_ID_PRESENT, results.get(0).getErrorMessage());
-    }
-
-    @Test
-    public void testAddJiraId_ExceptionDuringProcessing() {
-        AddTradeJiraReferenceRequest request = mock(AddTradeJiraReferenceRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        List<AddTradeJiraReferenceRequest> requests = Collections.singletonList(request);
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenThrow(new RuntimeException("DB error"));
-
-        List<ActionUpdateResult> results = valuationActionService.addJiraId(requests, "username");
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-    }
-
-    // removeJiraId Tests
-    @Test
-    public void testRemoveJiraId_EmptyRequests() {
-        List<AddTradeJiraReferenceRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = valuationActionService.removeJiraId(requests, "username");
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testRemoveJiraId_Successful() {
-        AddTradeJiraReferenceRequest request = mock(AddTradeJiraReferenceRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        when(request.getJiraReference().getJiraId()).thenReturn("JIRA-123");
-        List<AddTradeJiraReferenceRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = createReportDocument("key1", 1L);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateUser("username", doc.getValuationReport().getExceptionManagement())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(anyString())).thenReturn(false);
-        when(requestValidator.isJiraIdPresent(anyList(), eq("JIRA-123"))).thenReturn(true);
-        when(dataUpdater.removeJiraIdFromException(request, doc.getValuationReport().getExceptionManagement(), "username")).thenReturn(mock(ExceptionManagement.class));
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Collections.singletonList(createWriteResult(true, "key1", 2L, null)));
-
-        List<ActionUpdateResult> results = valuationActionService.removeJiraId(requests, "username");
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).isSuccess());
-    }
-
-    @Test
-    public void testRemoveJiraId_JiraIdNotPresent() {
-        AddTradeJiraReferenceRequest request = mock(AddTradeJiraReferenceRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        when(request.getJiraReference().getJiraId()).thenReturn("JIRA-123");
-        List<AddTradeJiraReferenceRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = createReportDocument("key1", 1L);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateUser("username", doc.getValuationReport().getExceptionManagement())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(anyString())).thenReturn(false);
-        when(requestValidator.isJiraIdPresent(anyList(), eq("JIRA-123"))).thenReturn(false);
-
-        List<ActionUpdateResult> results = valuationActionService.removeJiraId(requests, "username");
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-        assertEquals(ActionRequestValidator.JIRA_ID_NOT_PRESENT, results.get(0).getErrorMessage());
-    }
-
-    @Test
-    public void testRemoveJiraId_ExceptionDuringProcessing() {
-        AddTradeJiraReferenceRequest request = mock(AddTradeJiraReferenceRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        List<AddTradeJiraReferenceRequest> requests = Collections.singletonList(request);
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenThrow(new RuntimeException("DB error"));
-
-        List<ActionUpdateResult> results = valuationActionService.removeJiraId(requests, "username");
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-    }
-
-    // addJiraType Tests
-    @Test
-    public void testAddJiraType_EmptyRequests() {
-        List<AddTradeJiraTypeRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = valuationActionService.addJiraType(requests, "username");
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testAddJiraType_Successful() {
-        AddTradeJiraTypeRequest request = mock(AddTradeJiraTypeRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        when(request.getJiraType().getIssueType()).thenReturn("Bug");
-        List<AddTradeJiraTypeRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = createReportDocument("key1", 1L);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateUser("username", doc.getValuationReport().getExceptionManagement())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(anyString())).thenReturn(false);
-        when(dataUpdater.addJiraTypeToException(request, doc.getValuationReport().getExceptionManagement(), "username")).thenReturn(mock(ExceptionManagement.class));
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Collections.singletonList(createWriteResult(true, "key1", 2L, null)));
-
-        List<ActionUpdateResult> results = valuationActionService.addJiraType(requests, "username");
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).isSuccess());
-    }
-
-    @Test
-    public void testAddJiraType_UserValidationFails() {
-        AddTradeJiraTypeRequest request = mock(AddTradeJiraTypeRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        List<AddTradeJiraTypeRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = createReportDocument("key1", 1L);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateUser("username", doc.getValuationReport().getExceptionManagement())).thenReturn(false);
-
-        List<ActionUpdateResult> results = valuationActionService.addJiraType(requests, "username");
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-    }
-
-    @Test
-    public void testAddJiraType_ExceptionDuringProcessing() {
-        AddTradeJiraTypeRequest request = mock(AddTradeJiraTypeRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        List<AddTradeJiraTypeRequest> requests = Collections.singletonList(request);
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenThrow(new RuntimeException("DB error"));
-
-        List<ActionUpdateResult> results = valuationActionService.addJiraType(requests, "username");
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-    }
-
-    // removeJiraType Tests
-    @Test
-    public void testRemoveJiraType_EmptyRequests() {
-        List<AddTradeJiraTypeRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = valuationActionService.removeJiraType(requests, "username");
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testRemoveJiraType_Successful() {
-        AddTradeJiraTypeRequest request = mock(AddTradeJiraTypeRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        when(request.getJiraType().getIssueType()).thenReturn("Bug");
-        List<AddTradeJiraTypeRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = createReportDocument("key1", 1L);
-        when(doc.getValuationReport().getExceptionManagement().getIssueType().value()).thenReturn("Bug");
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateUser("username", doc.getValuationReport().getExceptionManagement())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(anyString())).thenReturn(false);
-        when(dataUpdater.removeJiraTypeFromException(request, doc.getValuationReport().getExceptionManagement(), "username")).thenReturn(mock(ExceptionManagement.class));
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Collections.singletonList(createWriteResult(true, "key1", 2L, null)));
-
-        List<ActionUpdateResult> results = valuationActionService.removeJiraType(requests, "username");
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).isSuccess());
-    }
-
-    @Test
-    public void testRemoveJiraType_JiraTypeNotPresent() {
-        AddTradeJiraTypeRequest request = mock(AddTradeJiraTypeRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        when(request.getJiraType().getIssueType()).thenReturn("Bug");
-        List<AddTradeJiraTypeRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = createReportDocument("key1", 1L);
-        when(doc.getValuationReport().getExceptionManagement().getIssueType().value()).thenReturn("Task");
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateUser("username", doc.getValuationReport().getExceptionManagement())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(anyString())).thenReturn(false);
-
-        List<ActionUpdateResult> results = valuationActionService.removeJiraType(requests, "username");
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-        assertEquals(ActionRequestValidator.JIRA_TYPE_NOT_PRESENT, results.get(0).getErrorMessage());
-    }
-
-    @Test
-    public void testRemoveJiraType_ExceptionDuringProcessing() {
-        AddTradeJiraTypeRequest request = mock(AddTradeJiraTypeRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        List<AddTradeJiraTypeRequest> requests = Collections.singletonList(request);
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenThrow(new RuntimeException("DB error"));
-
-        List<ActionUpdateResult> results = valuationActionService.removeJiraType(requests, "username");
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-    }
-
-    // updateUserActionType Tests
-    @Test
-    public void testUpdateUserActionType_EmptyRequests() {
-        List<UpdateUserActionTypeRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = valuationActionService.updateUserActionType(requests, "username");
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testUpdateUserActionType_Successful() {
-        UpdateUserActionTypeRequest request = mock(UpdateUserActionTypeRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        when(request.getComment().getComment()).thenReturn("Test comment");
-        when(request.getAction()).thenReturn("Test action");
-        when(request.getUserActionType()).thenReturn("Action1");
-        List<UpdateUserActionTypeRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = createReportDocument("key1", 1L);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(dataUpdater.addComments(any(ExceptionManagement.class), eq("username"), eq("Test comment"), eq("Test action"))).thenReturn(mock(ExceptionManagement.class));
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Collections.singletonList(createWriteResult(true, "key1", 2L, null)));
-
-        List<ActionUpdateResult> results = valuationActionService.updateUserActionType(requests, "username");
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).isSuccess());
-    }
-
-    @Test
-    public void testUpdateUserActionType_ExceptionDuringProcessing() {
-        UpdateUserActionTypeRequest request = mock(UpdateUserActionTypeRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        List<UpdateUserActionTypeRequest> requests = Collections.singletonList(request);
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenThrow(new RuntimeException("DB error"));
-
-        List<ActionUpdateResult> results = valuationActionService.updateUserActionType(requests, "username");
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-    }
-
-    // Private method test using reflection
-    @Test
-    public void testRollBackRejectedRecords() throws Exception {
-        Map<DocumentId, UpdateRequest> tradeRequestMap = new HashMap<>();
-        UpdateExceptionStatusRequest request = mock(UpdateExceptionStatusRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 3L));
-        tradeRequestMap.put(DocumentId.from("key1", 3L), request);
-
-        ValuationReportDocument prevDoc = createReportDocument("key1", 1L);
-        when(dfTradePersistManager.getAllRecordsById(argThat(list -> list.contains(DocumentId.from("key1", 1L))))).thenReturn(Collections.singletonList(prevDoc));
-        when(dfTradePersistManager.upsertAllRecords(anyList())).thenReturn(Collections.singletonList(createWriteResult(true, "key1", 4L, null)));
-
-        Method method = ValuationActionService.class.getDeclaredMethod("rollBackRejectedRecords", Map.class);
-        method.setAccessible(true);
-        @SuppressWarnings("unchecked")
-        List<ActionUpdateResult> results = (List<ActionUpdateResult>) method.invoke(valuationActionService, tradeRequestMap);
-
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).isSuccess());
-        assertEquals(4L, results.get(0).getVersion().longValue());
-    }
-
-    // Test for saveAllRecords with failed WriteResult
-    @Test
-    public void testSaveAllRecords_Failure() {
-        AddTradeCommentRequest request = mock(AddTradeCommentRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        List<AddTradeCommentRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = createReportDocument("key1", 1L);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateUser("username", doc.getValuationReport().getExceptionManagement())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(anyString())).thenReturn(false);
-        when(dataUpdater.addCommentsToException(request, doc.getValuationReport().getExceptionManagement(), "username")).thenReturn(mock(ExceptionManagement.class));
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Collections.singletonList(createWriteResult(false, "key1", 1L, "Save failed")));
-
-        List<ActionUpdateResult> results = valuationActionService.addComment(requests, "username");
-        assertEquals(1, results.size());
-        assertFalse(results.get(0).isSuccess());
-        assertEquals("Save failed", results.get(0).getErrorMessage());
-    }
-}
