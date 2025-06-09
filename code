@@ -1,666 +1,1556 @@
-@Test
-public void testAddComment_MAS755ValidationFailure() {
-    // Setup
-    AddTradeCommentRequest request = new AddTradeCommentRequest();
-    request.setDocumentId(new ActionDocumentId("key", 1L));
-    List<AddTradeCommentRequest> requests = Collections.singletonList(request);
+Could you write all the additional test cases for below java class to cover all the remaining scenarios or methods and make the test coverage or code coverage as 100% using junit 4 and old mockito version and java 8. Also don't use power mockito as i m using older mockito version and for private methods try to use reflection. Plus we can't change any file other than the above test class. 
+
+package com.rbs.tntr.business.blotter.services.actions;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+import com.rbs.tntr.business.blotter.web.request.regreportingTrade.*;
+import org.apache.commons.lang3.tuple.Pair;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import com.google.common.collect.Lists;
+import com.nwm.tntr.commons.domain.persistence.constant.TNTRApplication;
+import com.nwm.tntr.commons.domain.persistence.constant.UserActionType;
+import com.nwm.tntr.commons.domain.persistence.entity.DocumentId;
+import com.nwm.tntr.commons.domain.persistence.entity.ExceptionManagement;
+import com.nwm.tntr.commons.domain.persistence.entity.NonReportableData;
+import com.nwm.tntr.commons.domain.persistence.entity.collaterallink.CollateralLinkReport;
+import com.nwm.tntr.commons.domain.persistence.entity.collaterallink.CollateralLinkReportDocument;
+import com.nwm.tntr.commons.domain.persistence.entity.trade.TradeReport;
+import com.nwm.tntr.commons.domain.persistence.entity.trade.TradeReportDocument;
+import com.nwm.tntr.commons.repository.regreporting.WriteResult;
+import com.rbs.tntr.business.blotter.df.manager.DfCollateralLinkPersistManager;
+import com.rbs.tntr.business.blotter.df.updater.CollateralLinkDataUpdater;
+import com.rbs.tntr.business.blotter.services.validators.ActionRequestValidator;
+import com.rbs.tntr.domain.blotter.enums.ExceptionStatus;
+import com.rbs.tntr.domain.blotter.exceptions.BlotterRunTimeException;
+import com.rbs.tntr.domain.blotter.exceptions.DfRunTimeException;
+import com.rbs.tntr.domain.blotter.tntrBlotterView.ActionDocumentId;
+
+@Service
+public class CollateralLinkActionService {
+    private final Logger logger = LoggerFactory.getLogger(CollateralLinkActionService.class);
+    private static final String UPDATE_ERROR = "Error updating collateral record : ";
+    public static final String COLLATERAL_LINK = "CollateralLink;";
+
+    private final DfCollateralLinkPersistManager dfCollateralPersistManager;
+    private final CollateralLinkDataUpdater dataUpdater;
+    private final ActionRequestValidator requestValidator;
+
+    @Autowired
+    public CollateralLinkActionService(DfCollateralLinkPersistManager dfCollateralPersistManager, CollateralLinkDataUpdater dataUpdater, ActionRequestValidator requestValidator) {
+        this.dfCollateralPersistManager = dfCollateralPersistManager;
+        this.dataUpdater = dataUpdater;
+        this.requestValidator = requestValidator;
+    }
+
+
+
+    public List<ActionUpdateResult> addComment(List<AddTradeCommentRequest> requests, String userName) {
+        if(requests.isEmpty()){
+            return Lists.newArrayList();
+        }
+        List<ActionUpdateResult> writeResults = Lists.newArrayList();
+        try{
+            Map<DocumentId, UpdateRequest> tradeRequestMap = new HashMap<>();
+            requests.forEach(request -> populateTradeRequestMap(request, tradeRequestMap));
+            List<CollateralLinkReportDocument> tradeReportDocuments = getTradeReportDocuments(Lists.newArrayList(tradeRequestMap.keySet()));
+
+            if (!tradeReportDocuments.isEmpty()) {
+                List<Pair<CollateralLinkReport, Long>> tradeReports = getTradeWithComments(tradeReportDocuments, tradeRequestMap, writeResults, userName);
+                if (!tradeReports.isEmpty()) {
+                    writeResults.addAll(saveAllRecords(tradeReportDocuments, tradeReports));
+                }
+            }
+            return writeResults;
+        } catch (Exception e) {
+            logger.error(e.getMessage(), e);
+            return requests
+                    .stream()
+                    .map(request -> ActionUpdateResult.createWithError(request.getDocumentId(), UPDATE_ERROR + e.getMessage()))
+                    .collect(Collectors.toList());
+        }
+    }
+
+    public List<ActionUpdateResult> removeComment(List<AddTradeCommentRequest> requests, String userName) {
+        if(requests.isEmpty()){
+            return Lists.newArrayList();
+        }
+        List<ActionUpdateResult> writeResults = Lists.newArrayList();
+        try{
+            Map<DocumentId, UpdateRequest> tradeRequestMap = new HashMap<>();
+            requests.forEach(request -> populateTradeRequestMap(request, tradeRequestMap));
+            List<CollateralLinkReportDocument> tradeReportDocuments = getTradeReportDocuments(Lists.newArrayList(tradeRequestMap.keySet()));
+
+            if (!tradeReportDocuments.isEmpty()) {
+                List<Pair<CollateralLinkReport, Long>> tradeReports = getTradeWithRemovedComments(tradeReportDocuments, tradeRequestMap, writeResults, userName);
+                if (!tradeReports.isEmpty()) {
+                    writeResults.addAll(saveAllRecords(tradeReportDocuments, tradeReports));
+                }
+            }
+            return writeResults;
+        } catch (Exception e) {
+            logger.error(e.getMessage(), e);
+            return requests
+                    .stream()
+                    .map(request -> ActionUpdateResult.createWithError(request.getDocumentId(), UPDATE_ERROR + e.getMessage()))
+                    .collect(Collectors.toList());
+        }
+    }
     
-    TradeReportDocument doc = mock(TradeReportDocument.class);
-    when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
-    TradeReport report = mock(TradeReport.class);
-    when(doc.getTradeReport()).thenReturn(report);
+    protected List<Pair<CollateralLinkReport, Long>> getTradeWithComments(List<CollateralLinkReportDocument> tradeReportDocuments, Map<DocumentId, UpdateRequest> requests, List<ActionUpdateResult> failedTrades, String userName) throws BlotterRunTimeException {
+        try {
+
+            List<Pair<CollateralLinkReport, Long>> reportsWithExpectedBaseVersions = new ArrayList<>();
+            for (CollateralLinkReportDocument tradeReportDocument : tradeReportDocuments) {
+                CollateralLinkReport tradeReport = tradeReportDocument.getCollateralLinkReport();
+                if (!requestValidator.validateUser(userName, tradeReport.getExceptionManagement())) {
+                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.USER_VALIDATION_ERROR));
+                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.USER_VALIDATION_ERROR);
+                }else if(requestValidator.validateApprovalStatus(tradeReport.getExceptionManagement().getApprovalStatus())){
+                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
+                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR);
+                }else {
+                    AddTradeCommentRequest addTradeCommentRequest = (AddTradeCommentRequest) requests.get(tradeReportDocument.getDocumentId());
+
+                    ExceptionManagement exceptionManagement = dataUpdater.addCommentsToException(addTradeCommentRequest,
+                            tradeReport.getExceptionManagement(), userName);
+
+                    CollateralLinkReport collateralLinkRepo = getCollateralLinkReport(tradeReport, exceptionManagement);
+                    reportsWithExpectedBaseVersions.add(getReportsWithExpectedBaseVersion(tradeReportDocument, collateralLinkRepo));
+                }
+            }
+            return reportsWithExpectedBaseVersions;
+        } catch (Exception e) {
+            logger.error("Error occured while updating comments in ExceptionManagement. ", e);
+            throw new BlotterRunTimeException("Error occured while updating comments in ExceptionManagement. ", e);
+        }
+    }
+
+    protected List<Pair<CollateralLinkReport, Long>> getTradeWithRemovedComments(List<CollateralLinkReportDocument> tradeReportDocuments, Map<DocumentId, UpdateRequest> requests, List<ActionUpdateResult> failedTrades, String userName) throws BlotterRunTimeException {
+        try {
+
+            List<Pair<CollateralLinkReport, Long>> reportsWithExpectedBaseVersions = new ArrayList<>();
+            for (CollateralLinkReportDocument tradeReportDocument : tradeReportDocuments) {
+                CollateralLinkReport tradeReport = tradeReportDocument.getCollateralLinkReport();
+                if (!requestValidator.validateUser(userName, tradeReport.getExceptionManagement())) {
+                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.USER_VALIDATION_ERROR));
+                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.USER_VALIDATION_ERROR);
+                }else if(requestValidator.validateApprovalStatus(tradeReport.getExceptionManagement().getApprovalStatus())){
+                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
+                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR);
+                }else {
+                    AddTradeCommentRequest addTradeCommentRequest = (AddTradeCommentRequest) requests.get(tradeReportDocument.getDocumentId());
+
+                    ExceptionManagement exceptionManagement = dataUpdater.removeCommentsToException(addTradeCommentRequest,
+                            tradeReport.getExceptionManagement(), userName);
+
+                    CollateralLinkReport collateralLinkRepo = getCollateralLinkReport(tradeReport, exceptionManagement);
+                    reportsWithExpectedBaseVersions.add(getReportsWithExpectedBaseVersion(tradeReportDocument, collateralLinkRepo));
+                }
+            }
+            return reportsWithExpectedBaseVersions;
+        } catch (Exception e) {
+            logger.error("Error occured while updating comments in ExceptionManagement. ", e);
+            throw new BlotterRunTimeException("Error occured while updating comments in ExceptionManagement. ", e);
+        }
+    }
+
+    private CollateralLinkReport getCollateralLinkReport(CollateralLinkReport tradeReport, ExceptionManagement exceptionManagement) {
+        return CollateralLinkReport.newBuilder(tradeReport).withExceptionManagement(exceptionManagement)
+                                .withNonReportableData(NonReportableData.newBuilder(tradeReport.getNonReportableData())
+                                        .withUpdatedByApplication(TNTRApplication.BLOTTER_SERVICE)
+                                        .build())
+                                .build();
+    }
+
+    private Pair<CollateralLinkReport, Long> getReportsWithExpectedBaseVersion(CollateralLinkReportDocument tradeReportDocument, CollateralLinkReport tradeReport) {
+        return Pair.of(tradeReport, tradeReportDocument.getDocumentId().getVersion());
+    }
+
+    private List<ActionUpdateResult> saveAllRecords(List<CollateralLinkReportDocument> tradeReportDocuments, List<Pair<CollateralLinkReport, Long>> tradeReports) {
+        List<WriteResult<CollateralLinkReport>> writeResults =  dfCollateralPersistManager.saveAllRecords(tradeReports);
+        List<ActionUpdateResult> result = getResult(tradeReportDocuments, writeResults);
+        return result;
+    }
+
+	private List<ActionUpdateResult> rollBackRejectedRecords(Map<DocumentId, UpdateRequest> tradeRequestMap) {
+		logger.info("Rolling back records to previous version due to rejection");
+		List<ActionUpdateResult> writeResults = Lists.newArrayList();
+		List<DocumentId> documentIds = Lists.newArrayList();
+		tradeRequestMap.keySet().forEach(documentId -> {
+			documentIds.add(DocumentId.from(documentId.getKey(), (documentId.getVersion() - 2)));
+		});
+		List<CollateralLinkReportDocument> collateralLinkReportDocuments = getTradeReportDocuments(documentIds);
+		List<CollateralLinkReport> collateralLinkReports = collateralLinkReportDocuments.stream()
+				.map(collateralLinkDocument -> collateralLinkDocument.getCollateralLinkReport()).collect(Collectors.toList());
+		writeResults = upsertAllRecords(collateralLinkReportDocuments, collateralLinkReports);
+		return writeResults;
+	}
+
+	private List<ActionUpdateResult> upsertAllRecords(List<CollateralLinkReportDocument> collateralLinkReportDocuments,
+			List<CollateralLinkReport> collateralLinkReports) {
+		List<WriteResult<CollateralLinkReport>> writeResults = dfCollateralPersistManager
+				.upsertAllRecords(collateralLinkReports);
+		List<ActionUpdateResult> result = getResult(collateralLinkReportDocuments, writeResults);
+		return result;
+	}
+
+
+    private List<ActionUpdateResult> getResult(List<CollateralLinkReportDocument> tradeReportDocuments, List<WriteResult<CollateralLinkReport>> writeResults) {
+        List<ActionUpdateResult> results = Lists.newArrayList();
+        if(writeResults != null) {
+            for (int i = 0; i < writeResults.size(); i++) {
+                if (writeResults.get(i).isSuccess()) {
+                    results.add(ActionUpdateResult.createSuccess(getTradePrimaryKey(tradeReportDocuments.get(i).getDocumentId()), writeResults.get(i).getDocumentId().getKey(), writeResults.get(i).getDocumentId().getVersion()));
+                } else {
+                    String error = writeResults.get(i).getErrorDetail().getCause() != null
+                            ? writeResults.get(i).getErrorDetail().getDescription() + ". " + writeResults.get(i).getErrorDetail().getCause().getMessage()
+                            : writeResults.get(i).getErrorDetail().getDescription();
+                    logger.error("Error occured in persisting Collateral Link key : [{}], version : [{}] Reason : [{}]", tradeReportDocuments.get(i).getDocumentId().getKey(), tradeReportDocuments.get(i).getDocumentId().getVersion(), error);
+                    results.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocuments.get(i).getDocumentId()), error));
+                }
+            }
+        }
+
+        return results;
+    }
+
+    private List<CollateralLinkReportDocument> getTradeReportDocuments(List<DocumentId> documentIds) throws DfRunTimeException {
+        return dfCollateralPersistManager.getAllRecordsById(documentIds);
+    }
+
+    protected void populateTradeRequestMap(UpdateRequest updateRequest, Map<DocumentId, UpdateRequest> map) {
+        ActionDocumentId docId = updateRequest.getDocumentId();
+        DocumentId documentId = DocumentId.from(docId.getKey(), docId.getVersion());
+
+        map.put(documentId, updateRequest);
+    }
+
+    private ActionDocumentId getTradePrimaryKey(DocumentId documentId) {
+        return new ActionDocumentId(documentId.getKey(), documentId.getVersion());
+    }
+
+	public List<ActionUpdateResult> updateEditedFields(List<EditRequest> requests, String userName,
+			ExceptionStatus exceptionStatus) {
+        if(requests.isEmpty()){
+            return Lists.newArrayList();
+        }
+        try {
+            List<ActionUpdateResult> writeResults = Lists.newArrayList();
+            Map<DocumentId, UpdateRequest> tradeRequestMap = new HashMap<>();
+            requests.forEach(request -> populateTradeRequestMap(request, tradeRequestMap));
+            List<CollateralLinkReportDocument> tradeReportDocuments = getTradeReportDocuments(Lists.newArrayList(tradeRequestMap.keySet()));
+
+            if (!tradeReportDocuments.isEmpty()) {
+				List<Pair<CollateralLinkReport, Long>> tradeReports = editFields(tradeReportDocuments, tradeRequestMap,
+						writeResults, userName, exceptionStatus);
+                if (!tradeReports.isEmpty()) {
+                    writeResults.addAll(saveAllRecords(tradeReportDocuments, tradeReports));
+                }
+            }
+
+            return writeResults;
+        } catch (Exception e) {
+            logger.error(e.getMessage(), e);
+            return requests
+                    .stream()
+                    .map(request -> ActionUpdateResult.createWithError(request.getDocumentId(), UPDATE_ERROR + e.getMessage()))
+                    .collect(Collectors.toList());
+        }
+    }
+
+	protected List<Pair<CollateralLinkReport, Long>> editFields(List<CollateralLinkReportDocument> tradeReportDocuments,
+			Map<DocumentId, UpdateRequest> requests, List<ActionUpdateResult> failedTrades, String userName,
+			ExceptionStatus exceptionStatus) {
+        try {
+
+            List<Pair<CollateralLinkReport, Long>> reportsWithExpectedBaseVersions = new ArrayList<>();
+            for (CollateralLinkReportDocument tradeReportDocument : tradeReportDocuments) {
+                CollateralLinkReport tradeReport = tradeReportDocument.getCollateralLinkReport();
+                if(requestValidator.validateApprovalStatus(tradeReport.getExceptionManagement().getApprovalStatus())){
+                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
+                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR);
+                }else {
+                    try {
+                        EditRequest editRequest = (EditRequest) requests.get(tradeReportDocument.getDocumentId());
+
+						CollateralLinkReport tradeRepo = dataUpdater.updateTradeReportData(editRequest, tradeReport,
+								userName, exceptionStatus);
+                        reportsWithExpectedBaseVersions.add(getReportsWithExpectedBaseVersion(tradeReportDocument, tradeRepo));
+                    } catch (BlotterRunTimeException e) {
+                        failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), e.getMessage()));
+                        logger.error("Collateral Link edit failed for key : [{}], version : [{}], reason : [{}]",tradeReportDocument.getDocumentId().getKey(), tradeReportDocument.getDocumentId().getVersion(), e.getMessage(), e);
+                    }
+                }
+            }
+            return reportsWithExpectedBaseVersions;
+        } catch (Exception e) {
+            logger.error("Error occured while editing collateral. ", e);
+            throw new BlotterRunTimeException("Error occured while editing collateral. "+e.getMessage(), e);
+        }
+    }
+
+    public List<ActionUpdateResult> updateExceptionStatus(List<UpdateExceptionStatusRequest> requests, ExceptionStatus requestedExceptionStatus, String userName) {
+        if(requests.isEmpty() || requestValidator.validateExceptionStatus(requestedExceptionStatus)){
+            if(!requests.isEmpty()){
+                logger.warn("Validation Failed : [{}] action not applicable on Collateral Link Records.", requestedExceptionStatus);
+            }
+            return Lists.newArrayList();
+        }
+        try {
+            List<ActionUpdateResult> writeResults = Lists.newArrayList();
+            
+
+            Map<DocumentId, UpdateRequest> tradeRequestMap = new HashMap<>();
+            requests.forEach(request -> populateTradeRequestMap(request, tradeRequestMap));
+            List<CollateralLinkReportDocument> tradeReportDocuments = getTradeReportDocuments(Lists.newArrayList(tradeRequestMap.keySet()));
+
+            if (!tradeReportDocuments.isEmpty()) {
+                List<Pair<CollateralLinkReport, Long>> tradeReports = getTradeWithExceptionStatus(tradeReportDocuments, requestedExceptionStatus, tradeRequestMap, writeResults, userName);
+                if (!tradeReports.isEmpty()) {
+                    writeResults.addAll(saveAllRecords(tradeReportDocuments, tradeReports));
+                }
+            }
+
+			if (ExceptionStatus.Edit_Rejected.equals(requestedExceptionStatus)) {
+				writeResults = rollBackRejectedRecords(tradeRequestMap);
+			}
+
+            return writeResults;
+        } catch (Exception e) {
+            logger.error(e.getMessage(), e);
+            return getTradeUpdateResultOnError(requests, e.getMessage());
+        }
+    }
     
-    List<ActionUpdateResult> validationFailures = new ArrayList<>();
-    validationFailures.add(ActionUpdateResult.createWithError(
-        new ActionDocumentId("key", 1L), "MAS755 validation failed"
-    ));
+    public List<ActionUpdateResult> performResetAction(List<UpdateExceptionStatusRequest> requests, String userName) {
+        if(requests.isEmpty()){
+            return Lists.newArrayList();
+        }
+        try {
+            List<ActionUpdateResult> writeResults = Lists.newArrayList();
+            
+            Map<DocumentId, UpdateRequest> tradeRequestMap = new HashMap<>();
+            requests.forEach(request -> populateTradeRequestMap(request, tradeRequestMap));
+            List<CollateralLinkReportDocument> tradeReportDocuments = getTradeReportDocuments(Lists.newArrayList(tradeRequestMap.keySet()));
+
+            if (!tradeReportDocuments.isEmpty()) {
+                List<Pair<CollateralLinkReport, Long>> tradeReports = resetActionOnCollateralLink(tradeReportDocuments, tradeRequestMap, writeResults, userName);
+                if (!tradeReports.isEmpty()) {
+                    writeResults.addAll(saveAllRecords(tradeReportDocuments, tradeReports));
+                }
+            }
+            return writeResults;
+        } catch (Exception e) {
+            logger.error(e.getMessage(), e);
+            return getTradeUpdateResultOnError(requests, e.getMessage());
+        }
+    }
+
+    private List<ActionUpdateResult> getTradeUpdateResultOnError(List<UpdateExceptionStatusRequest> requests, String errormessage) {
+        return requests
+                .stream()
+                .map(request -> ActionUpdateResult.createWithError(request.getDocumentId(), UPDATE_ERROR + errormessage))
+                .collect(Collectors.toList());
+    }
+
+    protected List<Pair<CollateralLinkReport, Long>> getTradeWithExceptionStatus(List<CollateralLinkReportDocument> tradeReportDocuments, ExceptionStatus requestedExceptionStatus, Map<DocumentId, UpdateRequest> requests, List<ActionUpdateResult> failedTrades, String userName) throws BlotterRunTimeException {
+        try {
+            List<Pair<CollateralLinkReport, Long>> reportsWithExpectedBaseVersions = new ArrayList<>();
+            for (CollateralLinkReportDocument tradeReportDocument : tradeReportDocuments) {
+                CollateralLinkReport tradeReport = tradeReportDocument.getCollateralLinkReport();
+                if (!requestValidator.validateUser(userName, tradeReport.getExceptionManagement())) {
+                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.USER_VALIDATION_ERROR));
+                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.USER_VALIDATION_ERROR);
+                }else if(requestValidator.validateApprovalStatus(tradeReport.getExceptionManagement().getApprovalStatus())){
+                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
+                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR);
+                }else if (!requestValidator.validateExceptionStatus(requestedExceptionStatus, tradeReport.getExceptionManagement().getApprovalStatus())) {
+                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
+                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR);
+                }else if (requestValidator.validateApprover(requestedExceptionStatus, tradeReport.getCollateralLinkReportId().getTradeSourceSystemTransactionId(), COLLATERAL_LINK,userName)) {
+                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
+                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR);
+                }else {
+                    UpdateExceptionStatusRequest updateExceptionStatusRequest = (UpdateExceptionStatusRequest) requests.get(tradeReportDocument.getDocumentId());
+                    ExceptionManagement exceptionManagement = dataUpdater.addExceptionStatus(requestedExceptionStatus, updateExceptionStatusRequest,
+                            tradeReport.getExceptionManagement(), userName);
+
+                    CollateralLinkReport tradeRepo = getCollateralLinkReport(tradeReport, exceptionManagement);
+                    reportsWithExpectedBaseVersions.add(getReportsWithExpectedBaseVersion(tradeReportDocument, tradeRepo));
+                }
+            }
+            return reportsWithExpectedBaseVersions;
+        } catch (Exception e) {
+            logger.error("Error occured while updating exception status in ExceptionManagement. ", e);
+            throw new BlotterRunTimeException("Error occured while updating exception status in ExceptionManagement. ", e);
+        }
+    }
     
-    when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-    doAnswer(invocation -> {
-        List<ActionUpdateResult> results = invocation.getArgument(1);
-        results.addAll(validationFailures);
-        return null;
-    }).when(requestValidator).validateMAS755Trades(anyList(), anyList());
+	protected List<Pair<CollateralLinkReport, Long>> resetActionOnCollateralLink(
+			List<CollateralLinkReportDocument> tradeReportDocuments, Map<DocumentId, UpdateRequest> requests,
+			List<ActionUpdateResult> failedTrades, String userName) throws BlotterRunTimeException {
+		try {
+			List<Pair<CollateralLinkReport, Long>> reportsWithExpectedBaseVersions = new ArrayList<>();
+			for (CollateralLinkReportDocument tradeReportDocument : tradeReportDocuments) {
+				CollateralLinkReport tradeReport = tradeReportDocument.getCollateralLinkReport();
+				 if (!requestValidator.validateResetActionApprovalStatus(tradeReport.getExceptionManagement().getApprovalStatus(),
+	                        requests.get(tradeReportDocument.getDocumentId()).getFlow())) {
+					logger.warn("Reset Action is not allowed because Current Approval Status of trade is : {}",
+							tradeReport.getExceptionManagement().getApprovalStatus());
+					failedTrades.add(
+							ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()),
+									ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
+					logFailuerReason(tradeReportDocument.getDocumentId(),
+							ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR);
+				} else {
+					UpdateExceptionStatusRequest updateExceptionStatusRequest = (UpdateExceptionStatusRequest) requests
+							.get(tradeReportDocument.getDocumentId());
+					ExceptionManagement exceptionManagement = dataUpdater.resetAction(updateExceptionStatusRequest,
+							tradeReport.getExceptionManagement(), userName);
+
+					CollateralLinkReport tradeRepo = getCollateralLinkReport(tradeReport, exceptionManagement);
+					reportsWithExpectedBaseVersions
+							.add(getReportsWithExpectedBaseVersion(tradeReportDocument, tradeRepo));
+				}
+			}
+			return reportsWithExpectedBaseVersions;
+		} catch (Exception e) {
+			logger.error("Error occured while updating exception status in ExceptionManagement. ", e);
+			throw new BlotterRunTimeException("Error occured while updating exception status in ExceptionManagement. ",
+					e);
+		}
+	}
+
+    public List<ActionUpdateResult> assignExceptionToUser(List<AssignTradeRequest> requests, String userName) {
+        try {
+            if(requests.isEmpty()){
+                return Lists.newArrayList();
+            }
+            List<ActionUpdateResult> writeResults = Lists.newArrayList();
+            
+            Map<DocumentId, UpdateRequest> tradeRequestMap = new HashMap<>();
+            requests.forEach(request -> populateTradeRequestMap(request, tradeRequestMap));
+            List<CollateralLinkReportDocument> tradeReportDocuments = getTradeReportDocuments(Lists.newArrayList(tradeRequestMap.keySet()));
+
+            if (!tradeReportDocuments.isEmpty()) {
+                List<Pair<CollateralLinkReport, Long>> tradeReports = getTradeWithAssignment(tradeReportDocuments, tradeRequestMap, writeResults, userName);
+                if (!tradeReports.isEmpty()) {
+                    writeResults.addAll(saveAllRecords(tradeReportDocuments, tradeReports));
+                }
+            }
+
+            return writeResults;
+        } catch (Exception e) {
+            logger.error(e.getMessage(), e);
+            return requests
+                    .stream()
+                    .map(request -> ActionUpdateResult.createWithError(request.getDocumentId(), UPDATE_ERROR + e.getMessage()))
+                    .collect(Collectors.toList());
+        }
+    }
+
+    protected List<Pair<CollateralLinkReport, Long>> getTradeWithAssignment(List<CollateralLinkReportDocument> tradeReportDocuments, Map<DocumentId, UpdateRequest> requests, List<ActionUpdateResult> failedTrades, String userName) throws BlotterRunTimeException {
+        try {
+
+            List<Pair<CollateralLinkReport, Long>> reportsWithExpectedBaseVersions = new ArrayList<>();
+            for (CollateralLinkReportDocument tradeReportDocument : tradeReportDocuments) {
+                CollateralLinkReport tradeReport = tradeReportDocument.getCollateralLinkReport();
+                if(requestValidator.validateApprovalStatus(tradeReport.getExceptionManagement().getApprovalStatus())){
+                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
+                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR);
+                }else {
+                    AssignTradeRequest assignTradeRequest = (AssignTradeRequest) requests.get(tradeReportDocument.getDocumentId());
+                    ExceptionManagement exceptionManagement = dataUpdater.assignException(assignTradeRequest,
+                            tradeReport.getExceptionManagement(), userName);
+
+                    CollateralLinkReport tradeRepo =getCollateralLinkReport(tradeReport, exceptionManagement);
+                    reportsWithExpectedBaseVersions.add(getReportsWithExpectedBaseVersion(tradeReportDocument, tradeRepo));
+                }
+            }
+            return reportsWithExpectedBaseVersions;
+        } catch (Exception e) {
+            logger.error("Error occured while updating assign user in ExceptionManagement. ", e);
+            throw new BlotterRunTimeException("Error occured while updating assign user in ExceptionManagement. ", e);
+        }
+    }
+
+    public List<ActionUpdateResult> addJiraId(List<AddTradeJiraReferenceRequest> requests, String userName) {
+        if(requests.isEmpty()){
+            return Lists.newArrayList();
+        }
+        try {
+            List<ActionUpdateResult> writeResults = Lists.newArrayList();
+            
+            Map<DocumentId, UpdateRequest> tradeRequestMap = new HashMap<>();
+            requests.forEach(request -> populateTradeRequestMap(request, tradeRequestMap));
+            List<CollateralLinkReportDocument> tradeReportDocuments = getTradeReportDocuments(Lists.newArrayList(tradeRequestMap.keySet()));
+
+            if (!tradeReportDocuments.isEmpty()) {
+                List<Pair<CollateralLinkReport, Long>> tradeReports = getTradeWithJiraReference(tradeReportDocuments, tradeRequestMap, writeResults, userName);
+                if (!tradeReports.isEmpty()) {
+                    writeResults.addAll(saveAllRecords(tradeReportDocuments, tradeReports));
+                }
+            }
+
+            return writeResults;
+        } catch (Exception e) {
+            logger.error(e.getMessage(), e);
+            return requests
+                    .stream()
+                    .map(request -> ActionUpdateResult.createWithError(request.getDocumentId(), UPDATE_ERROR + e.getMessage()))
+                    .collect(Collectors.toList());
+        }
+    }
+
+    protected List<Pair<CollateralLinkReport, Long>> getTradeWithJiraReference(List<CollateralLinkReportDocument> tradeReportDocuments, Map<DocumentId, UpdateRequest> requests, List<ActionUpdateResult> failedTrades, String userName) throws BlotterRunTimeException {
+        try {
+
+            List<Pair<CollateralLinkReport, Long>> reportsWithExpectedBaseVersions = new ArrayList<>();
+            for (CollateralLinkReportDocument tradeReportDocument : tradeReportDocuments) {
+                CollateralLinkReport tradeReport = tradeReportDocument.getCollateralLinkReport();
+                AddTradeJiraReferenceRequest addTradeJiraReferenceRequest = (AddTradeJiraReferenceRequest) requests.get(tradeReportDocument.getDocumentId());
+
+                if (!requestValidator.validateUser(userName, tradeReport.getExceptionManagement())) {
+                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.USER_VALIDATION_ERROR));
+                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.USER_VALIDATION_ERROR);
+                }else if(requestValidator.validateApprovalStatus(tradeReport.getExceptionManagement().getApprovalStatus())){
+                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
+                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR);
+                }else if(requestValidator.isJiraIdPresent(tradeReport.getExceptionManagement().getIssueIds(), addTradeJiraReferenceRequest.getJiraReference().getJiraId())){
+                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.JIRA_ID_PRESENT));
+                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.JIRA_ID_PRESENT);
+                }else {
+                    ExceptionManagement exceptionManagement = dataUpdater.addJiraIdToException(addTradeJiraReferenceRequest,
+                            tradeReport.getExceptionManagement(), userName);
+
+                    CollateralLinkReport tradeRepo =getCollateralLinkReport(tradeReport, exceptionManagement);
+                    reportsWithExpectedBaseVersions.add(getReportsWithExpectedBaseVersion(tradeReportDocument, tradeRepo));
+                }
+            }
+            return reportsWithExpectedBaseVersions;
+        } catch (Exception e) {
+            logger.error("Error occured while adding jira id in ExceptionManagement. ", e);
+            throw new BlotterRunTimeException("Error occured while adding jira id in ExceptionManagement. ", e);
+        }
+    }
+
+    public List<ActionUpdateResult> removeJiraId(List<AddTradeJiraReferenceRequest> requests, String userName) {
+        if(requests.isEmpty()){
+            return Lists.newArrayList();
+        }
+        try {
+            List<ActionUpdateResult> writeResults = Lists.newArrayList();
+            
+            Map<DocumentId, UpdateRequest> tradeRequestMap = new HashMap<>();
+            requests.forEach(request -> populateTradeRequestMap(request, tradeRequestMap));
+            List<CollateralLinkReportDocument> tradeReportDocuments = getTradeReportDocuments(Lists.newArrayList(tradeRequestMap.keySet()));
+
+            if (!tradeReportDocuments.isEmpty()) {
+                List<Pair<CollateralLinkReport, Long>> tradeReports = removeJiraReference(tradeReportDocuments, tradeRequestMap, writeResults, userName);
+                if (!tradeReports.isEmpty()) {
+                    writeResults.addAll(saveAllRecords(tradeReportDocuments, tradeReports));
+                }
+            }
+
+            return writeResults;
+        } catch (Exception e) {
+            logger.error(e.getMessage(), e);
+            return requests
+                    .stream()
+                    .map(request -> ActionUpdateResult.createWithError(request.getDocumentId(), UPDATE_ERROR + e.getMessage()))
+                    .collect(Collectors.toList());
+        }
+    }
+
+    protected List<Pair<CollateralLinkReport, Long>> removeJiraReference(List<CollateralLinkReportDocument> tradeReportDocuments, Map<DocumentId, UpdateRequest> requests, List<ActionUpdateResult> failedTrades, String userName) throws BlotterRunTimeException {
+        try {
+
+            List<Pair<CollateralLinkReport, Long>> reportsWithExpectedBaseVersions = new ArrayList<>();
+            for (CollateralLinkReportDocument tradeReportDocument : tradeReportDocuments) {
+                CollateralLinkReport tradeReport = tradeReportDocument.getCollateralLinkReport();
+                AddTradeJiraReferenceRequest addTradeJiraReferenceRequest = (AddTradeJiraReferenceRequest) requests.get(tradeReportDocument.getDocumentId());
+
+                if (!requestValidator.validateUser(userName, tradeReport.getExceptionManagement())) {
+                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.USER_VALIDATION_ERROR));
+                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.USER_VALIDATION_ERROR);
+                }else if(requestValidator.validateApprovalStatus(tradeReport.getExceptionManagement().getApprovalStatus())){
+                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
+                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR);
+                }else if(!requestValidator.isJiraIdPresent(tradeReport.getExceptionManagement().getIssueIds(), addTradeJiraReferenceRequest.getJiraReference().getJiraId())){
+                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.JIRA_ID_NOT_PRESENT));
+                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.JIRA_ID_NOT_PRESENT);
+                }else {
+                    ExceptionManagement exceptionManagement = dataUpdater.removeJiraIdFromException(addTradeJiraReferenceRequest,
+                            tradeReport.getExceptionManagement(), userName);
+
+                    CollateralLinkReport tradeRepo =getCollateralLinkReport(tradeReport, exceptionManagement);
+                    reportsWithExpectedBaseVersions.add(getReportsWithExpectedBaseVersion(tradeReportDocument, tradeRepo));
+                }
+            }
+            return reportsWithExpectedBaseVersions;
+        } catch (Exception e) {
+            logger.error("Error occured while removing jira id from ExceptionManagement. ", e);
+            throw new BlotterRunTimeException("Error occured while removing jira id from ExceptionManagement. ", e);
+        }
+    }
+
+
+    public List<ActionUpdateResult> addJiraType(List<AddTradeJiraTypeRequest> requests, String userName) {
+        try {
+            List<ActionUpdateResult> writeResults = Lists.newArrayList();
+            
+            Map<DocumentId, UpdateRequest> tradeRequestMap = new HashMap<>();
+            requests.forEach(request -> populateTradeRequestMap(request, tradeRequestMap));
+            List<CollateralLinkReportDocument> tradeReportDocuments = getTradeReportDocuments(Lists.newArrayList(tradeRequestMap.keySet()));
+
+            if (!tradeReportDocuments.isEmpty()) {
+                List<Pair<CollateralLinkReport, Long>> tradeReports = getTradeWithJiraType(tradeReportDocuments, tradeRequestMap, writeResults, userName);
+                if (!tradeReports.isEmpty()) {
+                    writeResults.addAll(saveAllRecords(tradeReportDocuments, tradeReports));
+                }
+            }
+
+            return writeResults;
+        } catch (Exception e) {
+            logger.error(e.getMessage(), e);
+            return requests
+                    .stream()
+                    .map(request -> ActionUpdateResult.createWithError(request.getDocumentId(), UPDATE_ERROR + e.getMessage()))
+                    .collect(Collectors.toList());
+        }
+    }
+
+    protected List<Pair<CollateralLinkReport, Long>> getTradeWithJiraType(List<CollateralLinkReportDocument> tradeReportDocuments, Map<DocumentId, UpdateRequest> requests, List<ActionUpdateResult> failedTrades, String userName) throws BlotterRunTimeException {
+        try {
+
+            List<Pair<CollateralLinkReport, Long>> reportsWithExpectedBaseVersions = new ArrayList<>();
+            for (CollateralLinkReportDocument tradeReportDocument : tradeReportDocuments) {
+                CollateralLinkReport tradeReport = tradeReportDocument.getCollateralLinkReport();
+                if (!requestValidator.validateUser(userName, tradeReport.getExceptionManagement())) {
+                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.USER_VALIDATION_ERROR));
+                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.USER_VALIDATION_ERROR);
+                }else if(requestValidator.validateApprovalStatus(tradeReport.getExceptionManagement().getApprovalStatus())){
+                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
+                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR);
+                }else {
+                    AddTradeJiraTypeRequest addTradeJiraTypeRequest = (AddTradeJiraTypeRequest) requests.get(tradeReportDocument.getDocumentId());
+
+                    ExceptionManagement exceptionManagement = dataUpdater.addJiraTypeToException(addTradeJiraTypeRequest,
+                            tradeReport.getExceptionManagement(), userName);
+
+                    CollateralLinkReport tradeRepo =getCollateralLinkReport(tradeReport, exceptionManagement);
+                    reportsWithExpectedBaseVersions.add(getReportsWithExpectedBaseVersion(tradeReportDocument, tradeRepo));
+                }
+            }
+            return reportsWithExpectedBaseVersions;
+        } catch (Exception e) {
+            logger.error("Error occured while adding jira type in ExceptionManagement. ", e);
+            throw new BlotterRunTimeException("Error occured while adding jira type in ExceptionManagement. ", e);
+        }
+    }
+
+    public List<ActionUpdateResult> removeJiraType(List<AddTradeJiraTypeRequest> requests, String userName) {
+        try {
+            List<ActionUpdateResult> writeResults = Lists.newArrayList();
+            
+            Map<DocumentId, UpdateRequest> tradeRequestMap = new HashMap<>();
+            requests.forEach(request -> populateTradeRequestMap(request, tradeRequestMap));
+            List<CollateralLinkReportDocument> tradeReportDocuments = getTradeReportDocuments(Lists.newArrayList(tradeRequestMap.keySet()));
+
+            if (!tradeReportDocuments.isEmpty()) {
+                List<Pair<CollateralLinkReport, Long>> tradeReports = removeJiraType(tradeReportDocuments, tradeRequestMap, writeResults, userName);
+                if (!tradeReports.isEmpty()) {
+                    writeResults.addAll(saveAllRecords(tradeReportDocuments, tradeReports));
+                }
+            }
+
+            return writeResults;
+        } catch (Exception e) {
+            logger.error(e.getMessage(), e);
+            return requests
+                    .stream()
+                    .map(request -> ActionUpdateResult.createWithError(request.getDocumentId(), UPDATE_ERROR + e.getMessage()))
+                    .collect(Collectors.toList());
+        }
+    }
+
+    protected List<Pair<CollateralLinkReport, Long>> removeJiraType(List<CollateralLinkReportDocument> tradeReportDocuments, Map<DocumentId, UpdateRequest> requests, List<ActionUpdateResult> failedTrades, String userName) throws BlotterRunTimeException {
+        try {
+
+            List<Pair<CollateralLinkReport, Long>> reportsWithExpectedBaseVersions = new ArrayList<>();
+            for (CollateralLinkReportDocument tradeReportDocument : tradeReportDocuments) {
+                CollateralLinkReport tradeReport = tradeReportDocument.getCollateralLinkReport();
+                AddTradeJiraTypeRequest addTradeJiraReferenceRequest = (AddTradeJiraTypeRequest) requests.get(tradeReportDocument.getDocumentId());
+
+                if (!requestValidator.validateUser(userName, tradeReport.getExceptionManagement())) {
+                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.USER_VALIDATION_ERROR));
+                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.USER_VALIDATION_ERROR);
+                }else if(requestValidator.validateApprovalStatus(tradeReport.getExceptionManagement().getApprovalStatus())){
+                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
+                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR);
+                }else if(!tradeReport.getExceptionManagement().getIssueType().value().equals(addTradeJiraReferenceRequest.getJiraType().getIssueType())){
+                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.JIRA_TYPE_NOT_PRESENT));
+                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.JIRA_TYPE_NOT_PRESENT);
+                }else {
+                    ExceptionManagement exceptionManagement = dataUpdater.removeJiraTypeFromException(addTradeJiraReferenceRequest,
+                            tradeReport.getExceptionManagement(), userName);
+
+                    CollateralLinkReport tradeRepo =getCollateralLinkReport(tradeReport, exceptionManagement);
+                    reportsWithExpectedBaseVersions.add(getReportsWithExpectedBaseVersion(tradeReportDocument, tradeRepo));
+                }
+            }
+            return reportsWithExpectedBaseVersions;
+        } catch (Exception e) {
+            logger.error("Error occured while removing jira type from ExceptionManagement. ", e);
+            throw new BlotterRunTimeException("Error occured while removing jira type from ExceptionManagement. ", e);
+        }
+    }
+
+    private void logFailuerReason(DocumentId documentId, String reason){
+        logger.warn("Collateral Link validation failed for key : [{}], version : [{}] Reason : [{}]", documentId.getKey(), documentId.getVersion(), reason);
+    }
     
-    // Execute
-    List<ActionUpdateResult> results = tradeActionService.addComment(requests, "username");
-    
-    // Verify
-    assertEquals(1, results.size());
-    assertTrue(results.get(0).getError().contains("MAS755 validation failed"));
+	public List<ActionUpdateResult> updateUserActionType(List<UpdateUserActionTypeRequest> requests, String userName) {
+		if (requests.isEmpty()) {
+			return Lists.newArrayList();
+		}
+		try {
+			List<ActionUpdateResult> writeResults = Lists.newArrayList();
+
+			Map<DocumentId, UpdateRequest> tradeRequestMap = new HashMap<>();
+			requests.forEach(request -> populateTradeRequestMap(request, tradeRequestMap));
+			List<CollateralLinkReportDocument> tradeReportDocuments = getTradeReportDocuments(
+					Lists.newArrayList(tradeRequestMap.keySet()));
+
+			if (!tradeReportDocuments.isEmpty()) {
+				List<Pair<CollateralLinkReport, Long>> tradeReports = getUserActionTypeTrades(tradeReportDocuments,
+						tradeRequestMap, writeResults, userName);
+				if (!tradeReports.isEmpty()) {
+					writeResults.addAll(saveAllRecords(tradeReportDocuments, tradeReports));
+				}
+			}
+
+			return writeResults;
+		} catch (Exception e) {
+			logger.error(e.getMessage(), e);
+			return requests.stream().map(request -> ActionUpdateResult.createWithError(request.getDocumentId(),
+					UPDATE_ERROR + e.getMessage())).collect(Collectors.toList());
+		}
+	}
+
+	protected List<Pair<CollateralLinkReport, Long>> getUserActionTypeTrades(List<CollateralLinkReportDocument> tradeReportDocuments,
+			Map<DocumentId, UpdateRequest> requests, List<ActionUpdateResult> failedTrades, String userName)
+			throws BlotterRunTimeException {
+		try {
+			List<Pair<CollateralLinkReport, Long>> reportsWithExpectedBaseVersions = new ArrayList<>();
+
+			for (CollateralLinkReportDocument tradeReportDocument : tradeReportDocuments) {
+				CollateralLinkReport tradeReport = tradeReportDocument.getCollateralLinkReport();
+				UpdateUserActionTypeRequest updateUserActionTypeRequest = (UpdateUserActionTypeRequest) requests
+						.get(tradeReportDocument.getDocumentId());
+				ExceptionManagement exceptionManagement = dataUpdater.addComments(tradeReport.getExceptionManagement(),
+						userName, updateUserActionTypeRequest.getComment().getComment(),
+						updateUserActionTypeRequest.getAction());
+				CollateralLinkReport tradeRepo = getTradeReportWithUserActionType(tradeReport, exceptionManagement,
+						UserActionType.fromValue(updateUserActionTypeRequest.getUserActionType()));
+				reportsWithExpectedBaseVersions.add(getReportsWithExpectedBaseVersion(tradeReportDocument, tradeRepo));
+			}
+			return reportsWithExpectedBaseVersions;
+		} catch (Exception e) {
+			logger.error("Error occured while updating comments in ExceptionManagement. ", e);
+			throw new BlotterRunTimeException("Error occured while updating comments in ExceptionManagement. ", e);
+		}
+	}
+
+	private CollateralLinkReport getTradeReportWithUserActionType(CollateralLinkReport tradeReport,
+			ExceptionManagement exceptionManagement, UserActionType userActionType) {
+		return CollateralLinkReport.newBuilder(tradeReport).withExceptionManagement(exceptionManagement)
+				.withNonReportableData(NonReportableData.newBuilder(tradeReport.getNonReportableData())
+						.withUserActionType(userActionType).withUpdatedByApplication(TNTRApplication.BLOTTER_SERVICE)
+						.build())
+				.build();
+	}
+
+    public List<ActionUpdateResult> addCommentType(List<AddTradeCommentTypeRequest> requests, String userName) {
+        if(requests.isEmpty()){
+            return Lists.newArrayList();
+        }
+        List<ActionUpdateResult> writeResults = Lists.newArrayList();
+        try{
+            Map<DocumentId, UpdateRequest> tradeRequestMap = new HashMap<>();
+            requests.forEach(request -> populateTradeRequestMap(request, tradeRequestMap));
+            List<CollateralLinkReportDocument> tradeReportDocuments = getTradeReportDocuments(Lists.newArrayList(tradeRequestMap.keySet()));
+
+            if (!tradeReportDocuments.isEmpty()) {
+                List<Pair<CollateralLinkReport, Long>> tradeReports = getTradeWithCommentType(tradeReportDocuments, tradeRequestMap, writeResults, userName);
+                if (!tradeReports.isEmpty()) {
+                    writeResults.addAll(saveAllRecords(tradeReportDocuments, tradeReports));
+                }
+            }
+            return writeResults;
+        } catch (Exception e) {
+            logger.error(e.getMessage(), e);
+            return requests
+                    .stream()
+                    .map(request -> ActionUpdateResult.createWithError(request.getDocumentId(), UPDATE_ERROR + e.getMessage()))
+                    .collect(Collectors.toList());
+        }
+    }
+
+    public List<ActionUpdateResult> removeCommentType(List<AddTradeCommentTypeRequest> requests, String userName) {
+        if(requests.isEmpty()){
+            return Lists.newArrayList();
+        }
+        List<ActionUpdateResult> writeResults = Lists.newArrayList();
+        try{
+            Map<DocumentId, UpdateRequest> tradeRequestMap = new HashMap<>();
+            requests.forEach(request -> populateTradeRequestMap(request, tradeRequestMap));
+            List<CollateralLinkReportDocument> tradeReportDocuments = getTradeReportDocuments(Lists.newArrayList(tradeRequestMap.keySet()));
+
+            if (!tradeReportDocuments.isEmpty()) {
+                List<Pair<CollateralLinkReport, Long>> tradeReports = getTradeWithRemovedCommentType(tradeReportDocuments, tradeRequestMap, writeResults, userName);
+                if (!tradeReports.isEmpty()) {
+                    writeResults.addAll(saveAllRecords(tradeReportDocuments, tradeReports));
+                }
+            }
+            return writeResults;
+        } catch (Exception e) {
+            logger.error(e.getMessage(), e);
+            return requests
+                    .stream()
+                    .map(request -> ActionUpdateResult.createWithError(request.getDocumentId(), UPDATE_ERROR + e.getMessage()))
+                    .collect(Collectors.toList());
+        }
+    }
+
+    protected List<Pair<CollateralLinkReport, Long>> getTradeWithCommentType(List<CollateralLinkReportDocument> tradeReportDocuments, Map<DocumentId, UpdateRequest> requests, List<ActionUpdateResult> failedTrades, String userName) throws BlotterRunTimeException {
+        try {
+
+            List<Pair<CollateralLinkReport, Long>> reportsWithExpectedBaseVersions = new ArrayList<>();
+            for (CollateralLinkReportDocument tradeReportDocument : tradeReportDocuments) {
+                CollateralLinkReport tradeReport = tradeReportDocument.getCollateralLinkReport();
+                if (!requestValidator.validateUser(userName, tradeReport.getExceptionManagement())) {
+                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.USER_VALIDATION_ERROR));
+                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.USER_VALIDATION_ERROR);
+                }else if(requestValidator.validateApprovalStatus(tradeReport.getExceptionManagement().getApprovalStatus())){
+                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
+                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR);
+                }else {
+                    AddTradeCommentTypeRequest addTradeCommentTypeRequest = (AddTradeCommentTypeRequest) requests.get(tradeReportDocument.getDocumentId());
+
+                    ExceptionManagement exceptionManagement = dataUpdater.addCommentTypeToException(addTradeCommentTypeRequest,
+                            tradeReport.getExceptionManagement(), userName);
+
+                    CollateralLinkReport collateralLinkRepo = getCollateralLinkReport(tradeReport, exceptionManagement);
+                    reportsWithExpectedBaseVersions.add(getReportsWithExpectedBaseVersion(tradeReportDocument, collateralLinkRepo));
+                }
+            }
+            return reportsWithExpectedBaseVersions;
+        } catch (Exception e) {
+            logger.error("Error occured while updating comments in ExceptionManagement. ", e);
+            throw new BlotterRunTimeException("Error occured while updating comments in ExceptionManagement. ", e);
+        }
+    }
+
+    protected List<Pair<CollateralLinkReport, Long>> getTradeWithRemovedCommentType(List<CollateralLinkReportDocument> tradeReportDocuments, Map<DocumentId, UpdateRequest> requests, List<ActionUpdateResult> failedTrades, String userName) throws BlotterRunTimeException {
+        try {
+
+            List<Pair<CollateralLinkReport, Long>> reportsWithExpectedBaseVersions = new ArrayList<>();
+            for (CollateralLinkReportDocument tradeReportDocument : tradeReportDocuments) {
+                CollateralLinkReport tradeReport = tradeReportDocument.getCollateralLinkReport();
+                if (!requestValidator.validateUser(userName, tradeReport.getExceptionManagement())) {
+                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.USER_VALIDATION_ERROR));
+                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.USER_VALIDATION_ERROR);
+                }else if(requestValidator.validateApprovalStatus(tradeReport.getExceptionManagement().getApprovalStatus())){
+                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
+                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR);
+                }else {
+                    AddTradeCommentTypeRequest addTradeCommentTypeRequest = (AddTradeCommentTypeRequest) requests.get(tradeReportDocument.getDocumentId());
+
+                    ExceptionManagement exceptionManagement = dataUpdater.removeCommentTypeToException(addTradeCommentTypeRequest,
+                            tradeReport.getExceptionManagement(), userName);
+
+                    CollateralLinkReport collateralLinkRepo = getCollateralLinkReport(tradeReport, exceptionManagement);
+                    reportsWithExpectedBaseVersions.add(getReportsWithExpectedBaseVersion(tradeReportDocument, collateralLinkRepo));
+                }
+            }
+            return reportsWithExpectedBaseVersions;
+        } catch (Exception e) {
+            logger.error("Error occured while updating comments in ExceptionManagement. ", e);
+            throw new BlotterRunTimeException("Error occured while updating comments in ExceptionManagement. ", e);
+        }
+    }
 }
 
-@Test
-public void testUpdateExceptionStatus_RollbackOnEditRejected() {
-    // Setup Edit_Rejected status
-    UpdateExceptionStatusRequest request = new UpdateExceptionStatusRequest();
-    request.setDocumentId(new ActionDocumentId("key", 1L));
-    List<UpdateExceptionStatusRequest> requests = Collections.singletonList(request);
-    
-    TradeReportDocument doc = mock(TradeReportDocument.class);
-    when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
-    TradeReport report = mock(TradeReport.class);
-    when(report.getTransactionReportingStatus()).thenReturn(mock(TradeReport.TransactionReportingStatus.class));
-    ExceptionManagement em = mock(ExceptionManagement.class);
-    when(em.getApprovalStatus()).thenReturn(ExceptionStatus.Edit_Requested);
-    when(report.getExceptionManagement()).thenReturn(em);
-    when(doc.getTradeReport()).thenReturn(report);
-    
-    when(dfTradePersistManager.getAllRecordsById(anyList()))
-        .thenReturn(Collections.singletonList(doc))  // First call
-        .thenReturn(Collections.singletonList(doc)); // Rollback call
-    
-    // Execute with Edit_Rejected
-    List<ActionUpdateResult> results = tradeActionService.updateExceptionStatus(
-        requests, ExceptionStatus.Edit_Rejected, "username"
-    );
-    
-    // Verify rollback was triggered
-    verify(dfTradePersistManager, times(1)).upsertAllRecords(anyList());
-    assertEquals(1, results.size());
-}
+Existing test class:
 
-@Test
-public void testSaveAllRecords_ErrorHandling() throws Exception {
-    // Use reflection to test private method
-    List<TradeReportDocument> docs = new ArrayList<>();
-    TradeReportDocument doc = mock(TradeReportDocument.class);
-    DocumentId docId = DocumentId.from("key", 1L);
-    when(doc.getDocumentId()).thenReturn(docId);
-    docs.add(doc);
-    
-    List<WriteResult<TradeReport>> writeResults = new ArrayList<>();
-    WriteResult<TradeReport> errorResult = mock(WriteResult.class);
-    when(errorResult.isSuccess()).thenReturn(false);
-    when(errorResult.getErrorDetail()).thenReturn(new WriteResult.ErrorDetail("DB Error", new RuntimeException("Cause")));
-    writeResults.add(errorResult);
-    
-    when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(writeResults);
-    
-    // Invoke private method via reflection
-    Method saveAllRecords = TradeActionService.class.getDeclaredMethod(
-        "saveAllRecords", List.class, List.class
-    );
-    saveAllRecords.setAccessible(true);
-    List<ActionUpdateResult> results = (List<ActionUpdateResult>) saveAllRecords.invoke(
-        tradeActionService, docs, Collections.singletonList(Pair.of(mock(TradeReport.class), 1L))
-    );
-    
-    // Verify error handling
-    assertEquals(1, results.size());
-    assertTrue(results.get(0).getError().contains("DB Error"));
-}
+package com.rbs.tntr.business.blotter.services.actions;
 
-@Test
-public void testUpdateExceptionStatus_CancelTradeValidationFailure() {
-    // Setup
-    UpdateExceptionStatusRequest request = new UpdateExceptionStatusRequest();
-    request.setDocumentId(new ActionDocumentId("key", 1L));
-    List<UpdateExceptionStatusRequest> requests = Collections.singletonList(request);
-    
-    TradeReportDocument doc = mock(TradeReportDocument.class);
-    when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
-    TradeReport report = mock(TradeReport.class);
-    when(report.getTransactionReportingStatus()).thenReturn(mock(TradeReport.TransactionReportingStatus.class));
-    when(report.getTransactionReportingStatus().getTransactionStateValue()).thenReturn("ACKED");
-    when(doc.getTradeReport()).thenReturn(report);
-    
-    when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-    
-    // Execute with Cancel Requested
-    List<ActionUpdateResult> results = tradeActionService.updateExceptionStatus(
-        requests, ExceptionStatus.Cancel_Requested, "username"
-    );
-    
-    // Verify validation failure
-    assertEquals(1, results.size());
-    assertTrue(results.get(0).getError().contains(TradeActionService.CANCEL_TRADE_ACKED_ERROR));
-}
+import com.nwm.tntr.commons.domain.persistence.entity.DocumentId;
+import com.nwm.tntr.commons.domain.persistence.entity.ExceptionManagement;
+import com.nwm.tntr.commons.domain.persistence.entity.collaterallink.CollateralLinkReport;
+import com.nwm.tntr.commons.domain.persistence.entity.collaterallink.CollateralLinkReportDocument;
+import com.rbs.datafabric.agile.commons.lang.StartableException;
+import com.rbs.datafabric.api.exception.ScanException;
+import com.rbs.datafabric.domain.WriteResult;
+import com.rbs.tntr.business.blotter.df.manager.DfCollateralLinkPersistManager;
+import com.rbs.tntr.business.blotter.df.updater.CollateralLinkDataUpdater;
+import com.rbs.tntr.business.blotter.services.validators.ActionRequestValidator;
+import com.rbs.tntr.business.blotter.web.request.regreportingTrade.*;
+import com.rbs.tntr.domain.blotter.enums.ExceptionStatus;
+import com.rbs.tntr.domain.blotter.exceptions.BlotterRunTimeException;
+import com.rbs.tntr.domain.blotter.tntrBlotterView.ActionDocumentId;
+import com.rbs.tntr.domain.blotter.tntrBlotterView.JiraType;
+import com.rbs.tntr.domain.blotter.tntrBlotterView.UserComment;
+import org.junit.Before;
+import org.junit.Test;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
+import org.w3c.dom.Comment;
 
-@Test
-public void testPerformResetAction_ValidationFailure() {
-    // Setup
-    UpdateExceptionStatusRequest request = new UpdateExceptionStatusRequest();
-    request.setDocumentId(new ActionDocumentId("key", 1L));
-    List<UpdateExceptionStatusRequest> requests = Collections.singletonList(request);
-    
-    TradeReportDocument doc = mock(TradeReportDocument.class);
-    when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
-    TradeReport report = mock(TradeReport.class);
-    ExceptionManagement em = mock(ExceptionManagement.class);
-    when(em.getApprovalStatus()).thenReturn(ExceptionStatus.Approved); // Invalid status for reset
-    when(report.getExceptionManagement()).thenReturn(em);
-    when(doc.getTradeReport()).thenReturn(report);
-    
-    when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-    
-    // Execute
-    List<ActionUpdateResult> results = tradeActionService.performResetAction(requests, "username");
-    
-    // Verify validation failure
-    assertEquals(1, results.size());
-    assertTrue(results.get(0).getError().contains(ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
-}
+import java.io.IOException;
+import java.lang.reflect.Method;
+import java.util.*;
+import static org.junit.Assert.*;
+import static org.mockito.Mockito.*;
 
-@Test
-public void testRemoveJiraType_ValidationFailure() {
-    // Setup
-    AddTradeJiraTypeRequest request = new AddTradeJiraTypeRequest();
-    request.setDocumentId(new ActionDocumentId("key", 1L));
-    List<AddTradeJiraTypeRequest> requests = Collections.singletonList(request);
-    
-    TradeReportDocument doc = mock(TradeReportDocument.class);
-    when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
-    TradeReport report = mock(TradeReport.class);
-    ExceptionManagement em = mock(ExceptionManagement.class);
-    when(em.getIssueType()).thenReturn(new ExceptionManagement.IssueType("TYPE_A"));
-    when(report.getExceptionManagement()).thenReturn(em);
-    when(doc.getTradeReport()).thenReturn(report);
-    
-    when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-    
-    // Set different Jira type in request
-    AddTradeJiraTypeRequest.JiraType jiraType = new AddTradeJiraTypeRequest.JiraType();
-    jiraType.setIssueType("TYPE_B");
-    request.setJiraType(jiraType);
-    
-    // Execute
-    List<ActionUpdateResult> results = tradeActionService.removeJiraType(requests, "username");
-    
-    // Verify validation failure
-    assertEquals(1, results.size());
-    assertTrue(results.get(0).getError().contains(ActionRequestValidator.JIRA_TYPE_NOT_PRESENT));
-}
+public class CollateralLinkActionServiceTest {
 
-@Test
-    public void testAddComment_ApprovalStatusValidationFailure() {
-        AddTradeCommentRequest request = new AddTradeCommentRequest();
-        request.setDocumentId(new ActionDocumentId("key", 1L));
-        List<AddTradeCommentRequest> requests = Collections.singletonList(request);
+    @InjectMocks
+    private CollateralLinkActionService collateralLinkActionService;
 
-        TradeReportDocument doc = mock(TradeReportDocument.class);
-        TradeReport report = mock(TradeReport.class);
-        ExceptionManagement em = mock(ExceptionManagement.class);
-        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
-        when(doc.getTradeReport()).thenReturn(report);
-        when(report.getExceptionManagement()).thenReturn(em);
+    @Mock
+    private DfCollateralLinkPersistManager dfCollateralPersistManager;
 
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateUser(anyString(), any())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(true);
+    @Mock
+    private CollateralLinkDataUpdater dataUpdater;
 
-        List<ActionUpdateResult> results = tradeActionService.addComment(requests, "username");
+    @Mock
+    private ActionRequestValidator requestValidator;
 
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).getError().contains(ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
+    private static final String USERNAME = "testUser";
+
+    @Before
+    public void setUp() {
+        MockitoAnnotations.initMocks(this);
     }
 
     @Test
-    public void testAddComment_PartialSaveSuccess() {
-        AddTradeCommentRequest req1 = new AddTradeCommentRequest();
-        req1.setDocumentId(new ActionDocumentId("key1", 1L));
-        AddTradeCommentRequest req2 = new AddTradeCommentRequest();
-        req2.setDocumentId(new ActionDocumentId("key2", 1L));
-        List<AddTradeCommentRequest> requests = Arrays.asList(req1, req2);
-
-        TradeReportDocument doc1 = mock(TradeReportDocument.class);
-        TradeReport report1 = mock(TradeReport.class);
-        ExceptionManagement em1 = mock(ExceptionManagement.class);
-        when(doc1.getDocumentId()).thenReturn(DocumentId.from("key1", 1L));
-        when(doc1.getTradeReport()).thenReturn(report1);
-        when(report1.getExceptionManagement()).thenReturn(em1);
-
-        TradeReportDocument doc2 = mock(TradeReportDocument.class);
-        TradeReport report2 = mock(TradeReport.class);
-        ExceptionManagement em2 = mock(ExceptionManagement.class);
-        when(doc2.getDocumentId()).thenReturn(DocumentId.from("key2", 1L));
-        when(doc2.getTradeReport()).thenReturn(report2);
-        when(report2.getExceptionManagement()).thenReturn(em2);
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Arrays.asList(doc1, doc2));
-        when(requestValidator.validateUser(anyString(), any())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        when(dataUpdater.addCommentsToException(any(), any(), anyString())).thenReturn(em1, em2);
-
-        WriteResult<TradeReport> success = WriteResult.success(DocumentId.from("key1", 2L), report1);
-        WriteResult<TradeReport> failure = WriteResult.failure(DocumentId.from("key2", 1L), new RuntimeException("Save failed"));
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Arrays.asList(success, failure));
-
-        List<ActionUpdateResult> results = tradeActionService.addComment(requests, "username");
-
-        assertEquals(2, results.size());
-        assertTrue(results.get(0).isSuccess());
-        assertTrue(results.get(1).getError().contains("Save failed"));
-    }
-
-    @Test
-    public void testRemoveComment_DataUpdaterThrowsException() {
-        AddTradeCommentRequest request = new AddTradeCommentRequest();
-        request.setDocumentId(new ActionDocumentId("key", 1L));
-        List<AddTradeCommentRequest> requests = Collections.singletonList(request);
-
-        TradeReportDocument doc = mock(TradeReportDocument.class);
-        TradeReport report = mock(TradeReport.class);
-        ExceptionManagement em = mock(ExceptionManagement.class);
-        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
-        when(doc.getTradeReport()).thenReturn(report);
-        when(report.getExceptionManagement()).thenReturn(em);
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateUser(anyString(), any())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        when(dataUpdater.removeCommentsToException(any(), any(), anyString())).thenThrow(new RuntimeException("Update error"));
-
-        List<ActionUpdateResult> results = tradeActionService.removeComment(requests, "username");
-
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).getError().contains("Update error"));
-    }
-
-    @Test
-    public void testAddCommentType_UserValidationFailure() {
-        AddTradeCommentTypeRequest request = new AddTradeCommentTypeRequest();
-        request.setDocumentId(new ActionDocumentId("key", 1L));
-        List<AddTradeCommentTypeRequest> requests = Collections.singletonList(request);
-
-        TradeReportDocument doc = mock(TradeReportDocument.class);
-        TradeReport report = mock(TradeReport.class);
-        ExceptionManagement em = mock(ExceptionManagement.class);
-        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
-        when(doc.getTradeReport()).thenReturn(report);
-        when(report.getExceptionManagement()).thenReturn(em);
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateUser(anyString(), any())).thenReturn(false);
-
-        List<ActionUpdateResult> results = tradeActionService.addCommentType(requests, "username");
-
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).getError().contains(ActionRequestValidator.USER_VALIDATION_ERROR));
-    }
-
-    @Test
-    public void testRemoveCommentType_Success() {
-        AddTradeCommentTypeRequest request = new AddTradeCommentTypeRequest();
-        request.setDocumentId(new ActionDocumentId("key", 1L));
-        List<AddTradeCommentTypeRequest> requests = Collections.singletonList(request);
-
-        TradeReportDocument doc = mock(TradeReportDocument.class);
-        TradeReport report = mock(TradeReport.class);
-        ExceptionManagement em = mock(ExceptionManagement.class);
-        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
-        when(doc.getTradeReport()).thenReturn(report);
-        when(report.getExceptionManagement()).thenReturn(em);
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateUser(anyString(), any())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        when(dataUpdater.removeCommentTypeToException(any(), any(), anyString())).thenReturn(em);
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Collections.singletonList(
-            WriteResult.success(DocumentId.from("key", 2L), report)
-        ));
-
-        List<ActionUpdateResult> results = tradeActionService.removeCommentType(requests, "username");
-
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).isSuccess());
-    }
-
-    @Test
-    public void testUpdateExceptionStatus_MixedValidations() {
-        UpdateExceptionStatusRequest req1 = new UpdateExceptionStatusRequest();
-        req1.setDocumentId(new ActionDocumentId("key1", 1L));
-        UpdateExceptionStatusRequest req2 = new UpdateExceptionStatusRequest();
-        req2.setDocumentId(new ActionDocumentId("key2", 1L));
-        List<UpdateExceptionStatusRequest> requests = Arrays.asList(req1, req2);
-
-        TradeReportDocument doc1 = mock(TradeReportDocument.class);
-        TradeReport report1 = mock(TradeReport.class);
-        ExceptionManagement em1 = mock(ExceptionManagement.class);
-        when(doc1.getDocumentId()).thenReturn(DocumentId.from("key1", 1L));
-        when(doc1.getTradeReport()).thenReturn(report1);
-        when(report1.getExceptionManagement()).thenReturn(em1);
-
-        TradeReportDocument doc2 = mock(TradeReportDocument.class);
-        TradeReport report2 = mock(TradeReport.class);
-        ExceptionManagement em2 = mock(ExceptionManagement.class);
-        when(doc2.getDocumentId()).thenReturn(DocumentId.from("key2", 1L));
-        when(doc2.getTradeReport()).thenReturn(report2);
-        when(report2.getExceptionManagement()).thenReturn(em2);
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Arrays.asList(doc1, doc2));
-        when(requestValidator.validateUser(eq("username"), eq(em1))).thenReturn(false);
-        when(requestValidator.validateUser(eq("username"), eq(em2))).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        when(requestValidator.validateExceptionStatus(any(), any())).thenReturn(true);
-        when(requestValidator.validateApprover(any(), any(), any(), any())).thenReturn(false);
-        when(dataUpdater.addExceptionStatus(any(), any(), any(), anyString())).thenReturn(em2);
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Collections.singletonList(
-            WriteResult.success(DocumentId.from("key2", 2L), report2)
-        ));
-
-        List<ActionUpdateResult> results = tradeActionService.updateExceptionStatus(requests, ExceptionStatus.Edit_Requested, "username");
-
-        assertEquals(2, results.size());
-        assertTrue(results.get(0).getError().contains(ActionRequestValidator.USER_VALIDATION_ERROR));
-        assertTrue(results.get(1).isSuccess());
-    }
-
-    @Test
-    public void testUpdateExceptionStatus_CancelTradeAckedError() {
-        UpdateExceptionStatusRequest request = new UpdateExceptionStatusRequest();
-        request.setDocumentId(new ActionDocumentId("key", 1L));
-        List<UpdateExceptionStatusRequest> requests = Collections.singletonList(request);
-
-        TradeReportDocument doc = mock(TradeReportDocument.class);
-        TradeReport report = mock(TradeReport.class);
-        ExceptionManagement em = mock(ExceptionManagement.class);
-        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
-        when(doc.getTradeReport()).thenReturn(report);
-        when(report.getExceptionManagement()).thenReturn(em);
-        when(report.getTransactionReportingStatus()).thenReturn(mock(com.nwm.tntr.commons.domain.persistence.entity.trade.TransactionReportingStatus.class));
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateUser(anyString(), any())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        when(requestValidator.validateAckedCancleTrade(any(), any())).thenReturn(true);
-
-        List<ActionUpdateResult> results = tradeActionService.updateExceptionStatus(requests, ExceptionStatus.Edit_Requested, "username");
-
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).getError().contains(TradeActionService.CANCEL_TRADE_ACKED_ERROR));
-    }
-
-    @Test
-    public void testPerformResetAction_NotAllowed() {
-        UpdateExceptionStatusRequest request = new UpdateExceptionStatusRequest();
-        request.setDocumentId(new ActionDocumentId("key", 1L));
-        List<UpdateExceptionStatusRequest> requests = Collections.singletonList(request);
-
-        TradeReportDocument doc = mock(TradeReportDocument.class);
-        TradeReport report = mock(TradeReport.class);
-        ExceptionManagement em = mock(ExceptionManagement.class);
-        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
-        when(doc.getTradeReport()).thenReturn(report);
-        when(report.getExceptionManagement()).thenReturn(em);
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateResetActionApprovalStatus(any(), any())).thenReturn(false);
-
-        List<ActionUpdateResult> results = tradeActionService.performResetAction(requests, "username");
-
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).getError().contains(ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
-    }
-
-    @Test
-    public void testAssignExceptionToUser_Success() {
-        AssignTradeRequest request = new AssignTradeRequest();
-        request.setDocumentId(new ActionDocumentId("key", 1L));
-        List<AssignTradeRequest> requests = Collections.singletonList(request);
-
-        TradeReportDocument doc = mock(TradeReportDocument.class);
-        TradeReport report = mock(TradeReport.class);
-        ExceptionManagement em = mock(ExceptionManagement.class);
-        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
-        when(doc.getTradeReport()).thenReturn(report);
-        when(report.getExceptionManagement()).thenReturn(em);
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        when(dataUpdater.assignException(any(), any(), anyString())).thenReturn(em);
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Collections.singletonList(
-            WriteResult.success(DocumentId.from("key", 2L), report)
-        ));
-
-        List<ActionUpdateResult> results = tradeActionService.assignExceptionToUser(requests, "username");
-
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).isSuccess());
-    }
-
-    @Test
-    public void testAddJiraId_JiraIdPresent() {
-        AddTradeJiraReferenceRequest request = new AddTradeJiraReferenceRequest();
-        request.setDocumentId(new ActionDocumentId("key", 1L));
-        List<AddTradeJiraReferenceRequest> requests = Collections.singletonList(request);
-
-        TradeReportDocument doc = mock(TradeReportDocument.class);
-        TradeReport report = mock(TradeReport.class);
-        ExceptionManagement em = mock(ExceptionManagement.class);
-        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
-        when(doc.getTradeReport()).thenReturn(report);
-        when(report.getExceptionManagement()).thenReturn(em);
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateUser(anyString(), any())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        when(requestValidator.isJiraIdPresent(any(), anyString())).thenReturn(true);
-
-        List<ActionUpdateResult> results = tradeActionService.addJiraId(requests, "username");
-
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).getError().contains(ActionRequestValidator.JIRA_ID_PRESENT));
-    }
-
-    @Test
-    public void testRemoveJiraId_JiraIdNotPresent() {
-        AddTradeJiraReferenceRequest request = new AddTradeJiraReferenceRequest();
-        request.setDocumentId(new ActionDocumentId("key", 1L));
-        List<AddTradeJiraReferenceRequest> requests = Collections.singletonList(request);
-
-        TradeReportDocument doc = mock(TradeReportDocument.class);
-        TradeReport report = mock(TradeReport.class);
-        ExceptionManagement em = mock(ExceptionManagement.class);
-        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
-        when(doc.getTradeReport()).thenReturn(report);
-        when(report.getExceptionManagement()).thenReturn(em);
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateUser(anyString(), any())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        when(requestValidator.isJiraIdPresent(any(), anyString())).thenReturn(false);
-
-        List<ActionUpdateResult> results = tradeActionService.removeJiraId(requests, "username");
-
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).getError().contains(ActionRequestValidator.JIRA_ID_NOT_PRESENT));
-    }
-
-    @Test
-    public void testAddJiraType_Success() {
-        AddTradeJiraTypeRequest request = new AddTradeJiraTypeRequest();
-        request.setDocumentId(new ActionDocumentId("key", 1L));
-        List<AddTradeJiraTypeRequest> requests = Collections.singletonList(request);
-
-        TradeReportDocument doc = mock(TradeReportDocument.class);
-        TradeReport report = mock(TradeReport.class);
-        ExceptionManagement em = mock(ExceptionManagement.class);
-        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
-        when(doc.getTradeReport()).thenReturn(report);
-        when(report.getExceptionManagement()).thenReturn(em);
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateUser(anyString(), any())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        when(dataUpdater.addJiraTypeToException(any(), any(), anyString())).thenReturn(em);
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Collections.singletonList(
-            WriteResult.success(DocumentId.from("key", 2L), report)
-        ));
-
-        List<ActionUpdateResult> results = tradeActionService.addJiraType(requests, "username");
-
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).isSuccess());
-    }
-
-    @Test
-    public void testRemoveJiraType_JiraTypeNotPresent() {
-        AddTradeJiraTypeRequest request = new AddTradeJiraTypeRequest();
-        request.setDocumentId(new ActionDocumentId("key", 1L));
-        List<AddTradeJiraTypeRequest> requests = Collections.singletonList(request);
-
-        TradeReportDocument doc = mock(TradeReportDocument.class);
-        TradeReport report = mock(TradeReport.class);
-        ExceptionManagement em = mock(ExceptionManagement.class);
-        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
-        when(doc.getTradeReport()).thenReturn(report);
-        when(report.getExceptionManagement()).thenReturn(em);
-        when(em.getIssueType()).thenReturn(mock(com.nwm.tntr.commons.domain.persistence.entity.IssueType.class));
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateUser(anyString(), any())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        when(em.getIssueType().value()).thenReturn("DifferentType");
-        when(request.getJiraType()).thenReturn(mock(AddTradeJiraTypeRequest.JiraType.class));
-        when(request.getJiraType().getIssueType()).thenReturn("TestType");
-
-        List<ActionUpdateResult> results = tradeActionService.removeJiraType(requests, "username");
-
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).getError().contains(ActionRequestValidator.JIRA_TYPE_NOT_PRESENT));
-    }
-
-    @Test
-    public void testUpdateEditedFields_EditFailure() {
-        EditRequest request = new EditRequest();
-        request.setDocumentId(new ActionDocumentId("key", 1L));
-        List<EditRequest> requests = Collections.singletonList(request);
-
-        TradeReportDocument doc = mock(TradeReportDocument.class);
-        TradeReport report = mock(TradeReport.class);
-        ExceptionManagement em = mock(ExceptionManagement.class);
-        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
-        when(doc.getTradeReport()).thenReturn(report);
-        when(report.getExceptionManagement()).thenReturn(em);
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        when(dataUpdater.updateTradeReportData(any(), any(), anyString(), any())).thenThrow(new BlotterRunTimeException("Edit failed"));
-
-        List<ActionUpdateResult> results = tradeActionService.updateEditedFields(requests, "username", ExceptionStatus.Edit_Requested);
-
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).getError().contains("Edit failed"));
-    }
-
-    @Test
-    public void testUpdateUserActionType_Success() {
-        UpdateUserActionTypeRequest request = new UpdateUserActionTypeRequest();
-        request.setDocumentId(new ActionDocumentId("key", 1L));
-        request.setUserActionType("TEST_ACTION");
-        request.setComment(new UpdateUserActionTypeRequest.Comment("Test comment"));
-        List<UpdateUserActionTypeRequest> requests = Collections.singletonList(request);
-
-        TradeReportDocument doc = mock(TradeReportDocument.class);
-        TradeReport report = mock(TradeReport.class);
-        ExceptionManagement em = mock(ExceptionManagement.class);
-        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
-        when(doc.getTradeReport()).thenReturn(report);
-        when(report.getExceptionManagement()).thenReturn(em);
-        when(report.getNonReportableData()).thenReturn(mock(NonReportableData.class));
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(dataUpdater.addComments(any(), anyString(), anyString(), any())).thenReturn(em);
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Collections.singletonList(
-            WriteResult.success(DocumentId.from("key", 2L), report)
-        ));
-
-        List<ActionUpdateResult> results = tradeActionService.updateUserActionType(requests, "username");
-
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).isSuccess());
-    }
-
-    @Test
-    public void testRollBackRejectedRecords_UsingReflection() throws Exception {
-        UpdateExceptionStatusRequest request = new UpdateExceptionStatusRequest();
-        request.setDocumentId(new ActionDocumentId("key", 3L));
-        Map<DocumentId, UpdateRequest> tradeRequestMap = Collections.singletonMap(
-            DocumentId.from("key", 3L), request
-        );
-
-        TradeReportDocument prevDoc = mock(TradeReportDocument.class);
-        TradeReport prevReport = mock(TradeReport.class);
-        when(prevDoc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
-        when(prevDoc.getTradeReport()).thenReturn(prevReport);
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(prevDoc));
-        when(dfTradePersistManager.upsertAllRecords(anyList())).thenReturn(Collections.singletonList(
-            WriteResult.success(DocumentId.from("key", 1L), prevReport)
-        ));
-
-        Method method = TradeActionService.class.getDeclaredMethod("rollBackRejectedRecords", Map.class);
-        method.setAccessible(true);
-        List<ActionUpdateResult> results = (List<ActionUpdateResult>) method.invoke(tradeActionService, tradeRequestMap);
-
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).isSuccess());
-    }
-
-    @Test
-    public void testGetResult_NullWriteResults_UsingReflection() throws Exception {
-        TradeReportDocument doc = mock(TradeReportDocument.class);
-        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
-        List<TradeReportDocument> docs = Collections.singletonList(doc);
-
-        Method method = TradeActionService.class.getDeclaredMethod("getResult", List.class, List.class);
-        method.setAccessible(true);
-        List<ActionUpdateResult> results = (List<ActionUpdateResult>) method.invoke(tradeActionService, docs, null);
-
+    public void testAddComment_EmptyRequests() {
+        List<AddTradeCommentRequest> requests = new ArrayList<>();
+        List<ActionUpdateResult> results = collateralLinkActionService.addComment(requests, "username");
         assertTrue(results.isEmpty());
     }
 
     @Test
-    public void testPopulateTradeRequestMap_UsingReflection() throws Exception {
-        UpdateExceptionStatusRequest request = new UpdateExceptionStatusRequest();
-        request.setDocumentId(new ActionDocumentId("key", 1L));
+    public void testAddComment_ValidRequest() {
+        List<AddTradeCommentRequest> requests = setupValidCommentRequests();
+        List<CollateralLinkReportDocument> documents = setupValidCollateralLinkDocuments();
+
+        when(dfCollateralPersistManager.getAllRecordsById(any())).thenReturn(documents);
+        List<ActionUpdateResult> results = collateralLinkActionService.addComment(requests, "username");
+
+        assertFalse(results.isEmpty());
+    }
+
+    @Test
+    public void testAddComment_ExceptionHandling() {
+        when(dfCollateralPersistManager.getAllRecordsById(any())).thenThrow(new RuntimeException("Database Error"));
+        List<AddTradeCommentRequest> requests = setupValidCommentRequests();
+
+        List<ActionUpdateResult> results = collateralLinkActionService.addComment(requests, "username");
+
+        assertFalse(results.isEmpty());
+    }
+
+    @Test
+    public void testRemoveComment_EmptyRequests() {
+        List<AddTradeCommentRequest> requests = new ArrayList<>();
+        List<ActionUpdateResult> results = collateralLinkActionService.removeComment(requests, "username");
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    public void testRemoveComment_ValidRequest() {
+        List<AddTradeCommentRequest> requests = setupValidCommentRequests();
+        List<CollateralLinkReportDocument> documents = setupValidCollateralLinkDocuments();
+
+        when(dfCollateralPersistManager.getAllRecordsById(any())).thenReturn(documents);
+        List<ActionUpdateResult> results = collateralLinkActionService.removeComment(requests, "username");
+
+        assertFalse(results.isEmpty());
+    }
+
+    @Test
+    public void testAssignExceptionToUser_EmptyRequests() {
+        List<AssignTradeRequest> requests = new ArrayList<>();
+        List<ActionUpdateResult> results = collateralLinkActionService.assignExceptionToUser(requests, "username");
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    public void testAddJiraId_EmptyRequests() {
+        List<AddTradeJiraReferenceRequest> requests = new ArrayList<>();
+        List<ActionUpdateResult> results = collateralLinkActionService.addJiraId(requests, "username");
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    public void testRemoveJiraId_ExceptionHandling() {
+        when(dfCollateralPersistManager.getAllRecordsById(any())).thenThrow(new RuntimeException("Error deleting"));
+        List<AddTradeJiraReferenceRequest> requests = setupValidJiraReferenceRequests();
+
+        List<ActionUpdateResult> results = collateralLinkActionService.removeJiraId(requests, "username");
+        assertFalse(results.isEmpty());
+    }
+
+    @Test
+    public void testAddCommentType_EmptyRequests() {
+        List<AddTradeCommentTypeRequest> requests = new ArrayList<>();
+        List<ActionUpdateResult> results = collateralLinkActionService.addCommentType(requests, "username");
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    public void testRemoveCommentType_EmptyRequests() {
+        List<AddTradeCommentTypeRequest> requests = new ArrayList<>();
+        List<ActionUpdateResult> results = collateralLinkActionService.removeCommentType(requests, "username");
+        assertTrue(results.isEmpty());
+    }
+
+    // Helper methods to set up mock data for tests
+    private List<AddTradeCommentRequest> setupValidCommentRequests() {
+        // Create and return a valid list of AddTradeCommentRequest
+        AddTradeCommentRequest request = mock(AddTradeCommentRequest.class);
+        return Collections.singletonList(request);
+    }
+
+    private List<CollateralLinkReportDocument> setupValidCollateralLinkDocuments() {
+        // Create and return a valid list of mocked CollateralLinkReportDocuments
+        List<CollateralLinkReportDocument> documents = new ArrayList<>();
+        CollateralLinkReportDocument document = mock(CollateralLinkReportDocument.class);
+        when(document.getCollateralLinkReport()).thenReturn(mock(CollateralLinkReport.class));
+        documents.add(document);
+        return documents;
+    }
+
+    private List<EditRequest> setupValidEditRequests() {
+        // Create and return a valid list of EditRequest
+        EditRequest request = mock(EditRequest.class);
+        return Collections.singletonList(request);
+    }
+
+    private List<AddTradeJiraReferenceRequest> setupValidJiraReferenceRequests() {
+        // Create and return a valid list of AddTradeJiraReferenceRequest
+        AddTradeJiraReferenceRequest request = mock(AddTradeJiraReferenceRequest.class);
+        return Collections.singletonList(request);
+    }
+
+    @Test
+    public void testAddComment_UserValidationFails() {
+        List<AddTradeCommentRequest> requests = setupValidCommentRequests();
+        List<CollateralLinkReportDocument> documents = setupValidCollateralLinkDocuments();
+        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenReturn(documents);
+        when(requestValidator.validateUser(eq(USERNAME), any(ExceptionManagement.class))).thenReturn(false);
+
+        List<ActionUpdateResult> results = collateralLinkActionService.addComment(requests, USERNAME);
+        assertFalse(results.isEmpty());
+    }
+
+    @Test
+    public void testAddComment_ApprovalStatusValidationFails() {
+        List<AddTradeCommentRequest> requests = setupValidCommentRequests();
+        List<CollateralLinkReportDocument> documents = setupValidCollateralLinkDocuments();
+        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenReturn(documents);
+        when(requestValidator.validateUser(eq(USERNAME), any(ExceptionManagement.class))).thenReturn(true);
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(true);
+
+        List<ActionUpdateResult> results = collateralLinkActionService.addComment(requests, USERNAME);
+        assertFalse(results.isEmpty());
+    }
+
+    @Test
+    public void testRemoveComment_UserValidationFails() {
+        List<AddTradeCommentRequest> requests = setupValidCommentRequests();
+        List<CollateralLinkReportDocument> documents = setupValidCollateralLinkDocuments();
+        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenReturn(documents);
+        when(requestValidator.validateUser(eq(USERNAME), any(ExceptionManagement.class))).thenReturn(false);
+
+        List<ActionUpdateResult> results = collateralLinkActionService.removeComment(requests, USERNAME);
+        assertFalse(results.isEmpty());
+    }
+
+    @Test
+    public void testRemoveComment_ApprovalStatusValidationFails() {
+        List<AddTradeCommentRequest> requests = setupValidCommentRequests();
+        List<CollateralLinkReportDocument> documents = setupValidCollateralLinkDocuments();
+        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenReturn(documents);
+        when(requestValidator.validateUser(eq(USERNAME), any(ExceptionManagement.class))).thenReturn(true);
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(true);
+
+        List<ActionUpdateResult> results = collateralLinkActionService.removeComment(requests, USERNAME);
+        assertFalse(results.isEmpty());
+    }
+
+    @Test
+    public void testRemoveComment_ExceptionHandling() {
+        List<AddTradeCommentRequest> requests = setupValidCommentRequests();
+        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenThrow(new RuntimeException("Database Error"));
+
+        List<ActionUpdateResult> results = collateralLinkActionService.removeComment(requests, USERNAME);
+        assertFalse(results.isEmpty());
+    }
+
+    @Test
+    public void testUpdateEditedFields_EmptyRequests() {
+        List<EditRequest> requests = new ArrayList<>();
+        List<ActionUpdateResult> results = collateralLinkActionService.updateEditedFields(requests, USERNAME, ExceptionStatus.Open);
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    public void testUpdateEditedFields_ValidRequest() {
+        List<EditRequest> requests = setupValidEditRequests();
+        List<CollateralLinkReportDocument> documents = setupValidCollateralLinkDocuments();
+        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenReturn(documents);
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
+        when(dataUpdater.updateTradeReportData(any(), any(), eq(USERNAME), eq(ExceptionStatus.Open))).thenReturn(mock(CollateralLinkReport.class));
+
+        List<ActionUpdateResult> results = collateralLinkActionService.updateEditedFields(requests, USERNAME, ExceptionStatus.Open);
+        assertFalse(results.isEmpty());
+    }
+
+    @Test
+    public void testUpdateEditedFields_ApprovalStatusValidationFails() {
+        List<EditRequest> requests = setupValidEditRequests();
+        List<CollateralLinkReportDocument> documents = setupValidCollateralLinkDocuments();
+        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenReturn(documents);
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(true);
+
+        List<ActionUpdateResult> results = collateralLinkActionService.updateEditedFields(requests, USERNAME, ExceptionStatus.Open);
+        assertFalse(results.isEmpty());
+    }
+
+    @Test
+    public void testUpdateEditedFields_BlotterRunTimeException() {
+        List<EditRequest> requests = setupValidEditRequests();
+        List<CollateralLinkReportDocument> documents = setupValidCollateralLinkDocuments();
+        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenReturn(documents);
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
+        when(dataUpdater.updateTradeReportData(any(), any(), eq(USERNAME), eq(ExceptionStatus.Open))).thenThrow(new BlotterRunTimeException("Edit Failed"));
+
+        List<ActionUpdateResult> results = collateralLinkActionService.updateEditedFields(requests, USERNAME, ExceptionStatus.Open);
+        assertFalse(results.isEmpty());
+    }
+
+    @Test
+    public void testUpdateEditedFields_ExceptionHandling() {
+        List<EditRequest> requests = setupValidEditRequests();
+        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenThrow(new RuntimeException("Database Error"));
+
+        List<ActionUpdateResult> results = collateralLinkActionService.updateEditedFields(requests, USERNAME, ExceptionStatus.Open);
+        assertFalse(results.isEmpty());
+    }
+
+    @Test
+    public void testUpdateExceptionStatus_EmptyRequests() {
+        List<UpdateExceptionStatusRequest> requests = new ArrayList<>();
+        List<ActionUpdateResult> results = collateralLinkActionService.updateExceptionStatus(requests, ExceptionStatus.Open, USERNAME);
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    public void testUpdateExceptionStatus_InvalidExceptionStatus() {
+        List<UpdateExceptionStatusRequest> requests = setupValidUpdateExceptionStatusRequests();
+        when(requestValidator.validateExceptionStatus(eq(ExceptionStatus.Open))).thenReturn(true);
+
+        List<ActionUpdateResult> results = collateralLinkActionService.updateExceptionStatus(requests, ExceptionStatus.Open, USERNAME);
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    public void testUpdateExceptionStatus_ValidRequest() throws ScanException, IOException, StartableException {
+        List<UpdateExceptionStatusRequest> requests = setupValidUpdateExceptionStatusRequests();
+        List<CollateralLinkReportDocument> documents = setupValidCollateralLinkDocuments();
+        when(requestValidator.validateExceptionStatus(eq(ExceptionStatus.Open))).thenReturn(false);
+        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenReturn(documents);
+        when(requestValidator.validateUser(eq(USERNAME), any(ExceptionManagement.class))).thenReturn(true);
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
+        when(requestValidator.validateExceptionStatus(eq(ExceptionStatus.Open), any())).thenReturn(true);
+        when(requestValidator.validateApprover(eq(ExceptionStatus.Open), any(), any(), eq(USERNAME))).thenReturn(false);
+        when(dataUpdater.addExceptionStatus(eq(ExceptionStatus.Open), any(), any(), eq(USERNAME))).thenReturn(mock(ExceptionManagement.class));
+
+        List<ActionUpdateResult> results = collateralLinkActionService.updateExceptionStatus(requests, ExceptionStatus.Open, USERNAME);
+        assertFalse(results.isEmpty());
+    }
+
+    @Test
+    public void testUpdateExceptionStatus_UserValidationFails() {
+        List<UpdateExceptionStatusRequest> requests = setupValidUpdateExceptionStatusRequests();
+        List<CollateralLinkReportDocument> documents = setupValidCollateralLinkDocuments();
+        when(requestValidator.validateExceptionStatus(eq(ExceptionStatus.Open))).thenReturn(false);
+        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenReturn(documents);
+        when(requestValidator.validateUser(eq(USERNAME), any(ExceptionManagement.class))).thenReturn(false);
+
+        List<ActionUpdateResult> results = collateralLinkActionService.updateExceptionStatus(requests, ExceptionStatus.Open, USERNAME);
+        assertFalse(results.isEmpty());
+    }
+
+    @Test
+    public void testUpdateExceptionStatus_RollbackRejectedRecords() throws Exception {
+        List<UpdateExceptionStatusRequest> requests = setupValidUpdateExceptionStatusRequests();
+        List<CollateralLinkReportDocument> documents = setupValidCollateralLinkDocuments();
+        when(requestValidator.validateExceptionStatus(eq(ExceptionStatus.Edit_Rejected))).thenReturn(false);
+        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenReturn(documents);
+        when(requestValidator.validateUser(eq(USERNAME), any(ExceptionManagement.class))).thenReturn(true);
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
+        when(requestValidator.validateExceptionStatus(eq(ExceptionStatus.Edit_Rejected), any())).thenReturn(true);
+        when(requestValidator.validateApprover(eq(ExceptionStatus.Edit_Rejected), any(), any(), eq(USERNAME))).thenReturn(false);
+        when(dataUpdater.addExceptionStatus(eq(ExceptionStatus.Edit_Rejected), any(), any(), eq(USERNAME))).thenReturn(mock(ExceptionManagement.class));
+
+        List<ActionUpdateResult> results = collateralLinkActionService.updateExceptionStatus(requests, ExceptionStatus.Edit_Rejected, USERNAME);
+        assertFalse(results.isEmpty());
+    }
+
+    @Test
+    public void testUpdateExceptionStatus_ExceptionHandling() {
+        List<UpdateExceptionStatusRequest> requests = setupValidUpdateExceptionStatusRequests();
+        when(requestValidator.validateExceptionStatus(eq(ExceptionStatus.Open))).thenReturn(false);
+        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenThrow(new RuntimeException("Database Error"));
+
+        List<ActionUpdateResult> results = collateralLinkActionService.updateExceptionStatus(requests, ExceptionStatus.Open, USERNAME);
+        assertFalse(results.isEmpty());
+        assertTrue(results.get(0).getError().contains("Database Error"));
+    }
+
+    @Test
+    public void testPerformResetAction_EmptyRequests() {
+        List<UpdateExceptionStatusRequest> requests = new ArrayList<>();
+        List<ActionUpdateResult> results = collateralLinkActionService.performResetAction(requests, USERNAME);
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    public void testPerformResetAction_ValidRequest() {
+        List<UpdateExceptionStatusRequest> requests = setupValidUpdateExceptionStatusRequests();
+        List<CollateralLinkReportDocument> documents = setupValidCollateralLinkDocuments();
+        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenReturn(documents);
+        when(requestValidator.validateResetActionApprovalStatus(any(), any())).thenReturn(true);
+        when(dataUpdater.resetAction(any(), any(), eq(USERNAME))).thenReturn(mock(ExceptionManagement.class));
+
+        List<ActionUpdateResult> results = collateralLinkActionService.performResetAction(requests, USERNAME);
+        assertFalse(results.isEmpty());
+    }
+
+    @Test
+    public void testPerformResetAction_ApprovalStatusValidationFails() {
+        List<UpdateExceptionStatusRequest> requests = setupValidUpdateExceptionStatusRequests();
+        List<CollateralLinkReportDocument> documents = setupValidCollateralLinkDocuments();
+        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenReturn(documents);
+        when(requestValidator.validateResetActionApprovalStatus(any(), any())).thenReturn(false);
+
+        List<ActionUpdateResult> results = collateralLinkActionService.performResetAction(requests, USERNAME);
+        assertFalse(results.isEmpty());
+    }
+
+    @Test
+    public void testPerformResetAction_ExceptionHandling() {
+        List<UpdateExceptionStatusRequest> requests = setupValidUpdateExceptionStatusRequests();
+        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenThrow(new RuntimeException("Database Error"));
+
+        List<ActionUpdateResult> results = collateralLinkActionService.performResetAction(requests, USERNAME);
+        assertFalse(results.isEmpty());
+        assertTrue(results.get(0).getError().contains("Database Error"));
+    }
+
+    @Test
+    public void testAssignExceptionToUser_ValidRequest() {
+        List<AssignTradeRequest> requests = setupValidAssignTradeRequests();
+        List<CollateralLinkReportDocument> documents = setupValidCollateralLinkDocuments();
+        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenReturn(documents);
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
+        when(dataUpdater.assignException(any(), any(), eq(USERNAME))).thenReturn(mock(ExceptionManagement.class));
+
+        List<ActionUpdateResult> results = collateralLinkActionService.assignExceptionToUser(requests, USERNAME);
+        assertFalse(results.isEmpty());
+    }
+
+    @Test
+    public void testAssignExceptionToUser_ApprovalStatusValidationFails() {
+        List<AssignTradeRequest> requests = setupValidAssignTradeRequests();
+        List<CollateralLinkReportDocument> documents = setupValidCollateralLinkDocuments();
+        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenReturn(documents);
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(true);
+
+        List<ActionUpdateResult> results = collateralLinkActionService.assignExceptionToUser(requests, USERNAME);
+        assertFalse(results.isEmpty());
+    }
+
+    @Test
+    public void testAddJiraId_ValidRequest() {
+        List<AddTradeJiraReferenceRequest> requests = setupValidJiraReferenceRequests();
+        List<CollateralLinkReportDocument> documents = setupValidCollateralLinkDocuments();
+        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenReturn(documents);
+        when(requestValidator.validateUser(eq(USERNAME), any(ExceptionManagement.class))).thenReturn(true);
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
+        when(requestValidator.isJiraIdPresent(any(), any())).thenReturn(false);
+        when(dataUpdater.addJiraIdToException(any(), any(), eq(USERNAME))).thenReturn(mock(ExceptionManagement.class));
+
+        List<ActionUpdateResult> results = collateralLinkActionService.addJiraId(requests, USERNAME);
+        assertFalse(results.isEmpty());
+    }
+
+    @Test
+    public void testAddJiraId_JiraIdAlreadyPresent() {
+        List<AddTradeJiraReferenceRequest> requests = setupValidJiraReferenceRequests();
+        List<CollateralLinkReportDocument> documents = setupValidCollateralLinkDocuments();
+        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenReturn(documents);
+        when(requestValidator.validateUser(eq(USERNAME), any(ExceptionManagement.class))).thenReturn(true);
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
+        when(requestValidator.isJiraIdPresent(any(), any())).thenReturn(true);
+
+        List<ActionUpdateResult> results = collateralLinkActionService.addJiraId(requests, USERNAME);
+        assertFalse(results.isEmpty());
+    }
+
+    @Test
+    public void testAddJiraId_ExceptionHandling() {
+        List<AddTradeJiraReferenceRequest> requests = setupValidJiraReferenceRequests();
+        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenThrow(new RuntimeException("Database Error"));
+
+        List<ActionUpdateResult> results = collateralLinkActionService.addJiraId(requests, USERNAME);
+        assertFalse(results.isEmpty());
+    }
+
+    @Test
+    public void testRemoveJiraId_EmptyRequests() {
+        List<AddTradeJiraReferenceRequest> requests = new ArrayList<>();
+        List<ActionUpdateResult> results = collateralLinkActionService.removeJiraId(requests, USERNAME);
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    public void testRemoveJiraId_ValidRequest() {
+        List<AddTradeJiraReferenceRequest> requests = setupValidJiraReferenceRequests();
+        List<CollateralLinkReportDocument> documents = setupValidCollateralLinkDocuments();
+        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenReturn(documents);
+        when(requestValidator.validateUser(eq(USERNAME), any(ExceptionManagement.class))).thenReturn(true);
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
+        when(requestValidator.isJiraIdPresent(any(), any())).thenReturn(true);
+        when(dataUpdater.removeJiraIdFromException(any(), any(), eq(USERNAME))).thenReturn(mock(ExceptionManagement.class));
+
+        List<ActionUpdateResult> results = collateralLinkActionService.removeJiraId(requests, USERNAME);
+        assertFalse(results.isEmpty());
+    }
+
+    @Test
+    public void testRemoveJiraId_JiraIdNotPresent() {
+        List<AddTradeJiraReferenceRequest> requests = setupValidJiraReferenceRequests();
+        List<CollateralLinkReportDocument> documents = setupValidCollateralLinkDocuments();
+        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenReturn(documents);
+        when(requestValidator.validateUser(eq(USERNAME), any(ExceptionManagement.class))).thenReturn(true);
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
+        when(requestValidator.isJiraIdPresent(any(), any())).thenReturn(false);
+
+        List<ActionUpdateResult> results = collateralLinkActionService.removeJiraId(requests, USERNAME);
+        assertFalse(results.isEmpty());
+    }
+
+    @Test
+    public void testAddJiraType_EmptyRequests() {
+        List<AddTradeJiraTypeRequest> requests = new ArrayList<>();
+        List<ActionUpdateResult> results = collateralLinkActionService.addJiraType(requests, USERNAME);
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    public void testAddJiraType_ValidRequest() {
+        List<AddTradeJiraTypeRequest> requests = setupValidJiraTypeRequests();
+        List<CollateralLinkReportDocument> documents = setupValidCollateralLinkDocuments();
+        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenReturn(documents);
+        when(requestValidator.validateUser(eq(USERNAME), any(ExceptionManagement.class))).thenReturn(true);
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
+        when(dataUpdater.addJiraTypeToException(any(), any(), eq(USERNAME))).thenReturn(mock(ExceptionManagement.class));
+
+        List<ActionUpdateResult> results = collateralLinkActionService.addJiraType(requests, USERNAME);
+        assertFalse(results.isEmpty());
+    }
+
+    @Test
+    public void testRemoveJiraType_EmptyRequests() {
+        List<AddTradeJiraTypeRequest> requests = new ArrayList<>();
+        List<ActionUpdateResult> results = collateralLinkActionService.removeJiraType(requests, USERNAME);
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    public void testRemoveJiraType_ValidRequest() {
+        List<AddTradeJiraTypeRequest> requests = setupValidJiraTypeRequests();
+        List<CollateralLinkReportDocument> documents = setupValidCollateralLinkDocuments();
+        ExceptionManagement em = mock(ExceptionManagement.class);
+        when(documents.get(0).getCollateralLinkReport().getExceptionManagement()).thenReturn(em);
+        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenReturn(documents);
+        when(requestValidator.validateUser(eq(USERNAME), any(ExceptionManagement.class))).thenReturn(true);
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
+        when(requests.get(0).getJiraType().getIssueType()).thenReturn("type");
+        when(dataUpdater.removeJiraTypeFromException(any(), any(), eq(USERNAME))).thenReturn(mock(ExceptionManagement.class));
+        when(dfCollateralPersistManager.saveAllRecords(anyList())).thenReturn(Collections.singletonList(WriteResult.class));
+
+        List<ActionUpdateResult> results = collateralLinkActionService.removeJiraType(requests, USERNAME);
+        assertFalse(results.isEmpty());
+    }
+
+    @Test
+    public void testRemoveJiraType_JiraTypeNotPresent() {
+        List<AddTradeJiraTypeRequest> requests = setupValidJiraTypeRequests();
+        List<CollateralLinkReportDocument> documents = setupValidCollateralLinkDocuments();
+        ExceptionManagement em = mock(ExceptionManagement.class);
+        when(documents.get(0).getCollateralLinkReport().getExceptionManagement()).thenReturn(em);
+        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenReturn(documents);
+        when(requestValidator.validateUser(eq(USERNAME), any(ExceptionManagement.class))).thenReturn(true);
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
+        when(requests.get(0).getJiraType().getIssueType()).thenReturn("type");
+
+        List<ActionUpdateResult> results = collateralLinkActionService.removeJiraType(requests, USERNAME);
+        assertFalse(results.isEmpty());
+    }
+
+    @Test
+    public void testRemoveJiraType_ExceptionHandling() {
+        List<AddTradeJiraTypeRequest> requests = setupValidJiraTypeRequests();
+        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenThrow(new RuntimeException("Database Error"));
+
+        List<ActionUpdateResult> results = collateralLinkActionService.removeJiraType(requests, USERNAME);
+        assertFalse(results.isEmpty());
+        assertTrue(results.get(0).getError().contains("Database Error"));
+    }
+
+    @Test
+    public void testUpdateUserActionType_EmptyRequests() {
+        List<UpdateUserActionTypeRequest> requests = new ArrayList<>();
+        List<ActionUpdateResult> results = collateralLinkActionService.updateUserActionType(requests, USERNAME);
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    public void testAddCommentType_ValidRequest() {
+        List<AddTradeCommentTypeRequest> requests = setupValidCommentTypeRequests();
+        List<CollateralLinkReportDocument> documents = setupValidCollateralLinkDocuments();
+        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenReturn(documents);
+        when(requestValidator.validateUser(eq(USERNAME), any(ExceptionManagement.class))).thenReturn(true);
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
+        when(dataUpdater.addCommentTypeToException(any(), any(), eq(USERNAME))).thenReturn(mock(ExceptionManagement.class));
+        when(dfCollateralPersistManager.saveAllRecords(anyList())).thenReturn(Collections.singletonList(WriteResult.class));
+
+        List<ActionUpdateResult> results = collateralLinkActionService.addCommentType(requests, USERNAME);
+        assertFalse(results.isEmpty());
+    }
+
+    @Test
+    public void testAddCommentType_ExceptionHandling() {
+        List<AddTradeCommentTypeRequest> requests = setupValidCommentTypeRequests();
+        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenThrow(new RuntimeException("Database Error"));
+
+        List<ActionUpdateResult> results = collateralLinkActionService.addCommentType(requests, USERNAME);
+        assertFalse(results.isEmpty());
+        assertTrue(results.get(0).getError().contains("Database Error"));
+    }
+
+    @Test
+    public void testRemoveCommentType_ValidRequest() {
+        List<AddTradeCommentTypeRequest> requests = setupValidCommentTypeRequests();
+        List<CollateralLinkReportDocument> documents = setupValidCollateralLinkDocuments();
+        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenReturn(documents);
+        when(requestValidator.validateUser(eq(USERNAME), any(ExceptionManagement.class))).thenReturn(true);
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
+        when(dataUpdater.removeCommentTypeToException(any(), any(), eq(USERNAME))).thenReturn(mock(ExceptionManagement.class));
+        when(dfCollateralPersistManager.saveAllRecords(anyList())).thenReturn(Collections.singletonList(WriteResult.class));
+
+        List<ActionUpdateResult> results = collateralLinkActionService.removeCommentType(requests, USERNAME);
+        assertFalse(results.isEmpty());
+    }
+
+    @Test
+    public void testRemoveCommentType_ExceptionHandling() {
+        List<AddTradeCommentTypeRequest> requests = setupValidCommentTypeRequests();
+        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenThrow(new RuntimeException("Database Error"));
+
+        List<ActionUpdateResult> results = collateralLinkActionService.removeCommentType(requests, USERNAME);
+        assertFalse(results.isEmpty());
+        assertTrue(results.get(0).getError().contains("Database Error"));
+    }
+
+    @Test
+    public void testPopulateTradeRequestMap() throws Exception {
+        Method method = CollateralLinkActionService.class.getDeclaredMethod("populateTradeRequestMap", UpdateRequest.class, Map.class);
+        method.setAccessible(true);
+
+        AddTradeCommentRequest request = mock(AddTradeCommentRequest.class);
+        ActionDocumentId docId = new ActionDocumentId("key1", 1L);
+        when(request.getDocumentId()).thenReturn(docId);
         Map<DocumentId, UpdateRequest> map = new HashMap<>();
 
-        Method method = TradeActionService.class.getDeclaredMethod("populateTradeRequestMap", UpdateRequest.class, Map.class);
-        method.setAccessible(true);
-        method.invoke(tradeActionService, request, map);
+        method.invoke(collateralLinkActionService, request, map);
 
         assertEquals(1, map.size());
-        assertEquals(request, map.get(DocumentId.from("key", 1L)));
+        assertEquals(request, map.get(DocumentId.from("key1", 1L)));
     }
 
     @Test
-    public void testGetTradeReport_UsingReflection() throws Exception {
-        TradeReport tradeReport = mock(TradeReport.class);
-        ExceptionManagement em = mock(ExceptionManagement.class);
-        NonReportableData nrd = mock(NonReportableData.class);
-        when(tradeReport.getNonReportableData()).thenReturn(nrd);
-
-        Method method = TradeActionService.class.getDeclaredMethod("getTradeReport", TradeReport.class, ExceptionManagement.class);
+    public void testGetTradePrimaryKey() throws Exception {
+        Method method = CollateralLinkActionService.class.getDeclaredMethod("getTradePrimaryKey", DocumentId.class);
         method.setAccessible(true);
-        TradeReport result = (TradeReport) method.invoke(tradeActionService, tradeReport, em);
 
-        verify(tradeReport).newBuilder(tradeReport);
+        DocumentId docId = DocumentId.from("key1", 1L);
+        ActionDocumentId result = (ActionDocumentId) method.invoke(collateralLinkActionService, docId);
+
+        assertEquals("key1", result.getKey());
+        assertEquals(1L, (long) result.getVersion());
     }
 
-    @Test
-    public void testGetReportsWithExpectedBaseVersion_UsingReflection() throws Exception {
-        TradeReportDocument doc = mock(TradeReportDocument.class);
-        TradeReport report = mock(TradeReport.class);
-        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
-
-        Method method = TradeActionService.class.getDeclaredMethod("getReportsWithExpectedBaseVersion", TradeReportDocument.class, TradeReport.class);
-        method.setAccessible(true);
-        Pair<TradeReport, Long> result = (Pair<TradeReport, Long>) method.invoke(tradeActionService, doc, report);
-
-        assertEquals(report, result.getLeft());
-        assertEquals(Long.valueOf(1L), result.getRight());
+    private List<UpdateExceptionStatusRequest> setupValidUpdateExceptionStatusRequests() {
+        UpdateExceptionStatusRequest request = mock(UpdateExceptionStatusRequest.class);
+        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
+        when(request.getFlow()).thenReturn("flow");
+        return Collections.singletonList(request);
     }
 
-    @Test
-    public void testGetTradePrimaryKey_UsingReflection() throws Exception {
-        DocumentId docId = DocumentId.from("key", 1L);
-
-        Method method = TradeActionService.class.getDeclaredMethod("getTradePrimaryKey", DocumentId.class);
-        method.setAccessible(true);
-        ActionDocumentId result = (ActionDocumentId) method.invoke(tradeActionService, docId);
-
-        assertEquals("key", result.getKey());
-        assertEquals(Long.valueOf(1L), result.getVersion());
+    private List<AssignTradeRequest> setupValidAssignTradeRequests() {
+        AssignTradeRequest request = mock(AssignTradeRequest.class);
+        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
+        return Collections.singletonList(request);
     }
+
+    private List<AddTradeJiraTypeRequest> setupValidJiraTypeRequests() {
+        AddTradeJiraTypeRequest request = mock(AddTradeJiraTypeRequest.class);
+        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
+        when(request.getJiraType()).thenReturn(mock(JiraType.class));
+        when(request.getJiraType().getIssueType()).thenReturn("type");
+        return Collections.singletonList(request);
+    }
+
+    private List<UpdateUserActionTypeRequest> setupValidUpdateUserActionTypeRequests() {
+        UpdateUserActionTypeRequest request = mock(UpdateUserActionTypeRequest.class);
+        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
+        when(request.getComment()).thenReturn((UserComment) mock(Comment.class));
+        when(request.getComment().getComment()).thenReturn("comment");
+        when(request.getUserActionType()).thenReturn("type");
+        return Collections.singletonList(request);
+    }
+
+    private List<AddTradeCommentTypeRequest> setupValidCommentTypeRequests() {
+        AddTradeCommentTypeRequest request = mock(AddTradeCommentTypeRequest.class);
+        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
+        return Collections.singletonList(request);
+    }
+}
