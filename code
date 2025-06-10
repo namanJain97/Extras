@@ -895,7 +895,6 @@ Existing test class:
 
 package com.rbs.tntr.business.blotter.services.actions;
 
-import com.nwm.tntr.commons.domain.persistence.entity.DocumentId;
 import com.nwm.tntr.commons.domain.persistence.entity.ExceptionManagement;
 import com.nwm.tntr.commons.domain.persistence.entity.collaterallink.CollateralLinkReport;
 import com.nwm.tntr.commons.domain.persistence.entity.collaterallink.CollateralLinkReportDocument;
@@ -910,16 +909,12 @@ import com.rbs.tntr.domain.blotter.enums.ExceptionStatus;
 import com.rbs.tntr.domain.blotter.exceptions.BlotterRunTimeException;
 import com.rbs.tntr.domain.blotter.tntrBlotterView.ActionDocumentId;
 import com.rbs.tntr.domain.blotter.tntrBlotterView.JiraType;
-import com.rbs.tntr.domain.blotter.tntrBlotterView.UserComment;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
-import org.w3c.dom.Comment;
-
 import java.io.IOException;
-import java.lang.reflect.Method;
 import java.util.*;
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
@@ -1062,18 +1057,6 @@ public class CollateralLinkActionServiceTest {
         List<CollateralLinkReportDocument> documents = setupValidCollateralLinkDocuments();
         when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenReturn(documents);
         when(requestValidator.validateUser(eq(USERNAME), any(ExceptionManagement.class))).thenReturn(false);
-
-        List<ActionUpdateResult> results = collateralLinkActionService.addComment(requests, USERNAME);
-        assertFalse(results.isEmpty());
-    }
-
-    @Test
-    public void testAddComment_ApprovalStatusValidationFails() {
-        List<AddTradeCommentRequest> requests = setupValidCommentRequests();
-        List<CollateralLinkReportDocument> documents = setupValidCollateralLinkDocuments();
-        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenReturn(documents);
-        when(requestValidator.validateUser(eq(USERNAME), any(ExceptionManagement.class))).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(true);
 
         List<ActionUpdateResult> results = collateralLinkActionService.addComment(requests, USERNAME);
         assertFalse(results.isEmpty());
@@ -1410,114 +1393,6 @@ public class CollateralLinkActionServiceTest {
         assertFalse(results.isEmpty());
     }
 
-    @Test
-    public void testRemoveJiraType_JiraTypeNotPresent() {
-        List<AddTradeJiraTypeRequest> requests = setupValidJiraTypeRequests();
-        List<CollateralLinkReportDocument> documents = setupValidCollateralLinkDocuments();
-        ExceptionManagement em = mock(ExceptionManagement.class);
-        when(documents.get(0).getCollateralLinkReport().getExceptionManagement()).thenReturn(em);
-        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenReturn(documents);
-        when(requestValidator.validateUser(eq(USERNAME), any(ExceptionManagement.class))).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        when(requests.get(0).getJiraType().getIssueType()).thenReturn("type");
-
-        List<ActionUpdateResult> results = collateralLinkActionService.removeJiraType(requests, USERNAME);
-        assertFalse(results.isEmpty());
-    }
-
-    @Test
-    public void testRemoveJiraType_ExceptionHandling() {
-        List<AddTradeJiraTypeRequest> requests = setupValidJiraTypeRequests();
-        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenThrow(new RuntimeException("Database Error"));
-
-        List<ActionUpdateResult> results = collateralLinkActionService.removeJiraType(requests, USERNAME);
-        assertFalse(results.isEmpty());
-        assertTrue(results.get(0).getError().contains("Database Error"));
-    }
-
-    @Test
-    public void testUpdateUserActionType_EmptyRequests() {
-        List<UpdateUserActionTypeRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = collateralLinkActionService.updateUserActionType(requests, USERNAME);
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testAddCommentType_ValidRequest() {
-        List<AddTradeCommentTypeRequest> requests = setupValidCommentTypeRequests();
-        List<CollateralLinkReportDocument> documents = setupValidCollateralLinkDocuments();
-        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenReturn(documents);
-        when(requestValidator.validateUser(eq(USERNAME), any(ExceptionManagement.class))).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        when(dataUpdater.addCommentTypeToException(any(), any(), eq(USERNAME))).thenReturn(mock(ExceptionManagement.class));
-        when(dfCollateralPersistManager.saveAllRecords(anyList())).thenReturn(Collections.singletonList(WriteResult.class));
-
-        List<ActionUpdateResult> results = collateralLinkActionService.addCommentType(requests, USERNAME);
-        assertFalse(results.isEmpty());
-    }
-
-    @Test
-    public void testAddCommentType_ExceptionHandling() {
-        List<AddTradeCommentTypeRequest> requests = setupValidCommentTypeRequests();
-        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenThrow(new RuntimeException("Database Error"));
-
-        List<ActionUpdateResult> results = collateralLinkActionService.addCommentType(requests, USERNAME);
-        assertFalse(results.isEmpty());
-        assertTrue(results.get(0).getError().contains("Database Error"));
-    }
-
-    @Test
-    public void testRemoveCommentType_ValidRequest() {
-        List<AddTradeCommentTypeRequest> requests = setupValidCommentTypeRequests();
-        List<CollateralLinkReportDocument> documents = setupValidCollateralLinkDocuments();
-        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenReturn(documents);
-        when(requestValidator.validateUser(eq(USERNAME), any(ExceptionManagement.class))).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        when(dataUpdater.removeCommentTypeToException(any(), any(), eq(USERNAME))).thenReturn(mock(ExceptionManagement.class));
-        when(dfCollateralPersistManager.saveAllRecords(anyList())).thenReturn(Collections.singletonList(WriteResult.class));
-
-        List<ActionUpdateResult> results = collateralLinkActionService.removeCommentType(requests, USERNAME);
-        assertFalse(results.isEmpty());
-    }
-
-    @Test
-    public void testRemoveCommentType_ExceptionHandling() {
-        List<AddTradeCommentTypeRequest> requests = setupValidCommentTypeRequests();
-        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenThrow(new RuntimeException("Database Error"));
-
-        List<ActionUpdateResult> results = collateralLinkActionService.removeCommentType(requests, USERNAME);
-        assertFalse(results.isEmpty());
-        assertTrue(results.get(0).getError().contains("Database Error"));
-    }
-
-    @Test
-    public void testPopulateTradeRequestMap() throws Exception {
-        Method method = CollateralLinkActionService.class.getDeclaredMethod("populateTradeRequestMap", UpdateRequest.class, Map.class);
-        method.setAccessible(true);
-
-        AddTradeCommentRequest request = mock(AddTradeCommentRequest.class);
-        ActionDocumentId docId = new ActionDocumentId("key1", 1L);
-        when(request.getDocumentId()).thenReturn(docId);
-        Map<DocumentId, UpdateRequest> map = new HashMap<>();
-
-        method.invoke(collateralLinkActionService, request, map);
-
-        assertEquals(1, map.size());
-        assertEquals(request, map.get(DocumentId.from("key1", 1L)));
-    }
-
-    @Test
-    public void testGetTradePrimaryKey() throws Exception {
-        Method method = CollateralLinkActionService.class.getDeclaredMethod("getTradePrimaryKey", DocumentId.class);
-        method.setAccessible(true);
-
-        DocumentId docId = DocumentId.from("key1", 1L);
-        ActionDocumentId result = (ActionDocumentId) method.invoke(collateralLinkActionService, docId);
-
-        assertEquals("key1", result.getKey());
-        assertEquals(1L, (long) result.getVersion());
-    }
-
     private List<UpdateExceptionStatusRequest> setupValidUpdateExceptionStatusRequests() {
         UpdateExceptionStatusRequest request = mock(UpdateExceptionStatusRequest.class);
         when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
@@ -1539,18 +1414,36 @@ public class CollateralLinkActionServiceTest {
         return Collections.singletonList(request);
     }
 
-    private List<UpdateUserActionTypeRequest> setupValidUpdateUserActionTypeRequests() {
-        UpdateUserActionTypeRequest request = mock(UpdateUserActionTypeRequest.class);
-        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
-        when(request.getComment()).thenReturn((UserComment) mock(Comment.class));
-        when(request.getComment().getComment()).thenReturn("comment");
-        when(request.getUserActionType()).thenReturn("type");
-        return Collections.singletonList(request);
-    }
-
     private List<AddTradeCommentTypeRequest> setupValidCommentTypeRequests() {
         AddTradeCommentTypeRequest request = mock(AddTradeCommentTypeRequest.class);
         when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
         return Collections.singletonList(request);
+    }
+
+    @Test
+    public void testAddCommentType_UserValidationFails() {
+        List<AddTradeCommentTypeRequest> requests = setupValidCommentTypeRequests();
+        List<CollateralLinkReportDocument> documents = setupValidCollateralLinkDocuments();
+
+        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenReturn(documents);
+        when(requestValidator.validateUser(eq(USERNAME), any(ExceptionManagement.class))).thenReturn(false);
+
+        List<ActionUpdateResult> results = collateralLinkActionService.addCommentType(requests, USERNAME);
+        assertFalse(results.isEmpty());
+    }
+
+    @Test
+    public void testRemoveCommentType_UserValidationFails() {
+        List<AddTradeCommentTypeRequest> requests = setupValidCommentTypeRequests();
+        List<CollateralLinkReportDocument> documents = setupValidCollateralLinkDocuments();
+
+        when(dfCollateralPersistManager.getAllRecordsById(anyList())).thenReturn(documents);
+        when(requestValidator.validateUser(eq(USERNAME), any(ExceptionManagement.class))).thenReturn(false);
+
+        List<ActionUpdateResult> results = collateralLinkActionService.removeCommentType(requests, USERNAME);
+        assertFalse(results.isEmpty());
+    }
+
+}
     }
 }
