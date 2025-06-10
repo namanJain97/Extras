@@ -1,276 +1,217 @@
-package com.rbs.tntr.business.blotter.utility;
+@Test
+public void testRemoveCommentType_Success() throws Exception {
+    AddTradeCommentTypeRequest request = new AddTradeCommentTypeRequest();
+    request.setDocumentId(new ActionDocumentId("key", 1L));
+    List<AddTradeCommentTypeRequest> requests = Collections.singletonList(request);
 
-import static org.junit.Assert.*;
-import static org.mockito.Matchers.*;
-import static org.mockito.Mockito.*;
+    TradeReportDocument doc = createMockTradeDoc();
+    when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
+    when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Collections.singletonList(
+        WriteResult.forSuccess(DocumentId.from("key", 2L), doc.getTradeReport())
+    ));
 
-import java.io.IOException;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.Field;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
-import java.util.HashMap;
-import java.util.Map;
+    List<ActionUpdateResult> results = tradeActionService.removeCommentType(requests, "username");
+    assertEquals(1, results.size());
+    assertTrue(results.get(0).isSuccess());
+}
 
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.mockito.Mock;
-import org.mockito.runners.MockitoJUnitRunner;
-import org.slf4j.Logger;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.client.RestTemplate;
+@Test
+public void testPerformResetAction_Success() {
+    UpdateExceptionStatusRequest request = new UpdateExceptionStatusRequest();
+    request.setDocumentId(new ActionDocumentId("key", 1L));
+    List<UpdateExceptionStatusRequest> requests = Collections.singletonList(request);
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.rbs.tntr.business.blotter.search.querybuilder.LoggedInUserDetails;
-import com.rbs.tntr.domain.blotter.exceptions.BlotterRunTimeException;
+    TradeReportDocument doc = createMockTradeDoc();
+    when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
+    when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Collections.singletonList(
+        WriteResult.forSuccess(DocumentId.from("key", 2L), doc.getTradeReport())
+    ));
 
-@RunWith(MockitoJUnitRunner.class)
-public class BlotterUtilTest {
+    List<ActionUpdateResult> results = tradeActionService.performResetAction(requests, "username");
+    assertEquals(1, results.size());
+    assertTrue(results.get(0).isSuccess());
+}
 
-    @Mock
-    private Logger mockLogger;
+@Test
+public void testUpdateUserActionType_Success() {
+    UpdateUserActionTypeRequest request = new UpdateUserActionTypeRequest();
+    request.setDocumentId(new ActionDocumentId("key", 1L));
+    request.setUserActionType("TEST_ACTION");
+    List<UpdateUserActionTypeRequest> requests = Collections.singletonList(request);
+
+    TradeReportDocument doc = createMockTradeDoc();
+    when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
+    when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Collections.singletonList(
+        WriteResult.forSuccess(DocumentId.from("key", 2L), doc.getTradeReport())
+    ));
+
+    List<ActionUpdateResult> results = tradeActionService.updateUserActionType(requests, "username");
+    assertEquals(1, results.size());
+    assertTrue(results.get(0).isSuccess());
+}
+
+@Test
+public void testGetTradeWithRemovedComments_ValidationFailure() throws Exception {
+    // Setup reflection to test protected method
+    Method method = TradeActionService.class.getDeclaredMethod(
+        "getTradeWithRemovedComments", 
+        List.class, Map.class, List.class, String.class
+    );
+    method.setAccessible(true);
     
-    private BlotterUtil blotterUtil;
-    private String testUserRacfId = "testUser123";
-    private String testEndpoint = "http://test-endpoint/{userRacfId}";
+    TradeReportDocument doc = createMockTradeDoc();
+    Map<DocumentId, UpdateRequest> requests = new HashMap<>();
+    requests.put(doc.getDocumentId(), new AddTradeCommentRequest());
     
-    @Before
-    public void setUp() throws Exception {
-        blotterUtil = new BlotterUtil();
-        
-        // Set the userDetailsHost using reflection
-        setUserDetailsHostViaReflection(testEndpoint);
-        
-        // Mock the static logger using reflection
-        setMockLoggerViaReflection();
-    }
+    List<ActionUpdateResult> failedTrades = new ArrayList<>();
+    List<Pair<TradeReport, Long>> result = (List<Pair<TradeReport, Long>>) method.invoke(
+        tradeActionService, 
+        Collections.singletonList(doc), 
+        requests, 
+        failedTrades, 
+        "invalidUser"
+    );
     
-    private void setUserDetailsHostViaReflection(String endpoint) throws Exception {
-        Field userDetailsHostField = BlotterUtil.class.getDeclaredField("userDetailsHost");
-        userDetailsHostField.setAccessible(true);
-        userDetailsHostField.set(null, endpoint);
-    }
+    assertEquals(0, result.size());
+    assertEquals(1, failedTrades.size());
+}
+
+@Test
+public void testEditFields_BlotterException() throws Exception {
+    // Setup reflection to test protected method
+    Method method = TradeActionService.class.getDeclaredMethod(
+        "editFields", 
+        List.class, Map.class, List.class, String.class, ExceptionStatus.class
+    );
+    method.setAccessible(true);
     
-    private void setMockLoggerViaReflection() throws Exception {
-        Field loggerField = BlotterUtil.class.getDeclaredField("LOGGER");
-        loggerField.setAccessible(true);
-        loggerField.set(null, mockLogger);
-    }
-
-    @Test
-    public void testSetUserDetailsHost() throws Exception {
-        // Test the setter method
-        String newEndpoint = "http://new-endpoint/{userRacfId}";
-        blotterUtil.setUserDetailsHost(newEndpoint);
-        
-        // Verify using reflection
-        Field userDetailsHostField = BlotterUtil.class.getDeclaredField("userDetailsHost");
-        userDetailsHostField.setAccessible(true);
-        String actualEndpoint = (String) userDetailsHostField.get(null);
-        
-        assertEquals(newEndpoint, actualEndpoint);
-    }
-
-    @Test
-    public void testGetLoggedInUserDetails_Success() throws Exception {
-        // Create a real RestTemplate to avoid mocking constructor issues
-        RestTemplate realRestTemplate = spy(new RestTemplate());
-        
-        // Mock successful response
-        String responseBody = "{\"response\":{\"docs\":[{\"userId\":\"testUser\",\"name\":\"Test User\"}]}}";
-        ResponseEntity<String> mockResponse = mock(ResponseEntity.class);
-        when(mockResponse.getStatusCode()).thenReturn(HttpStatus.OK);
-        when(mockResponse.getBody()).thenReturn(responseBody);
-        
-        when(realRestTemplate.exchange(
-            eq(testEndpoint),
-            eq(HttpMethod.GET),
-            any(HttpEntity.class),
-            eq(String.class),
-            any(HashMap.class)
-        )).thenReturn(mockResponse);
-        
-        // Use reflection to replace RestTemplate creation
-        Method getLoggedInUserDetailsMethod = BlotterUtil.class.getDeclaredMethod("getLoggedInUserDetails", String.class);
-        
-        // Since we can't easily mock the RestTemplate constructor in older Mockito,
-        // we'll test the method with a mocked response scenario
-        LoggedInUserDetails result = invokeGetLoggedInUserDetailsWithMockedComponents(testUserRacfId, mockResponse);
-        
-        assertNotNull(result);
-    }
+    TradeReportDocument doc = createMockTradeDoc();
+    Map<DocumentId, UpdateRequest> requests = new HashMap<>();
+    EditRequest editRequest = new EditRequest();
+    requests.put(doc.getDocumentId(), editRequest);
     
-    private LoggedInUserDetails invokeGetLoggedInUserDetailsWithMockedComponents(String userRacfId, ResponseEntity<String> mockResponse) throws Exception {
-        // This is a workaround to test the method by mocking its internal components
-        // Create test data that matches the expected JSON structure
-        String responseBody = "{\"response\":{\"docs\":[{\"userId\":\"testUser\",\"name\":\"Test User\"}]}}";
-        
-        ObjectMapper realMapper = new ObjectMapper();
-        JsonNode node = realMapper.readTree(responseBody);
-        
-        // Extract user data
-        Map<String, Object> userMap = realMapper.convertValue(
-            node.get("response").get("docs").get(0), 
-            new TypeReference<Map<String, Object>>() {}
-        );
-        
-        LoggedInUserDetails userDetails = realMapper.convertValue(userMap, LoggedInUserDetails.class);
-        return userDetails;
-    }
-
-    @Test(expected = BlotterRunTimeException.class)
-    public void testGetLoggedInUserDetails_NonOkStatus() throws Exception {
-        // Test by creating a scenario that would cause non-OK status
-        // We'll simulate this by setting userDetailsHost to null to cause an exception
-        setUserDetailsHostViaReflection(null);
-        
-        try {
-            BlotterUtil.getLoggedInUserDetails(testUserRacfId);
-        } catch (BlotterRunTimeException e) {
-            // Verify that error was logged
-            verify(mockLogger, atLeastOnce()).error(anyString());
-            throw e;
-        }
-    }
-
-    @Test(expected = BlotterRunTimeException.class) 
-    public void testGetLoggedInUserDetails_IOException() throws Exception {
-        // Set an invalid endpoint to trigger IOException
-        setUserDetailsHostViaReflection("invalid-url");
-        
-        try {
-            BlotterUtil.getLoggedInUserDetails(testUserRacfId);
-        } catch (BlotterRunTimeException e) {
-            // Verify that error was logged with exception
-            verify(mockLogger).error(eq("There was an exception while fetching user details"), any(Exception.class));
-            throw e;
-        }
-    }
-
-    @Test(expected = BlotterRunTimeException.class)
-    public void testGetLoggedInUserDetails_InvalidJsonResponse() throws Exception {
-        // This test simulates a scenario where the response doesn't have the expected structure
-        // We can achieve this by testing with a mock server response or by using reflection
-        // to inject mock components
-        
-        // For this test, we'll use the method that handles invalid JSON structure
-        testInvalidResponseStructure();
-    }
+    List<ActionUpdateResult> failedTrades = new ArrayList<>();
     
-    private void testInvalidResponseStructure() throws Exception {
-        // Create a custom test that simulates invalid response structure
-        // This would require a more complex setup with mockito, so we'll simulate the exception
-        BlotterRunTimeException exception = new BlotterRunTimeException("API Response doesnt have User Details");
-        
-        // Verify the exception message matches what would be thrown
-        assertEquals("API Response doesnt have User Details", exception.getMessage());
-        
-        // Simulate the method call that would fail
-        throw exception;
-    }
+    // Force BlotterRunTimeException in dataUpdater
+    TradeDataUpdater mockUpdater = mock(TradeDataUpdater.class);
+    when(mockUpdater.updateTradeReportData(any(), any(), any(), any()))
+        .thenThrow(new BlotterRunTimeException("Edit failed"));
+    
+    // Inject mock updater
+    Field updaterField = TradeActionService.class.getDeclaredField("dataUpdater");
+    updaterField.setAccessible(true);
+    updaterField.set(tradeActionService, mockUpdater);
+    
+    List<Pair<TradeReport, Long>> result = (List<Pair<TradeReport, Long>>) method.invoke(
+        tradeActionService,
+        Collections.singletonList(doc),
+        requests,
+        failedTrades,
+        "username",
+        ExceptionStatus.Edit_Requested
+    );
+    
+    assertEquals(0, result.size());
+    assertEquals(1, failedTrades.size());
+}
 
-    @Test
-    public void testGetLoggedInUserDetails_NullUserRacfId() throws Exception {
-        try {
-            BlotterUtil.getLoggedInUserDetails(null);
-        } catch (Exception e) {
-            // This should handle null input gracefully or throw appropriate exception
-            assertTrue(e instanceof BlotterRunTimeException || e instanceof NullPointerException);
-        }
-    }
+@Test
+public void testUpdateExceptionStatus_RollbackSuccess() {
+    UpdateExceptionStatusRequest request = new UpdateExceptionStatusRequest();
+    request.setDocumentId(new ActionDocumentId("key", 3L)); // Requires version rollback
+    List<UpdateExceptionStatusRequest> requests = Collections.singletonList(request);
 
-    @Test
-    public void testGetLoggedInUserDetails_EmptyUserRacfId() throws Exception {
-        try {
-            BlotterUtil.getLoggedInUserDetails("");
-        } catch (Exception e) {
-            // This should handle empty input gracefully or throw appropriate exception  
-            assertTrue(e instanceof BlotterRunTimeException || e instanceof RuntimeException);
-        }
-    }
+    TradeReportDocument currentDoc = createMockTradeDoc();
+    when(currentDoc.getDocumentId()).thenReturn(DocumentId.from("key", 3L));
+    
+    TradeReportDocument prevDoc = mock(TradeReportDocument.class);
+    when(prevDoc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
+    when(prevDoc.getTradeReport()).thenReturn(mock(TradeReport.class));
+    
+    when(dfTradePersistManager.getAllRecordsById(anyList()))
+        .thenReturn(Collections.singletonList(currentDoc))  // First call (current)
+        .thenReturn(Collections.singletonList(prevDoc));    // Rollback call (previous version)
+    
+    when(dfTradePersistManager.upsertAllRecords(anyList())).thenReturn(Collections.singletonList(
+        WriteResult.forSuccess(DocumentId.from("key", 1L), prevDoc.getTradeReport())
+    ));
+    
+    List<ActionUpdateResult> results = tradeActionService.updateExceptionStatus(
+        requests, ExceptionStatus.Edit_Rejected, "username"
+    );
+    
+    assertEquals(1, results.size());
+    assertTrue(results.get(0).isSuccess());
+}
 
-    @Test
-    public void testConstants() throws Exception {
-        // Test private static final constants using reflection
-        Field responseField = BlotterUtil.class.getDeclaredField("RESPONSE");
-        responseField.setAccessible(true);
-        String responseValue = (String) responseField.get(null);
-        assertEquals("response", responseValue);
-    }
+@Test
+public void testGetResult_WithMixedSuccessAndFailure() throws Exception {
+    Method method = TradeActionService.class.getDeclaredMethod(
+        "getResult", List.class, List.class
+    );
+    method.setAccessible(true);
+    
+    TradeReportDocument doc1 = mock(TradeReportDocument.class);
+    when(doc1.getDocumentId()).thenReturn(DocumentId.from("key1", 1L));
+    TradeReportDocument doc2 = mock(TradeReportDocument.class);
+    when(doc2.getDocumentId()).thenReturn(DocumentId.from("key2", 1L));
+    
+    WriteResult<TradeReport> success = WriteResult.forSuccess(DocumentId.from("key1", 2L), mock(TradeReport.class));
+    WriteResult<TradeReport> failure = WriteResult.forFailure(
+        DocumentId.from("key2", 1L), 
+        new RuntimeException("Save error")
+    );
+    
+    List<ActionUpdateResult> results = (List<ActionUpdateResult>) method.invoke(
+        tradeActionService,
+        Arrays.asList(doc1, doc2),
+        Arrays.asList(success, failure)
+    );
+    
+    assertEquals(2, results.size());
+    assertTrue(results.get(0).isSuccess());
+    assertTrue(results.get(1).getError().contains("Save error"));
+}
 
-    @Test
-    public void testConstructor() {
-        // Test constructor coverage
-        BlotterUtil util = new BlotterUtil();
-        assertNotNull(util);
-    }
+@Test
+public void testUpsertAllRecords_Success() throws Exception {
+    Method method = TradeActionService.class.getDeclaredMethod(
+        "upsertAllRecords", List.class, List.class
+    );
+    method.setAccessible(true);
+    
+    TradeReportDocument doc = mock(TradeReportDocument.class);
+    TradeReport report = mock(TradeReport.class);
+    when(doc.getTradeReport()).thenReturn(report);
+    
+    when(dfTradePersistManager.upsertAllRecords(anyList())).thenReturn(Collections.singletonList(
+        WriteResult.forSuccess(DocumentId.from("key", 2L), report)
+    ));
+    
+    List<ActionUpdateResult> results = (List<ActionUpdateResult>) method.invoke(
+        tradeActionService,
+        Collections.singletonList(doc),
+        Collections.singletonList(report)
+    );
+    
+    assertEquals(1, results.size());
+    assertTrue(results.get(0).isSuccess());
+}
 
-    @Test
-    public void testLoggerField() throws Exception {
-        // Test static logger field
-        Field loggerField = BlotterUtil.class.getDeclaredField("LOGGER");
-        loggerField.setAccessible(true);
-        assertNotNull(loggerField);
-        assertTrue(loggerField.getType().equals(Logger.class));
-    }
-
-    @Test
-    public void testUserDetailsHostField() throws Exception {
-        // Test static userDetailsHost field
-        Field userDetailsHostField = BlotterUtil.class.getDeclaredField("userDetailsHost");
-        userDetailsHostField.setAccessible(true);
-        assertNotNull(userDetailsHostField);
-        assertTrue(userDetailsHostField.getType().equals(String.class));
-        
-        // Test getting and setting values
-        String originalValue = (String) userDetailsHostField.get(null);
-        String testValue = "test-endpoint";
-        userDetailsHostField.set(null, testValue);
-        assertEquals(testValue, userDetailsHostField.get(null));
-        
-        // Restore original value
-        userDetailsHostField.set(null, originalValue);
-    }
-
-    @Test(expected = BlotterRunTimeException.class)
-    public void testGetLoggedInUserDetails_NoResponseNode() throws Exception {
-        // Test case where response doesn't contain "response" node
-        simulateInvalidResponseStructure("no response node");
-    }
-
-    @Test(expected = BlotterRunTimeException.class)
-    public void testGetLoggedInUserDetails_NoDocsNode() throws Exception {
-        // Test case where response.docs doesn't exist
-        simulateInvalidResponseStructure("no docs node");
-    }
-
-    @Test(expected = BlotterRunTimeException.class)
-    public void testGetLoggedInUserDetails_EmptyDocsArray() throws Exception {
-        // Test case where response.docs is empty
-        simulateInvalidResponseStructure("empty docs array");
-    }
-
-    private void simulateInvalidResponseStructure(String scenario) throws Exception {
-        // Simulate different invalid response scenarios
-        String message;
-        if (scenario.contains("response")) {
-            message = "API Response doesnt have User Details";
-        } else {
-            message = "API Response doesnt have User Details";
-        }
-        
-        // This simulates what would happen in the actual method
-        doNothing().when(mockLogger).error(message);
-        throw new BlotterRunTimeException(message);
-    }
-
-    @Test(expected = BlotterRunTimeException.class)
-    public void testGetLoggedInUserDetails_HttpError() throws Exception {
-        // Test HTTP error response (non-200 status)
+// Helper method to create a mock TradeReportDocument
+private TradeReportDocument createMockTradeDoc() {
+    TradeReportDocument doc = mock(TradeReportDocument.class);
+    DocumentId docId = DocumentId.from("key", 1L);
+    when(doc.getDocumentId()).thenReturn(docId);
+    
+    TradeReport report = mock(TradeReport.class);
+    when(doc.getTradeReport()).thenReturn(report);
+    
+    ExceptionManagement em = mock(ExceptionManagement.class);
+    when(report.getExceptionManagement()).thenReturn(em);
+    
+    NonReportableData nonReportableData = mock(NonReportableData.class);
+    when(report.getNonReportableData()).thenReturn(nonReportableData);
+    
+    return doc;
+}
