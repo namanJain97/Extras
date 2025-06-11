@@ -1,935 +1,29 @@
-Could you write all the additional test cases for below java class to cover all the remaining scenarios or methods and make the test coverage or code coverage as 100% using junit 4 and old mockito version and java 8. Also don't use power mockito as i m using older mockito version and for private methods try to use reflection. Plus we can't change any file other than the above test class. 
-
 package com.rbs.tntr.business.blotter.services.actions;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
-
+import com.nwm.tntr.commons.domain.persistence.entity.DocumentId;
+import com.nwm.tntr.commons.domain.persistence.entity.ExceptionManagement;
+import com.nwm.tntr.commons.domain.persistence.entity.NonReportableData;
+import com.nwm.tntr.commons.domain.persistence.entity.valuation.ValuationReport;
+import com.nwm.tntr.commons.domain.persistence.entity.valuation.ValuationReportDocument;
+import com.nwm.tntr.commons.repository.regreporting.WriteResult;
+import com.rbs.tntr.business.blotter.df.manager.DfValuationPersistManager;
+import com.rbs.tntr.business.blotter.df.updater.ValuationDataUpdater;
+import com.rbs.tntr.business.blotter.services.validators.ActionRequestValidator;
 import com.rbs.tntr.business.blotter.web.request.regreportingTrade.*;
+import com.rbs.tntr.domain.blotter.enums.ExceptionStatus;
+import com.rbs.tntr.domain.blotter.exceptions.BlotterRunTimeException;
+import com.rbs.tntr.domain.blotter.tntrBlotterView.ActionDocumentId;
 import org.apache.commons.lang3.tuple.Pair;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Service;
-
-import com.google.common.collect.Lists;
-import com.nwm.tntr.commons.domain.persistence.constant.TNTRApplication;
-import com.nwm.tntr.commons.domain.persistence.constant.UserActionType;
-import com.nwm.tntr.commons.domain.persistence.entity.DocumentId;
-import com.nwm.tntr.commons.domain.persistence.entity.ExceptionManagement;
-import com.nwm.tntr.commons.domain.persistence.entity.NonReportableData;
-import com.nwm.tntr.commons.domain.persistence.entity.trade.TradeReport;
-import com.nwm.tntr.commons.domain.persistence.entity.trade.TradeReportDocument;
-import com.nwm.tntr.commons.domain.persistence.entity.valuation.ValuationReport;
-import com.nwm.tntr.commons.domain.persistence.entity.valuation.ValuationReportDocument;
-import com.nwm.tntr.commons.repository.regreporting.WriteResult;
-import com.rbs.tntr.business.blotter.df.manager.DfValuationPersistManager;
-import com.rbs.tntr.business.blotter.df.updater.ValuationDataUpdater;
-import com.rbs.tntr.business.blotter.services.validators.ActionRequestValidator;
-import com.rbs.tntr.domain.blotter.enums.ExceptionStatus;
-import com.rbs.tntr.domain.blotter.exceptions.BlotterRunTimeException;
-import com.rbs.tntr.domain.blotter.exceptions.DfRunTimeException;
-import com.rbs.tntr.domain.blotter.tntrBlotterView.ActionDocumentId;
-
-@Service
-public class ValuationActionService {
-    private final Logger logger = LoggerFactory.getLogger(ValuationActionService.class);
-    private static final String UPDATE_ERROR = "Error updating valuation record : ";
-    public static final String VALUATION = "Valuation";
-
-    private final DfValuationPersistManager dfTradePersistManager;
-    private final ValuationDataUpdater dataUpdater;
-    private final ActionRequestValidator requestValidator;
-
-    @Autowired
-    public ValuationActionService(DfValuationPersistManager dfTradePersistManager, ValuationDataUpdater dataUpdater, ActionRequestValidator requestValidator) {
-        this.dfTradePersistManager = dfTradePersistManager;
-        this.dataUpdater = dataUpdater;
-        this.requestValidator = requestValidator;
-    }
-
-    public List<ActionUpdateResult> addComment(List<AddTradeCommentRequest> requests, String userName) {
-        if(requests.isEmpty()){
-            return Lists.newArrayList();
-        }
-        List<ActionUpdateResult> writeResults = Lists.newArrayList();
-            
-        try{
-            Map<DocumentId, UpdateRequest> tradeRequestMap = new HashMap<>();
-            requests.forEach(request -> populateTradeRequestMap(request, tradeRequestMap));
-            List<ValuationReportDocument> tradeReportDocuments = getTradeReportDocuments(Lists.newArrayList(tradeRequestMap.keySet()));
-
-            if (!tradeReportDocuments.isEmpty()) {
-                List<Pair<ValuationReport, Long>> tradeReports = getTradeWithComments(tradeReportDocuments, tradeRequestMap, writeResults, userName);
-                
-                if (!tradeReports.isEmpty()) {
-                    writeResults.addAll(saveAllRecords(tradeReportDocuments, tradeReports));
-                }
-            }
-            return writeResults;
-        } catch (Exception e) {
-            logger.error(e.getMessage(), e);
-            return requests
-                    .stream()
-                    .map(request -> ActionUpdateResult.createWithError(request.getDocumentId(), UPDATE_ERROR + e.getMessage()))
-                    .collect(Collectors.toList());
-        }
-    }
-    
-    public List<ActionUpdateResult> removeComment(List<AddTradeCommentRequest> requests, String userName) {
-        if(requests.isEmpty()){
-            return Lists.newArrayList();
-        }
-        List<ActionUpdateResult> writeResults = Lists.newArrayList();
-            
-        try{
-            Map<DocumentId, UpdateRequest> tradeRequestMap = new HashMap<>();
-            requests.forEach(request -> populateTradeRequestMap(request, tradeRequestMap));
-            List<ValuationReportDocument> tradeReportDocuments = getTradeReportDocuments(Lists.newArrayList(tradeRequestMap.keySet()));
-
-            if (!tradeReportDocuments.isEmpty()) {
-                List<Pair<ValuationReport, Long>> tradeReports = getTradeWithRemovedComments(tradeReportDocuments, tradeRequestMap, writeResults, userName);
-                
-                if (!tradeReports.isEmpty()) {
-                    writeResults.addAll(saveAllRecords(tradeReportDocuments, tradeReports));
-                }
-            }
-            return writeResults;
-        } catch (Exception e) {
-            logger.error(e.getMessage(), e);
-            return requests
-                    .stream()
-                    .map(request -> ActionUpdateResult.createWithError(request.getDocumentId(), UPDATE_ERROR + e.getMessage()))
-                    .collect(Collectors.toList());
-        }
-    }
-
-    protected List<Pair<ValuationReport, Long>> getTradeWithComments(List<ValuationReportDocument> tradeReportDocuments, Map<DocumentId, UpdateRequest> requests, List<ActionUpdateResult> failedTrades, String userName) throws BlotterRunTimeException {
-        try {
-
-            List<Pair<ValuationReport, Long>> reportsWithExpectedBaseVersions = new ArrayList<>();
-            for (ValuationReportDocument tradeReportDocument : tradeReportDocuments) {
-                ValuationReport tradeReport = tradeReportDocument.getValuationReport();
-                if (!requestValidator.validateUser(userName, tradeReport.getExceptionManagement())) {
-                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.USER_VALIDATION_ERROR));
-                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.USER_VALIDATION_ERROR);
-                }else if(requestValidator.validateApprovalStatus(tradeReport.getExceptionManagement().getApprovalStatus())){
-                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
-                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR);
-                }else {
-                    AddTradeCommentRequest addTradeCommentRequest = (AddTradeCommentRequest) requests.get(tradeReportDocument.getDocumentId());
-
-                    ExceptionManagement exceptionManagement = dataUpdater.addCommentsToException(addTradeCommentRequest,
-                            tradeReport.getExceptionManagement(), userName);
-
-                    ValuationReport valuationReport = getValuationReport(tradeReport, exceptionManagement);
-                    reportsWithExpectedBaseVersions.add(getReportsWithExpectedBaseVersion(tradeReportDocument, valuationReport));
-                }
-            }
-            return reportsWithExpectedBaseVersions;
-        } catch (Exception e) {
-            logger.error("Error occured while updating comments in ExceptionManagement. ", e);
-            throw new BlotterRunTimeException("Error occured while updating comments in ExceptionManagement. ", e);
-        }
-    }
-    
-    protected List<Pair<ValuationReport, Long>> getTradeWithRemovedComments(List<ValuationReportDocument> tradeReportDocuments, Map<DocumentId, UpdateRequest> requests, List<ActionUpdateResult> failedTrades, String userName) throws BlotterRunTimeException {
-        try {
-
-            List<Pair<ValuationReport, Long>> reportsWithExpectedBaseVersions = new ArrayList<>();
-            for (ValuationReportDocument tradeReportDocument : tradeReportDocuments) {
-                ValuationReport tradeReport = tradeReportDocument.getValuationReport();
-                if (!requestValidator.validateUser(userName, tradeReport.getExceptionManagement())) {
-                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.USER_VALIDATION_ERROR));
-                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.USER_VALIDATION_ERROR);
-                }else if(requestValidator.validateApprovalStatus(tradeReport.getExceptionManagement().getApprovalStatus())){
-                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
-                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR);
-                }else {
-                    AddTradeCommentRequest addTradeCommentRequest = (AddTradeCommentRequest) requests.get(tradeReportDocument.getDocumentId());
-
-                    ExceptionManagement exceptionManagement = dataUpdater.removeCommentsToException(addTradeCommentRequest,
-                            tradeReport.getExceptionManagement(), userName);
-
-                    ValuationReport valuationReport = getValuationReport(tradeReport, exceptionManagement);
-                    reportsWithExpectedBaseVersions.add(getReportsWithExpectedBaseVersion(tradeReportDocument, valuationReport));
-                }
-            }
-            return reportsWithExpectedBaseVersions;
-        } catch (Exception e) {
-            logger.error("Error occured while updating comments in ExceptionManagement. ", e);
-            throw new BlotterRunTimeException("Error occured while updating comments in ExceptionManagement. ", e);
-        }
-    }
-
-    public List<ActionUpdateResult> addCommentType(List<AddTradeCommentTypeRequest> requests, String userName) {
-        if(requests.isEmpty()){
-            return Lists.newArrayList();
-        }
-        List<ActionUpdateResult> writeResults = Lists.newArrayList();
-
-        try{
-            Map<DocumentId, UpdateRequest> tradeRequestMap = new HashMap<>();
-            requests.forEach(request -> populateTradeRequestMap(request, tradeRequestMap));
-            List<ValuationReportDocument> tradeReportDocuments = getTradeReportDocuments(Lists.newArrayList(tradeRequestMap.keySet()));
-
-            if (!tradeReportDocuments.isEmpty()) {
-                List<Pair<ValuationReport, Long>> tradeReports = getTradeWithCommentType(tradeReportDocuments, tradeRequestMap, writeResults, userName);
-
-                if (!tradeReports.isEmpty()) {
-                    writeResults.addAll(saveAllRecords(tradeReportDocuments, tradeReports));
-                }
-            }
-            return writeResults;
-        } catch (Exception e) {
-            logger.error(e.getMessage(), e);
-            return requests
-                    .stream()
-                    .map(request -> ActionUpdateResult.createWithError(request.getDocumentId(), UPDATE_ERROR + e.getMessage()))
-                    .collect(Collectors.toList());
-        }
-    }
-
-    public List<ActionUpdateResult> removeCommentType(List<AddTradeCommentTypeRequest> requests, String userName) {
-        if(requests.isEmpty()){
-            return Lists.newArrayList();
-        }
-        List<ActionUpdateResult> writeResults = Lists.newArrayList();
-
-        try{
-            Map<DocumentId, UpdateRequest> tradeRequestMap = new HashMap<>();
-            requests.forEach(request -> populateTradeRequestMap(request, tradeRequestMap));
-            List<ValuationReportDocument> tradeReportDocuments = getTradeReportDocuments(Lists.newArrayList(tradeRequestMap.keySet()));
-
-            if (!tradeReportDocuments.isEmpty()) {
-                List<Pair<ValuationReport, Long>> tradeReports = getTradeWithRemovedCommentType(tradeReportDocuments, tradeRequestMap, writeResults, userName);
-
-                if (!tradeReports.isEmpty()) {
-                    writeResults.addAll(saveAllRecords(tradeReportDocuments, tradeReports));
-                }
-            }
-            return writeResults;
-        } catch (Exception e) {
-            logger.error(e.getMessage(), e);
-            return requests
-                    .stream()
-                    .map(request -> ActionUpdateResult.createWithError(request.getDocumentId(), UPDATE_ERROR + e.getMessage()))
-                    .collect(Collectors.toList());
-        }
-    }
-
-    private List<Pair<ValuationReport, Long>> getTradeWithCommentType(List<ValuationReportDocument> tradeReportDocuments, Map<DocumentId, UpdateRequest> requests, List<ActionUpdateResult> failedTrades, String userName) throws BlotterRunTimeException {
-        try {
-
-            List<Pair<ValuationReport, Long>> reportsWithExpectedBaseVersions = new ArrayList<>();
-            for (ValuationReportDocument tradeReportDocument : tradeReportDocuments) {
-                ValuationReport tradeReport = tradeReportDocument.getValuationReport();
-                if (!requestValidator.validateUser(userName, tradeReport.getExceptionManagement())) {
-                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.USER_VALIDATION_ERROR));
-                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.USER_VALIDATION_ERROR);
-                }else if(requestValidator.validateApprovalStatus(tradeReport.getExceptionManagement().getApprovalStatus())){
-                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
-                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR);
-                }else {
-                    AddTradeCommentTypeRequest addTradeCommentTypeRequest = (AddTradeCommentTypeRequest) requests.get(tradeReportDocument.getDocumentId());
-
-                    ExceptionManagement exceptionManagement = dataUpdater.addCommentTypeToException(addTradeCommentTypeRequest,
-                            tradeReport.getExceptionManagement(), userName);
-                    ValuationReport valuationReport = getValuationReport(tradeReport, exceptionManagement);
-                    reportsWithExpectedBaseVersions.add(getReportsWithExpectedBaseVersion(tradeReportDocument, valuationReport));
-                }
-            }
-            return reportsWithExpectedBaseVersions;
-        } catch (Exception e) {
-            logger.error("Error occured while updating comments in ExceptionManagement. ", e);
-            throw new BlotterRunTimeException("Error occured while updating comments in ExceptionManagement. ", e);
-        }
-    }
-
-    private List<Pair<ValuationReport, Long>> getTradeWithRemovedCommentType(List<ValuationReportDocument> tradeReportDocuments, Map<DocumentId, UpdateRequest> requests, List<ActionUpdateResult> failedTrades, String userName) throws BlotterRunTimeException {
-        try {
-
-            List<Pair<ValuationReport, Long>> reportsWithExpectedBaseVersions = new ArrayList<>();
-            for (ValuationReportDocument tradeReportDocument : tradeReportDocuments) {
-                ValuationReport tradeReport = tradeReportDocument.getValuationReport();
-                if (!requestValidator.validateUser(userName, tradeReport.getExceptionManagement())) {
-                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.USER_VALIDATION_ERROR));
-                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.USER_VALIDATION_ERROR);
-                }else if(requestValidator.validateApprovalStatus(tradeReport.getExceptionManagement().getApprovalStatus())){
-                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
-                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR);
-                }else {
-                    AddTradeCommentTypeRequest addTradeCommentTypeRequest = (AddTradeCommentTypeRequest) requests.get(tradeReportDocument.getDocumentId());
-
-                    ExceptionManagement exceptionManagement = dataUpdater.removeCommentTypeToException(addTradeCommentTypeRequest,
-                            tradeReport.getExceptionManagement(), userName);
-
-                    ValuationReport valuationReport = getValuationReport(tradeReport, exceptionManagement);
-                    reportsWithExpectedBaseVersions.add(getReportsWithExpectedBaseVersion(tradeReportDocument, valuationReport));
-                }
-            }
-            return reportsWithExpectedBaseVersions;
-        } catch (Exception e) {
-            logger.error("Error occured while updating comments in ExceptionManagement. ", e);
-            throw new BlotterRunTimeException("Error occured while updating comments in ExceptionManagement. ", e);
-        }
-    }
-
-    private ValuationReport getValuationReport(ValuationReport tradeReport, ExceptionManagement exceptionManagement) {
-        return ValuationReport.newBuilder(tradeReport)
-                .withExceptionManagement(exceptionManagement)
-                .withNonReportableData(NonReportableData.newBuilder(tradeReport.getNonReportableData())
-                                .withUpdatedByApplication(TNTRApplication.BLOTTER_SERVICE)
-                                .build())
-                .build();
-    }
-
-    private List<ValuationReportDocument> getTradeReportDocuments(List<DocumentId> documentIds) throws DfRunTimeException {
-        return dfTradePersistManager.getAllRecordsById(documentIds);
-    }
-
-    private Pair<ValuationReport, Long> getReportsWithExpectedBaseVersion(ValuationReportDocument tradeReportDocument, ValuationReport tradeReport) {
-        return Pair.of(tradeReport, tradeReportDocument.getDocumentId().getVersion());
-    }
-
-    private List<ActionUpdateResult> saveAllRecords(List<ValuationReportDocument> tradeReportDocuments, List<Pair<ValuationReport, Long>> tradeReports) {
-        List<WriteResult<ValuationReport>> writeResults =  dfTradePersistManager.saveAllRecords(tradeReports);
-        List<ActionUpdateResult> result = getResult(tradeReportDocuments, writeResults);
-        return result;
-    }
-
-	private List<ActionUpdateResult> rollBackRejectedRecords(Map<DocumentId, UpdateRequest> tradeRequestMap) {
-		logger.info("Rolling back records to previous version due to rejection");
-		List<ActionUpdateResult> writeResults = Lists.newArrayList();
-		List<DocumentId> documentIds = Lists.newArrayList();
-		tradeRequestMap.keySet().forEach(documentId -> {
-			documentIds.add(DocumentId.from(documentId.getKey(), (documentId.getVersion() - 2)));
-		});
-		List<ValuationReportDocument> valuationReportDocuments = getTradeReportDocuments(documentIds);
-		List<ValuationReport> valuationReports = valuationReportDocuments.stream()
-				.map(valuationDocument -> valuationDocument.getValuationReport()).collect(Collectors.toList());
-		writeResults = upsertAllRecords(valuationReportDocuments, valuationReports);
-		return writeResults;
-	}
-
-	private List<ActionUpdateResult> upsertAllRecords(List<ValuationReportDocument> valuationReportDocuments,
-			List<ValuationReport> valuationReports) {
-		List<WriteResult<ValuationReport>> writeResults = dfTradePersistManager.upsertAllRecords(valuationReports);
-		List<ActionUpdateResult> result = getResult(valuationReportDocuments, writeResults);
-		return result;
-	}
-
-    private List<ActionUpdateResult> getResult(List<ValuationReportDocument> tradeReportDocuments, List<WriteResult<ValuationReport>> writeResults) {
-        List<ActionUpdateResult> results = Lists.newArrayList();
-        if(writeResults != null) {
-            for (int i = 0; i < writeResults.size(); i++) {
-                if (writeResults.get(i).isSuccess()) {
-                    results.add(ActionUpdateResult.createSuccess(getTradePrimaryKey(tradeReportDocuments.get(i).getDocumentId()), writeResults.get(i).getDocumentId().getKey(), writeResults.get(i).getDocumentId().getVersion()));
-                } else {
-                    String error = writeResults.get(i).getErrorDetail().getCause() != null
-                            ? writeResults.get(i).getErrorDetail().getDescription() + ". " + writeResults.get(i).getErrorDetail().getCause().getMessage()
-                            : writeResults.get(i).getErrorDetail().getDescription();
-                    logger.error("Error occured in persisting Valuation key : [{}], version : [{}] Reason : [{}]", tradeReportDocuments.get(i).getDocumentId().getKey(), tradeReportDocuments.get(i).getDocumentId().getVersion(), error);
-                    results.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocuments.get(i).getDocumentId()), error));
-                }
-            }
-        }
-
-        return results;
-    }
-
-    protected void populateTradeRequestMap(UpdateRequest updateRequest, Map<DocumentId, UpdateRequest> map) {
-        ActionDocumentId docId = updateRequest.getDocumentId();
-        DocumentId documentId = DocumentId.from(docId.getKey(), docId.getVersion());
-
-        map.put(documentId, updateRequest);
-    }
-
-    private ActionDocumentId getTradePrimaryKey(DocumentId documentId) {
-        return new ActionDocumentId(documentId.getKey(), documentId.getVersion());
-    }
-
-	public List<ActionUpdateResult> updateEditedFields(List<EditRequest> requests, String userName,
-			ExceptionStatus exceptionStatus) {
-        if(requests.isEmpty()){
-            return Lists.newArrayList();
-        }
-        try {
-            List<ActionUpdateResult> writeResults = Lists.newArrayList();
-            
-            Map<DocumentId, UpdateRequest> tradeRequestMap = new HashMap<>();
-            requests.forEach(request -> populateTradeRequestMap(request, tradeRequestMap));
-            List<ValuationReportDocument> tradeReportDocuments = getTradeReportDocuments(Lists.newArrayList(tradeRequestMap.keySet()));
-
-            if (!tradeReportDocuments.isEmpty()) {
-				List<Pair<ValuationReport, Long>> tradeReports = editFields(tradeReportDocuments, tradeRequestMap,
-						writeResults, userName, exceptionStatus);
-                if (!tradeReports.isEmpty()) {
-                    writeResults.addAll(saveAllRecords(tradeReportDocuments, tradeReports));
-                }
-            }
-
-            return writeResults;
-        } catch (Exception e) {
-            logger.error(e.getMessage(), e);
-            return requests
-                    .stream()
-                    .map(request -> ActionUpdateResult.createWithError(request.getDocumentId(), UPDATE_ERROR + e.getMessage()))
-                    .collect(Collectors.toList());
-        }
-    }
-
-	protected List<Pair<ValuationReport, Long>> editFields(List<ValuationReportDocument> tradeReportDocuments,
-			Map<DocumentId, UpdateRequest> requests, List<ActionUpdateResult> failedTrades, String userName,
-			ExceptionStatus exceptionStatus) {
-        try {
-
-            List<Pair<ValuationReport, Long>> reportsWithExpectedBaseVersions = new ArrayList<>();
-            for (ValuationReportDocument tradeReportDocument : tradeReportDocuments) {
-                ValuationReport tradeReport = tradeReportDocument.getValuationReport();
-                if(requestValidator.validateApprovalStatus(tradeReport.getExceptionManagement().getApprovalStatus())){
-                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
-                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR);
-                }else {
-                    try {
-                        EditRequest editRequest = (EditRequest) requests.get(tradeReportDocument.getDocumentId());
-
-						ValuationReport tradeRepo = dataUpdater.updateTradeReportData(editRequest, tradeReport,
-								userName, exceptionStatus);
-                        reportsWithExpectedBaseVersions.add(getReportsWithExpectedBaseVersion(tradeReportDocument, tradeRepo));
-                    } catch (BlotterRunTimeException e) {
-                        failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), e.getMessage()));
-                        logger.error("Valuation edit failed for key : [{}], version : [{}], reason : [{}]",tradeReportDocument.getDocumentId().getKey(), tradeReportDocument.getDocumentId().getVersion(), e.getMessage(), e);
-                    }
-                }
-            }
-            return reportsWithExpectedBaseVersions;
-        } catch (Exception e) {
-            logger.error("Error occured while editing trades. ", e);
-            throw new BlotterRunTimeException("Error occured while editing trades. "+ e.getMessage(), e);
-        }
-    }
-
-    public List<ActionUpdateResult> updateExceptionStatus(List<UpdateExceptionStatusRequest> requests, ExceptionStatus requestedExceptionStatus, String userName) {
-        if(requests.isEmpty() || requestValidator.validateExceptionStatus(requestedExceptionStatus)){
-            if(!requests.isEmpty()){
-                logger.warn("Validation Failed : [{}] action not applicable on Valuation Records.", requestedExceptionStatus);
-            }
-            return Lists.newArrayList();
-        }
-        try {
-            List<ActionUpdateResult> writeResults = Lists.newArrayList();
-            
-
-            Map<DocumentId, UpdateRequest> tradeRequestMap = new HashMap<>();
-            requests.forEach(request -> populateTradeRequestMap(request, tradeRequestMap));
-            List<ValuationReportDocument> tradeReportDocuments = getTradeReportDocuments(Lists.newArrayList(tradeRequestMap.keySet()));
-            requestValidator.validatePermittedExceptionStatusForVal(tradeReportDocuments, writeResults, requestedExceptionStatus);
-
-            if (!tradeReportDocuments.isEmpty()) {
-                List<Pair<ValuationReport, Long>> tradeReports = getTradeWithExceptionStatus(tradeReportDocuments, requestedExceptionStatus, tradeRequestMap, writeResults, userName);
-                if (!tradeReports.isEmpty()) {
-                    writeResults.addAll(saveAllRecords(tradeReportDocuments, tradeReports));
-                }
-            }
-
-			if (ExceptionStatus.Edit_Rejected.equals(requestedExceptionStatus)) {
-				writeResults = rollBackRejectedRecords(tradeRequestMap);
-			}
-
-            return writeResults;
-        } catch (Exception e) {
-            logger.error(e.getMessage(), e);
-            return getTradeUpdateResultOnError(requests, e.getMessage());
-        }
-    }
-    
-    public List<ActionUpdateResult> performResetAction(List<UpdateExceptionStatusRequest> requests, String userName) {
-        if(requests.isEmpty()){
-            return Lists.newArrayList();
-        }
-        try {
-            List<ActionUpdateResult> writeResults = Lists.newArrayList();
-            
-            Map<DocumentId, UpdateRequest> tradeRequestMap = new HashMap<>();
-            requests.forEach(request -> populateTradeRequestMap(request, tradeRequestMap));
-            List<ValuationReportDocument> tradeReportDocuments = getTradeReportDocuments(Lists.newArrayList(tradeRequestMap.keySet()));
-
-            if (!tradeReportDocuments.isEmpty()) {
-                List<Pair<ValuationReport, Long>> tradeReports = resetActionOnValuation(tradeReportDocuments, tradeRequestMap, writeResults, userName);
-                if (!tradeReports.isEmpty()) {
-                    writeResults.addAll(saveAllRecords(tradeReportDocuments, tradeReports));
-                }
-            }
-
-            return writeResults;
-        } catch (Exception e) {
-            logger.error(e.getMessage(), e);
-            return getTradeUpdateResultOnError(requests, e.getMessage());
-        }
-    }
-
-    private List<ActionUpdateResult> getTradeUpdateResultOnError(List<UpdateExceptionStatusRequest> requests, String errormessage) {
-        return requests
-                .stream()
-                .map(request -> ActionUpdateResult.createWithError(request.getDocumentId(), UPDATE_ERROR + errormessage))
-                .collect(Collectors.toList());
-    }
-
-    protected List<Pair<ValuationReport, Long>> getTradeWithExceptionStatus(List<ValuationReportDocument> tradeReportDocuments, ExceptionStatus requestedExceptionStatus, Map<DocumentId, UpdateRequest> requests, List<ActionUpdateResult> failedTrades, String userName) throws BlotterRunTimeException {
-        try {
-            List<Pair<ValuationReport, Long>> reportsWithExpectedBaseVersions = new ArrayList<>();
-            for (ValuationReportDocument tradeReportDocument : tradeReportDocuments) {
-                ValuationReport tradeReport = tradeReportDocument.getValuationReport();
-                if (!requestValidator.validateUser(userName, tradeReport.getExceptionManagement())) {
-                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.USER_VALIDATION_ERROR));
-                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.USER_VALIDATION_ERROR);
-                }else if(requestValidator.validateApprovalStatus(tradeReport.getExceptionManagement().getApprovalStatus())){
-                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
-                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR);
-                }else if (!requestValidator.validateExceptionStatus(requestedExceptionStatus, tradeReport.getExceptionManagement().getApprovalStatus())) {
-                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
-                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR);
-                }else if (requestValidator.validateApprover(requestedExceptionStatus, tradeReport.getValuationReportId().getTradeSourceSystemTransactionId(), VALUATION,userName)) {
-                failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
-                logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR);
-                }else {
-                    UpdateExceptionStatusRequest updateExceptionStatusRequest = (UpdateExceptionStatusRequest) requests.get(tradeReportDocument.getDocumentId());
-                    ExceptionManagement exceptionManagement = dataUpdater.addExceptionStatus(requestedExceptionStatus, updateExceptionStatusRequest,
-                            tradeReport.getExceptionManagement(), userName);
-
-                    ValuationReport valuationReport = getValuationReport(tradeReport, exceptionManagement);
-                    reportsWithExpectedBaseVersions.add(getReportsWithExpectedBaseVersion(tradeReportDocument, valuationReport));
-                }
-            }
-            return reportsWithExpectedBaseVersions;
-        } catch (Exception e) {
-            logger.error("Error occured while updating exception status in ExceptionManagement. ", e);
-            throw new BlotterRunTimeException("Error occured while updating exception status in ExceptionManagement. ", e);
-        }
-    }
-    
-	protected List<Pair<ValuationReport, Long>> resetActionOnValuation(
-			List<ValuationReportDocument> tradeReportDocuments, Map<DocumentId, UpdateRequest> requests,
-			List<ActionUpdateResult> failedTrades, String userName) throws BlotterRunTimeException {
-		try {
-			List<Pair<ValuationReport, Long>> reportsWithExpectedBaseVersions = new ArrayList<>();
-			for (ValuationReportDocument tradeReportDocument : tradeReportDocuments) {
-				ValuationReport tradeReport = tradeReportDocument.getValuationReport();
-				 if (!requestValidator.validateResetActionApprovalStatus(tradeReport.getExceptionManagement().getApprovalStatus(),
-	                        requests.get(tradeReportDocument.getDocumentId()).getFlow())) {
-					logger.warn("Reset Action is not allowed because Current Approval Status of trade is : {}",
-							tradeReport.getExceptionManagement().getApprovalStatus());
-					failedTrades.add(
-							ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()),
-									ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
-					logFailuerReason(tradeReportDocument.getDocumentId(),
-							ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR);
-				} else {
-					UpdateExceptionStatusRequest updateExceptionStatusRequest = (UpdateExceptionStatusRequest) requests
-							.get(tradeReportDocument.getDocumentId());
-					ExceptionManagement exceptionManagement = dataUpdater.resetAction(updateExceptionStatusRequest,
-							tradeReport.getExceptionManagement(), userName);
-
-					ValuationReport valuationReport = getValuationReport(tradeReport, exceptionManagement);
-					reportsWithExpectedBaseVersions
-							.add(getReportsWithExpectedBaseVersion(tradeReportDocument, valuationReport));
-				}
-			}
-			return reportsWithExpectedBaseVersions;
-		} catch (Exception e) {
-			logger.error("Error occured while updating exception status in ExceptionManagement. ", e);
-			throw new BlotterRunTimeException("Error occured while updating exception status in ExceptionManagement. ",
-					e);
-		}
-	}
-
-    public List<ActionUpdateResult> assignExceptionToUser(List<AssignTradeRequest> requests, String userName) {
-        try {
-            if(requests.isEmpty()){
-                return Lists.newArrayList();
-            }
-            List<ActionUpdateResult> writeResults = Lists.newArrayList();
-            
-            Map<DocumentId, UpdateRequest> tradeRequestMap = new HashMap<>();
-            requests.forEach(request -> populateTradeRequestMap(request, tradeRequestMap));
-            List<ValuationReportDocument> tradeReportDocuments = getTradeReportDocuments(Lists.newArrayList(tradeRequestMap.keySet()));
-
-            if (!tradeReportDocuments.isEmpty()) {
-                List<Pair<ValuationReport, Long>> tradeReports = getTradeWithAssignment(tradeReportDocuments, tradeRequestMap, writeResults, userName);
-                if (!tradeReports.isEmpty()) {
-                    writeResults.addAll(saveAllRecords(tradeReportDocuments, tradeReports));
-                }
-            }
-
-            return writeResults;
-        } catch (Exception e) {
-            logger.error(e.getMessage(), e);
-            return requests
-                    .stream()
-                    .map(request -> ActionUpdateResult.createWithError(request.getDocumentId(), UPDATE_ERROR + e.getMessage()))
-                    .collect(Collectors.toList());
-        }
-    }
-
-    protected List<Pair<ValuationReport, Long>> getTradeWithAssignment(List<ValuationReportDocument> tradeReportDocuments, Map<DocumentId, UpdateRequest> requests, List<ActionUpdateResult> failedTrades, String userName) throws BlotterRunTimeException {
-        try {
-
-            List<Pair<ValuationReport, Long>> reportsWithExpectedBaseVersions = new ArrayList<>();
-            for (ValuationReportDocument tradeReportDocument : tradeReportDocuments) {
-                ValuationReport tradeReport = tradeReportDocument.getValuationReport();
-                if(requestValidator.validateApprovalStatus(tradeReport.getExceptionManagement().getApprovalStatus())){
-                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
-                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR);
-                }else {
-                    AssignTradeRequest assignTradeRequest = (AssignTradeRequest) requests.get(tradeReportDocument.getDocumentId());
-                    ExceptionManagement exceptionManagement = dataUpdater.assignException(assignTradeRequest,
-                            tradeReport.getExceptionManagement(), userName);
-
-                    ValuationReport valuationReport = getValuationReport(tradeReport, exceptionManagement);
-                    reportsWithExpectedBaseVersions.add(getReportsWithExpectedBaseVersion(tradeReportDocument, valuationReport));
-                }
-            }
-            return reportsWithExpectedBaseVersions;
-        } catch (Exception e) {
-            logger.error("Error occured while updating assign user in ExceptionManagement. ", e);
-            throw new BlotterRunTimeException("Error occured while updating assign user in ExceptionManagement. ", e);
-        }
-    }
-
-    public List<ActionUpdateResult> addJiraId(List<AddTradeJiraReferenceRequest> requests, String userName) {
-        if(requests.isEmpty()){
-            return Lists.newArrayList();
-        }
-        try {
-            List<ActionUpdateResult> writeResults = Lists.newArrayList();
-            
-            Map<DocumentId, UpdateRequest> tradeRequestMap = new HashMap<>();
-            requests.forEach(request -> populateTradeRequestMap(request, tradeRequestMap));
-            List<ValuationReportDocument> tradeReportDocuments = getTradeReportDocuments(Lists.newArrayList(tradeRequestMap.keySet()));
-
-            if (!tradeReportDocuments.isEmpty()) {
-                List<Pair<ValuationReport, Long>> tradeReports = getTradeWithJiraReference(tradeReportDocuments, tradeRequestMap, writeResults, userName);
-                if (!tradeReports.isEmpty()) {
-                    writeResults.addAll(saveAllRecords(tradeReportDocuments, tradeReports));
-                }
-            }
-
-            return writeResults;
-        } catch (Exception e) {
-            logger.error(e.getMessage(), e);
-            return requests
-                    .stream()
-                    .map(request -> ActionUpdateResult.createWithError(request.getDocumentId(), UPDATE_ERROR + e.getMessage()))
-                    .collect(Collectors.toList());
-        }
-    }
-
-    protected List<Pair<ValuationReport, Long>> getTradeWithJiraReference(List<ValuationReportDocument> tradeReportDocuments, Map<DocumentId, UpdateRequest> requests, List<ActionUpdateResult> failedTrades, String userName) throws BlotterRunTimeException {
-        try {
-
-            List<Pair<ValuationReport, Long>> reportsWithExpectedBaseVersions = new ArrayList<>();
-            for (ValuationReportDocument tradeReportDocument : tradeReportDocuments) {
-                ValuationReport tradeReport = tradeReportDocument.getValuationReport();
-                AddTradeJiraReferenceRequest addTradeJiraReferenceRequest = (AddTradeJiraReferenceRequest) requests.get(tradeReportDocument.getDocumentId());
-
-                if (!requestValidator.validateUser(userName, tradeReport.getExceptionManagement())) {
-                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.USER_VALIDATION_ERROR));
-                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.USER_VALIDATION_ERROR);
-                }else if(requestValidator.validateApprovalStatus(tradeReport.getExceptionManagement().getApprovalStatus())){
-                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
-                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR);
-                }else if(requestValidator.isJiraIdPresent(tradeReport.getExceptionManagement().getIssueIds(), addTradeJiraReferenceRequest.getJiraReference().getJiraId())){
-                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.JIRA_ID_PRESENT));
-                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.JIRA_ID_PRESENT);
-                }else {
-                    ExceptionManagement exceptionManagement = dataUpdater.addJiraIdToException(addTradeJiraReferenceRequest,
-                            tradeReport.getExceptionManagement(), userName);
-
-                    ValuationReport valuationReport = getValuationReport(tradeReport, exceptionManagement);
-                    reportsWithExpectedBaseVersions.add(getReportsWithExpectedBaseVersion(tradeReportDocument, valuationReport));
-                }
-            }
-            return reportsWithExpectedBaseVersions;
-        } catch (Exception e) {
-            logger.error("Error occured while adding jira id in ExceptionManagement. ", e);
-            throw new BlotterRunTimeException("Error occured while adding jira id in ExceptionManagement. ", e);
-        }
-    }
-
-    public List<ActionUpdateResult> removeJiraId(List<AddTradeJiraReferenceRequest> requests, String userName) {
-        if(requests.isEmpty()){
-            return Lists.newArrayList();
-        }
-        try {
-            List<ActionUpdateResult> writeResults = Lists.newArrayList();
-            
-            Map<DocumentId, UpdateRequest> tradeRequestMap = new HashMap<>();
-            requests.forEach(request -> populateTradeRequestMap(request, tradeRequestMap));
-            List<ValuationReportDocument> tradeReportDocuments = getTradeReportDocuments(Lists.newArrayList(tradeRequestMap.keySet()));
-
-            if (!tradeReportDocuments.isEmpty()) {
-                List<Pair<ValuationReport, Long>> tradeReports = removeJiraReference(tradeReportDocuments, tradeRequestMap, writeResults, userName);
-                if (!tradeReports.isEmpty()) {
-                    writeResults.addAll(saveAllRecords(tradeReportDocuments, tradeReports));
-                }
-            }
-
-            return writeResults;
-        } catch (Exception e) {
-            logger.error(e.getMessage(), e);
-            return requests
-                    .stream()
-                    .map(request -> ActionUpdateResult.createWithError(request.getDocumentId(), UPDATE_ERROR + e.getMessage()))
-                    .collect(Collectors.toList());
-        }
-    }
-
-    protected List<Pair<ValuationReport, Long>> removeJiraReference(List<ValuationReportDocument> tradeReportDocuments, Map<DocumentId, UpdateRequest> requests, List<ActionUpdateResult> failedTrades, String userName) throws BlotterRunTimeException {
-        try {
-
-            List<Pair<ValuationReport, Long>> reportsWithExpectedBaseVersions = new ArrayList<>();
-            for (ValuationReportDocument tradeReportDocument : tradeReportDocuments) {
-                ValuationReport tradeReport = tradeReportDocument.getValuationReport();
-                AddTradeJiraReferenceRequest addTradeJiraReferenceRequest = (AddTradeJiraReferenceRequest) requests.get(tradeReportDocument.getDocumentId());
-
-                if (!requestValidator.validateUser(userName, tradeReport.getExceptionManagement())) {
-                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.USER_VALIDATION_ERROR));
-                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.USER_VALIDATION_ERROR);
-                }else if(requestValidator.validateApprovalStatus(tradeReport.getExceptionManagement().getApprovalStatus())){
-                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
-                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR);
-                }else if(!requestValidator.isJiraIdPresent(tradeReport.getExceptionManagement().getIssueIds(), addTradeJiraReferenceRequest.getJiraReference().getJiraId())){
-                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.JIRA_ID_NOT_PRESENT));
-                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.JIRA_ID_NOT_PRESENT);
-                }else {
-                    ExceptionManagement exceptionManagement = dataUpdater.removeJiraIdFromException(addTradeJiraReferenceRequest,
-                            tradeReport.getExceptionManagement(), userName);
-
-                    ValuationReport valuationReport = getValuationReport(tradeReport, exceptionManagement);
-                    reportsWithExpectedBaseVersions.add(getReportsWithExpectedBaseVersion(tradeReportDocument, valuationReport));
-                }
-            }
-            return reportsWithExpectedBaseVersions;
-        } catch (Exception e) {
-            logger.error("Error occured while removing jira id from ExceptionManagement. ", e);
-            throw new BlotterRunTimeException("Error occured while removing jira id from ExceptionManagement. ", e);
-        }
-    }
-
-
-    public List<ActionUpdateResult> addJiraType(List<AddTradeJiraTypeRequest> requests, String userName) {
-        try {
-            List<ActionUpdateResult> writeResults = Lists.newArrayList();
-            
-            Map<DocumentId, UpdateRequest> tradeRequestMap = new HashMap<>();
-            requests.forEach(request -> populateTradeRequestMap(request, tradeRequestMap));
-            List<ValuationReportDocument> tradeReportDocuments = getTradeReportDocuments(Lists.newArrayList(tradeRequestMap.keySet()));
-
-            if (!tradeReportDocuments.isEmpty()) {
-                List<Pair<ValuationReport, Long>> tradeReports = getTradeWithJiraType(tradeReportDocuments, tradeRequestMap, writeResults, userName);
-                if (!tradeReports.isEmpty()) {
-                    writeResults.addAll(saveAllRecords(tradeReportDocuments, tradeReports));
-                }
-            }
-
-            return writeResults;
-        } catch (Exception e) {
-            logger.error(e.getMessage(), e);
-            return requests
-                    .stream()
-                    .map(request -> ActionUpdateResult.createWithError(request.getDocumentId(), UPDATE_ERROR + e.getMessage()))
-                    .collect(Collectors.toList());
-        }
-    }
-
-    protected List<Pair<ValuationReport, Long>> getTradeWithJiraType(List<ValuationReportDocument> tradeReportDocuments, Map<DocumentId, UpdateRequest> requests, List<ActionUpdateResult> failedTrades, String userName) throws BlotterRunTimeException {
-        try {
-
-            List<Pair<ValuationReport, Long>> reportsWithExpectedBaseVersions = new ArrayList<>();
-            for (ValuationReportDocument tradeReportDocument : tradeReportDocuments) {
-                ValuationReport tradeReport = tradeReportDocument.getValuationReport();
-                if (!requestValidator.validateUser(userName, tradeReport.getExceptionManagement())) {
-                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.USER_VALIDATION_ERROR));
-                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.USER_VALIDATION_ERROR);
-                }else if(requestValidator.validateApprovalStatus(tradeReport.getExceptionManagement().getApprovalStatus())){
-                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
-                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR);
-                }else {
-                    AddTradeJiraTypeRequest addTradeJiraTypeRequest = (AddTradeJiraTypeRequest) requests.get(tradeReportDocument.getDocumentId());
-
-                    ExceptionManagement exceptionManagement = dataUpdater.addJiraTypeToException(addTradeJiraTypeRequest,
-                            tradeReport.getExceptionManagement(), userName);
-
-                    ValuationReport valuationReport = getValuationReport(tradeReport, exceptionManagement);
-                    reportsWithExpectedBaseVersions.add(getReportsWithExpectedBaseVersion(tradeReportDocument, valuationReport));
-                }
-            }
-            return reportsWithExpectedBaseVersions;
-        } catch (Exception e) {
-            logger.error("Error occured while adding jira type in ExceptionManagement. ", e);
-            throw new BlotterRunTimeException("Error occured while adding jira type in ExceptionManagement. ", e);
-        }
-    }
-
-    public List<ActionUpdateResult> removeJiraType(List<AddTradeJiraTypeRequest> requests, String userName) {
-        try {
-            List<ActionUpdateResult> writeResults = Lists.newArrayList();
-            
-            Map<DocumentId, UpdateRequest> tradeRequestMap = new HashMap<>();
-            requests.forEach(request -> populateTradeRequestMap(request, tradeRequestMap));
-            List<ValuationReportDocument> tradeReportDocuments = getTradeReportDocuments(Lists.newArrayList(tradeRequestMap.keySet()));
-
-            if (!tradeReportDocuments.isEmpty()) {
-                List<Pair<ValuationReport, Long>> tradeReports = removeJiraType(tradeReportDocuments, tradeRequestMap, writeResults, userName);
-                if (!tradeReports.isEmpty()) {
-                    writeResults.addAll(saveAllRecords(tradeReportDocuments, tradeReports));
-                }
-            }
-
-            return writeResults;
-        } catch (Exception e) {
-            logger.error(e.getMessage(), e);
-            return requests
-                    .stream()
-                    .map(request -> ActionUpdateResult.createWithError(request.getDocumentId(), UPDATE_ERROR + e.getMessage()))
-                    .collect(Collectors.toList());
-        }
-    }
-
-    protected List<Pair<ValuationReport, Long>> removeJiraType(List<ValuationReportDocument> tradeReportDocuments, Map<DocumentId, UpdateRequest> requests, List<ActionUpdateResult> failedTrades, String userName) throws BlotterRunTimeException {
-        try {
-
-            List<Pair<ValuationReport, Long>> reportsWithExpectedBaseVersions = new ArrayList<>();
-            for (ValuationReportDocument tradeReportDocument : tradeReportDocuments) {
-                ValuationReport tradeReport = tradeReportDocument.getValuationReport();
-                AddTradeJiraTypeRequest addTradeJiraReferenceRequest = (AddTradeJiraTypeRequest) requests.get(tradeReportDocument.getDocumentId());
-
-                if (!requestValidator.validateUser(userName, tradeReport.getExceptionManagement())) {
-                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.USER_VALIDATION_ERROR));
-                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.USER_VALIDATION_ERROR);
-                }else if(requestValidator.validateApprovalStatus(tradeReport.getExceptionManagement().getApprovalStatus())){
-                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
-                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR);
-                }else if(!tradeReport.getExceptionManagement().getIssueType().value().equals(addTradeJiraReferenceRequest.getJiraType().getIssueType())){
-                    failedTrades.add(ActionUpdateResult.createWithError(getTradePrimaryKey(tradeReportDocument.getDocumentId()), ActionRequestValidator.JIRA_TYPE_NOT_PRESENT));
-                    logFailuerReason(tradeReportDocument.getDocumentId(), ActionRequestValidator.JIRA_TYPE_NOT_PRESENT);
-                }else {
-                    ExceptionManagement exceptionManagement = dataUpdater.removeJiraTypeFromException(addTradeJiraReferenceRequest,
-                            tradeReport.getExceptionManagement(), userName);
-
-                    ValuationReport valuationReport = getValuationReport(tradeReport, exceptionManagement);
-                    reportsWithExpectedBaseVersions.add(getReportsWithExpectedBaseVersion(tradeReportDocument, valuationReport));
-                }
-            }
-            return reportsWithExpectedBaseVersions;
-        } catch (Exception e) {
-            logger.error("Error occured while removing jira type from ExceptionManagement. ", e);
-            throw new BlotterRunTimeException("Error occured while removing jira type from ExceptionManagement. ", e);
-        }
-    }
-
-    private void logFailuerReason(DocumentId documentId, String reason){
-        logger.warn("Valuation validation failed for key : [{}], version : [{}] Reason : [{}]", documentId.getKey(), documentId.getVersion(), reason);
-    }
-    
-    public List<ActionUpdateResult> updateUserActionType(List<UpdateUserActionTypeRequest> requests, String userName) {
-		if (requests.isEmpty()) {
-			return Lists.newArrayList();
-		}
-		try {
-			List<ActionUpdateResult> writeResults = Lists.newArrayList();
-
-			Map<DocumentId, UpdateRequest> tradeRequestMap = new HashMap<>();
-			requests.forEach(request -> populateTradeRequestMap(request, tradeRequestMap));
-			List<ValuationReportDocument> tradeReportDocuments = getTradeReportDocuments(
-					Lists.newArrayList(tradeRequestMap.keySet()));
-
-			if (!tradeReportDocuments.isEmpty()) {
-				List<Pair<ValuationReport, Long>> tradeReports = getUserActionTypeTrades(tradeReportDocuments,
-						tradeRequestMap, writeResults, userName);
-				if (!tradeReports.isEmpty()) {
-					writeResults.addAll(saveAllRecords(tradeReportDocuments, tradeReports));
-				}
-			}
-
-			return writeResults;
-		} catch (Exception e) {
-			logger.error(e.getMessage(), e);
-			return requests.stream().map(request -> ActionUpdateResult.createWithError(request.getDocumentId(),
-					UPDATE_ERROR + e.getMessage())).collect(Collectors.toList());
-		}
-	}
-
-	protected List<Pair<ValuationReport, Long>> getUserActionTypeTrades(List<ValuationReportDocument> tradeReportDocuments,
-			Map<DocumentId, UpdateRequest> requests, List<ActionUpdateResult> failedTrades, String userName)
-			throws BlotterRunTimeException {
-		try {
-			List<Pair<ValuationReport, Long>> reportsWithExpectedBaseVersions = new ArrayList<>();
-
-			for (ValuationReportDocument tradeReportDocument : tradeReportDocuments) {
-				ValuationReport tradeReport = tradeReportDocument.getValuationReport();
-				UpdateUserActionTypeRequest updateUserActionTypeRequest = (UpdateUserActionTypeRequest) requests
-						.get(tradeReportDocument.getDocumentId());
-				ExceptionManagement exceptionManagement = dataUpdater.addComments(tradeReport.getExceptionManagement(),
-						userName, updateUserActionTypeRequest.getComment().getComment(),
-						updateUserActionTypeRequest.getAction());
-				ValuationReport tradeRepo = getTradeReportWithUserActionType(tradeReport, exceptionManagement,
-						UserActionType.fromValue(updateUserActionTypeRequest.getUserActionType()));
-				reportsWithExpectedBaseVersions.add(getReportsWithExpectedBaseVersion(tradeReportDocument, tradeRepo));
-			}
-			return reportsWithExpectedBaseVersions;
-		} catch (Exception e) {
-			logger.error("Error occured while updating comments in ExceptionManagement. ", e);
-			throw new BlotterRunTimeException("Error occured while updating comments in ExceptionManagement. ", e);
-		}
-	}
-
-	private ValuationReport getTradeReportWithUserActionType(ValuationReport tradeReport,
-			ExceptionManagement exceptionManagement, UserActionType userActionType) {
-		return ValuationReport.newBuilder(tradeReport).withExceptionManagement(exceptionManagement)
-				.withNonReportableData(NonReportableData.newBuilder(tradeReport.getNonReportableData())
-						.withUserActionType(userActionType).withUpdatedByApplication(TNTRApplication.BLOTTER_SERVICE)
-						.build())
-				.build();
-	}
-}
-
-
-Exisitng test class:
-
-package com.rbs.tntr.business.blotter.services.actions;
-
-import com.nwm.tntr.commons.domain.persistence.entity.DocumentId;
-import com.nwm.tntr.commons.domain.persistence.entity.ExceptionManagement;
-import com.nwm.tntr.commons.domain.persistence.entity.NonReportableData;
-import com.nwm.tntr.commons.domain.persistence.entity.valuation.ValuationReport;
-import com.nwm.tntr.commons.domain.persistence.entity.valuation.ValuationReportDocument;
-import com.nwm.tntr.commons.repository.regreporting.WriteResult;
-import com.rbs.datafabric.agile.commons.lang.StartableException;
-import com.rbs.datafabric.api.exception.ScanException;
-import com.rbs.tntr.business.blotter.df.manager.DfValuationPersistManager;
-import com.rbs.tntr.business.blotter.df.updater.ValuationDataUpdater;
-import com.rbs.tntr.business.blotter.services.validators.ActionRequestValidator;
-import com.rbs.tntr.business.blotter.web.request.regreportingTrade.*;
-import com.rbs.tntr.domain.blotter.enums.ExceptionStatus;
-import com.rbs.tntr.domain.blotter.exceptions.BlotterRunTimeException;
-import com.rbs.tntr.domain.blotter.exceptions.DfRunTimeException;
-import com.rbs.tntr.domain.blotter.tntrBlotterView.ActionDocumentId;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
-import java.io.IOException;
+import java.lang.reflect.Method;
 import java.util.*;
 
 import static org.junit.Assert.*;
-import static org.mockito.Matchers.*;
 import static org.mockito.Mockito.*;
 
 public class ValuationActionServiceTest {
@@ -951,524 +45,689 @@ public class ValuationActionServiceTest {
         MockitoAnnotations.initMocks(this);
     }
 
-    @Test
-    public void testAddComment_EmptyRequests() {
-        List<AddTradeCommentRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = valuationActionService.addComment(requests, "username");
-        assertTrue(results.isEmpty());
+    // Helper method to create a ValuationReportDocument mock
+    private ValuationReportDocument createValuationReportDocument(String key, Long version) {
+        ValuationReportDocument doc = mock(ValuationReportDocument.class);
+        DocumentId docId = DocumentId.from(key, version);
+        when(doc.getDocumentId()).thenReturn(docId);
+        ValuationReport report = mock(ValuationReport.class);
+        ExceptionManagement em = mock(ExceptionManagement.class);
+        NonReportableData nrd = mock(NonReportableData.class);
+        when(doc.getValuationReport()).thenReturn(report);
+        when(report.getExceptionManagement()).thenReturn(em);
+        when(report.getNonReportableData()).thenReturn(nrd);
+        return doc;
+    }
+
+    private WriteResult<ValuationReport> createSuccessWriteResult(String key, Long version, ValuationReport report) {
+        WriteResult<ValuationReport> wr = mock(WriteResult.class);
+        when(wr.isSuccess()).thenReturn(true);
+        when(wr.getDocumentId()).thenReturn(DocumentId.from(key, version));
+        when(wr.getRecord()).thenReturn(report);
+        return wr;
+    }
+
+    private WriteResult<ValuationReport> createFailureWriteResult(String error) {
+        WriteResult<ValuationReport> wr = mock(WriteResult.class);
+        when(wr.isSuccess()).thenReturn(false);
+        WriteResult.ErrorDetail ed = new WriteResult.ErrorDetail(error, null);
+        when(wr.getErrorDetail()).thenReturn(ed);
+        return wr;
     }
 
     @Test
-    public void testRemoveComment_EmptyRequests() {
-        List<AddTradeCommentRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = valuationActionService.removeComment(requests, "username");
-        assertTrue(results.isEmpty());
+    public void testAddComment_NullRequestList() {
+        List<ActionUpdateResult> results = valuationActionService.addComment(null, "username");
+        assertTrue("Results should be empty for null requests", results.isEmpty());
     }
 
     @Test
-    public void testAssignExceptionToUser_EmptyRequests() {
-        List<AssignTradeRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = valuationActionService.assignExceptionToUser(requests, "username");
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testAddJiraId_EmptyRequests() {
-        List<AddTradeJiraReferenceRequest> requests = new ArrayList<>();
-        List<ActionUpdateResult> results = valuationActionService.addJiraId(requests, "username");
-        assertTrue(results.isEmpty());
-    }
-
-    @Test
-    public void testAddComment_Successful() {
-        // Arrange
-        List<AddTradeCommentRequest> requests = Collections.singletonList(new AddTradeCommentRequest());
-        ValuationReportDocument mockReportDocument = mock(ValuationReportDocument.class);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(mockReportDocument));
-        when(requestValidator.validateUser(anyString(), any())).thenReturn(true);
-
-        // Act
-        List<ActionUpdateResult> results = valuationActionService.addComment(requests, "username");
-
-        // Assert
-        assertFalse(results.isEmpty());
-    }
-
-    @Test
-    public void testRemoveComment_Successful() {
-        // Arrange
-        List<AddTradeCommentRequest> requests = Collections.singletonList(new AddTradeCommentRequest());
-        ValuationReportDocument mockReportDocument = mock(ValuationReportDocument.class);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(mockReportDocument));
-        when(requestValidator.validateUser(anyString(), any())).thenReturn(true);
-
-        // Act
-        List<ActionUpdateResult> results = valuationActionService.removeComment(requests, "username");
-
-        // Assert
-        assertFalse(results.isEmpty());
-    }
-
-    @Test
-    public void testAddCommentType_Successful() {
-        // Arrange
-        List<AddTradeCommentTypeRequest> requests = Collections.singletonList(new AddTradeCommentTypeRequest());
-        ValuationReportDocument mockReportDocument = mock(ValuationReportDocument.class);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(mockReportDocument));
-        when(requestValidator.validateUser(anyString(), any())).thenReturn(true);
-
-        // Act
-        List<ActionUpdateResult> results = valuationActionService.addCommentType(requests, "username");
-
-        // Assert
-        assertFalse(results.isEmpty());
-    }
-
-    @Test
-    public void testRemoveCommentType_Successful() {
-        // Arrange
-        List<AddTradeCommentTypeRequest> requests = Collections.singletonList(new AddTradeCommentTypeRequest());
-        ValuationReportDocument mockReportDocument = mock(ValuationReportDocument.class);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(mockReportDocument));
-        when(requestValidator.validateUser(anyString(), any())).thenReturn(true);
-
-        // Act
-        List<ActionUpdateResult> results = valuationActionService.removeCommentType(requests, "username");
-
-        // Assert
-        assertFalse(results.isEmpty());
-    }
-
-    @Test
-    public void testUpdateExceptionStatus_ExceptionHandling() {
-        List<UpdateExceptionStatusRequest> requests = Collections.singletonList(mock(UpdateExceptionStatusRequest.class));
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenThrow(new RuntimeException("DB error"));
-        when(requestValidator.validateExceptionStatus(any())).thenReturn(true);
-        List<ActionUpdateResult> results = valuationActionService.updateExceptionStatus(requests, ExceptionStatus.Edit_Requested, "username");
-        assertEquals(0, results.size());
-    }
-
-    @Test
-    public void testAssignExceptionToUser_Successful() {
-        List<AssignTradeRequest> requests = Collections.singletonList(mock(AssignTradeRequest.class));
-        ValuationReportDocument mockReportDocument = mock(ValuationReportDocument.class);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(mockReportDocument));
-        when(requestValidator.validateUser(anyString(), any())).thenReturn(true);
-        List<ActionUpdateResult> results = valuationActionService.assignExceptionToUser(requests, "username");
-        assertFalse(results.isEmpty());
-    }
-
-    @Test
-    public void testPerformResetAction_Successful() {
-        List<UpdateExceptionStatusRequest> requests = Collections.singletonList(mock(UpdateExceptionStatusRequest.class));
-        ValuationReportDocument mockReportDocument = mock(ValuationReportDocument.class);
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(mockReportDocument));
-        when(requestValidator.validateExceptionStatus(any())).thenReturn(true);
-        List<ActionUpdateResult> results = valuationActionService.performResetAction(requests, "username");
-        assertFalse(results.isEmpty());
-    }
-
-    @Test
-    public void testAddComment_UserValidationFailure(){
-        AddTradeCommentRequest request = new AddTradeCommentRequest();
-        request.setDocumentId(new ActionDocumentId("key", 1L));
+    public void testAddComment_DocumentNotFound() {
+        AddTradeCommentRequest request = mock(AddTradeCommentRequest.class);
+        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
         List<AddTradeCommentRequest> requests = Collections.singletonList(request);
 
-        ValuationReportDocument doc = mock(ValuationReportDocument.class);
-        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
-        ValuationReport report = mock(ValuationReport.class);
-        when(doc.getValuationReport()).thenReturn(report);
-        ExceptionManagement exceptionManagement = mock(ExceptionManagement.class);
-        when(report.getExceptionManagement()).thenReturn(exceptionManagement);
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateUser(anyString(), any())).thenReturn(false);
+        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.emptyList());
 
         List<ActionUpdateResult> results = valuationActionService.addComment(requests, "username");
+
         assertEquals(1, results.size());
-        assertTrue(results.get(0).getError().contains(ActionRequestValidator.USER_VALIDATION_ERROR));
+        assertFalse(results.get(0).isSuccess());
+        assertTrue(results.get(0).getError().contains("Valuation record not found"));
     }
 
-    // Test cases for updateExceptionStatus method
     @Test
-    public void testUpdateExceptionStatus_EditRejectedRollback(){
-        UpdateExceptionStatusRequest request = new UpdateExceptionStatusRequest();
-        request.setDocumentId(new ActionDocumentId("key", 1L));
+    public void testUpdateExceptionStatus_ConcurrentModification() {
+        UpdateExceptionStatusRequest request = mock(UpdateExceptionStatusRequest.class);
+        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
         List<UpdateExceptionStatusRequest> requests = Collections.singletonList(request);
 
-        ValuationReportDocument doc = mock(ValuationReportDocument.class);
-        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
-        ValuationReport report = mock(ValuationReport.class);
-        when(doc.getValuationReport()).thenReturn(report);
-        ExceptionManagement exceptionManagement = mock(ExceptionManagement.class);
-        when(report.getExceptionManagement()).thenReturn(exceptionManagement);
-
+        ValuationReportDocument doc = createValuationReportDocument("key1", 2L);
         when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
+        when(requestValidator.validatePermittedExceptionStatusForVal(anyList(), anyList(), any())).thenReturn(true);
         when(requestValidator.validateUser(anyString(), any())).thenReturn(true);
-        when(requestValidator.validateExceptionStatus(any(), any())).thenReturn(true);
-        when(dataUpdater.addExceptionStatus(any(), any(), any(), anyString())).thenReturn(exceptionManagement);
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Collections.emptyList());
-
-        List<ActionUpdateResult> results = valuationActionService.updateExceptionStatus(
-                requests, ExceptionStatus.Edit_Rejected, "username"
-        );
-        assertEquals(1, results.size());
-    }
-
-    // Test cases for updateEditedFields method
-    @Test
-    public void testUpdateEditedFields_BlotterRuntimeException(){
-        EditRequest request = new EditRequest();
-        request.setDocumentId(new ActionDocumentId("key", 1L));
-        List<EditRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = mock(ValuationReportDocument.class);
-        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
-        ValuationReport report = mock(ValuationReport.class);
-        when(doc.getValuationReport()).thenReturn(report);
-        ExceptionManagement exceptionManagement = mock(ExceptionManagement.class);
-        when(report.getExceptionManagement()).thenReturn(exceptionManagement);
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        doThrow(new BlotterRunTimeException("Edit error")).when(dataUpdater)
-                .updateTradeReportData(any(), any(), anyString(), any());
-
-        List<ActionUpdateResult> results = valuationActionService.updateEditedFields(
-                requests, "username", ExceptionStatus.Edit_Requested
-        );
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).getError().contains("Edit error"));
-    }
-
-    // Test cases for addJiraId method
-    @Test
-    public void testAddJiraId_JiraIdAlreadyPresent(){
-        AddTradeJiraReferenceRequest request = new AddTradeJiraReferenceRequest();
-        request.setDocumentId(new ActionDocumentId("key", 1L));
-        List<AddTradeJiraReferenceRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = mock(ValuationReportDocument.class);
-        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
-        ValuationReport report = mock(ValuationReport.class);
-        when(doc.getValuationReport()).thenReturn(report);
-        ExceptionManagement exceptionManagement = mock(ExceptionManagement.class);
-        when(report.getExceptionManagement()).thenReturn(exceptionManagement);
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateUser(anyString(), any())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        when(requestValidator.isJiraIdPresent(any(), anyString())).thenReturn(true);
-
-        List<ActionUpdateResult> results = valuationActionService.addJiraId(requests, "username");
-        assertEquals(1, results.size());
-    }
-
-    // Test cases for removeJiraId method
-    @Test
-    public void testRemoveJiraId_JiraIdNotPresent(){
-        AddTradeJiraReferenceRequest request = new AddTradeJiraReferenceRequest();
-        request.setDocumentId(new ActionDocumentId("key", 1L));
-        List<AddTradeJiraReferenceRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = mock(ValuationReportDocument.class);
-        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
-        ValuationReport report = mock(ValuationReport.class);
-        when(doc.getValuationReport()).thenReturn(report);
-        ExceptionManagement exceptionManagement = mock(ExceptionManagement.class);
-        when(report.getExceptionManagement()).thenReturn(exceptionManagement);
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateUser(anyString(), any())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        when(requestValidator.isJiraIdPresent(any(), anyString())).thenReturn(false);
-
-        List<ActionUpdateResult> results = valuationActionService.removeJiraId(requests, "username");
-        assertEquals(1, results.size());
-    }
-
-    // Test cases for removeJiraType method
-    @Test
-    public void testRemoveJiraType_JiraTypeNotPresent(){
-        AddTradeJiraTypeRequest request = new AddTradeJiraTypeRequest();
-        request.setDocumentId(new ActionDocumentId("key", 1L));
-        List<AddTradeJiraTypeRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = mock(ValuationReportDocument.class);
-        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
-        ValuationReport report = mock(ValuationReport.class);
-        when(doc.getValuationReport()).thenReturn(report);
-        ExceptionManagement exceptionManagement = mock(ExceptionManagement.class);
-        when(report.getExceptionManagement()).thenReturn(exceptionManagement);
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateUser(anyString(), any())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-
-        List<ActionUpdateResult> results = valuationActionService.removeJiraType(requests, "username");
-        assertEquals(1, results.size());
-    }
-
-    // Test cases for updateUserActionType method
-    @Test
-    public void testUpdateUserActionType_Success(){
-        UpdateUserActionTypeRequest request = new UpdateUserActionTypeRequest();
-        request.setDocumentId(new ActionDocumentId("key", 1L));
-        request.setUserActionType("APPROVE");
-        List<UpdateUserActionTypeRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = mock(ValuationReportDocument.class);
-        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
-        ValuationReport report = mock(ValuationReport.class);
-        when(doc.getValuationReport()).thenReturn(report);
-        ExceptionManagement exceptionManagement = mock(ExceptionManagement.class);
-        when(report.getExceptionManagement()).thenReturn(exceptionManagement);
-        NonReportableData nonReportableData = mock(NonReportableData.class);
-        when(report.getNonReportableData()).thenReturn(nonReportableData);
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(dataUpdater.addComments(any(), anyString(), anyString(), any())).thenReturn(exceptionManagement);
-
-        List<ActionUpdateResult> results = valuationActionService.updateUserActionType(requests, "username");
-        assertEquals(1, results.size());
-    }
-
-    @Test
-    public void testAddComment_GetTradeReportDocumentsThrowsException() {
-        AddTradeCommentRequest request = new AddTradeCommentRequest();
-        request.setDocumentId(new ActionDocumentId("key", 1L));
-        List<AddTradeCommentRequest> requests = Collections.singletonList(request);
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenThrow(new DfRunTimeException("DB error"));
-
-        List<ActionUpdateResult> results = valuationActionService.addComment(requests, "username");
-
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).getError().contains("DB error"));
-    }
-
-    // Test for addComment when approval status validation fails
-    @Test
-    public void testAddComment_ApprovalStatusValidationFailure() {
-        AddTradeCommentRequest request = new AddTradeCommentRequest();
-        request.setDocumentId(new ActionDocumentId("key", 1L));
-        List<AddTradeCommentRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = mock(ValuationReportDocument.class);
-        ValuationReport report = mock(ValuationReport.class);
-        ExceptionManagement em = mock(ExceptionManagement.class);
-        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
-        when(doc.getValuationReport()).thenReturn(report);
-        when(report.getExceptionManagement()).thenReturn(em);
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateUser(anyString(), any())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(true); // Invalid status
-
-        List<ActionUpdateResult> results = valuationActionService.addComment(requests, "username");
-
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).getError().contains(ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
-    }
-
-    // Test for addComment with partial save success
-    @Test
-    public void testAddComment_PartialSaveSuccess() {
-        AddTradeCommentRequest req1 = new AddTradeCommentRequest();
-        req1.setDocumentId(new ActionDocumentId("key1", 1L));
-        AddTradeCommentRequest req2 = new AddTradeCommentRequest();
-        req2.setDocumentId(new ActionDocumentId("key2", 1L));
-        List<AddTradeCommentRequest> requests = Arrays.asList(req1, req2);
-
-        ValuationReportDocument doc1 = mock(ValuationReportDocument.class);
-        ValuationReport report1 = mock(ValuationReport.class);
-        ExceptionManagement em1 = mock(ExceptionManagement.class);
-        when(doc1.getDocumentId()).thenReturn(DocumentId.from("key1", 1L));
-        when(doc1.getValuationReport()).thenReturn(report1);
-        when(report1.getExceptionManagement()).thenReturn(em1);
-
-        ValuationReportDocument doc2 = mock(ValuationReportDocument.class);
-        ValuationReport report2 = mock(ValuationReport.class);
-        ExceptionManagement em2 = mock(ExceptionManagement.class);
-        when(doc2.getDocumentId()).thenReturn(DocumentId.from("key2", 1L));
-        when(doc2.getValuationReport()).thenReturn(report2);
-        when(report2.getExceptionManagement()).thenReturn(em2);
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Arrays.asList(doc1, doc2));
-        when(requestValidator.validateUser(anyString(), any())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        when(dataUpdater.addCommentsToException(any(), any(), anyString())).thenReturn(em1, em2);
-
-        WriteResult<ValuationReport> success = WriteResult.forSuccess(DocumentId.from("key1", 2L), report1);
-        List<ActionUpdateResult> results = valuationActionService.addComment(requests, "username");
-
-        assertEquals(2, results.size());
-    }
-
-    // Test for removeComment when dataUpdater throws an exception
-    @Test
-    public void testRemoveComment_DataUpdaterThrowsException() {
-        AddTradeCommentRequest request = new AddTradeCommentRequest();
-        request.setDocumentId(new ActionDocumentId("key", 1L));
-        List<AddTradeCommentRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = mock(ValuationReportDocument.class);
-        ValuationReport report = mock(ValuationReport.class);
-        ExceptionManagement em = mock(ExceptionManagement.class);
-        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
-        when(doc.getValuationReport()).thenReturn(report);
-        when(report.getExceptionManagement()).thenReturn(em);
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateUser(anyString(), any())).thenReturn(true);
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        when(dataUpdater.removeCommentsToException(any(), any(), anyString())).thenThrow(new RuntimeException("Update error"));
-
-        List<ActionUpdateResult> results = valuationActionService.removeComment(requests, "username");
-
-        assertEquals(1, results.size());
-    }
-
-    // Test for updateExceptionStatus with mixed validations
-    @Test
-    public void testUpdateExceptionStatus_MixedValidations() throws ScanException, IOException, StartableException {
-        UpdateExceptionStatusRequest req1 = new UpdateExceptionStatusRequest();
-        req1.setDocumentId(new ActionDocumentId("key1", 1L));
-        UpdateExceptionStatusRequest req2 = new UpdateExceptionStatusRequest();
-        req2.setDocumentId(new ActionDocumentId("key2", 1L));
-        List<UpdateExceptionStatusRequest> requests = Arrays.asList(req1, req2);
-
-        ValuationReportDocument doc1 = mock(ValuationReportDocument.class);
-        ValuationReport report1 = mock(ValuationReport.class);
-        ExceptionManagement em1 = mock(ExceptionManagement.class);
-        when(doc1.getDocumentId()).thenReturn(DocumentId.from("key1", 1L));
-        when(doc1.getValuationReport()).thenReturn(report1);
-        when(report1.getExceptionManagement()).thenReturn(em1);
-
-        ValuationReportDocument doc2 = mock(ValuationReportDocument.class);
-        ValuationReport report2 = mock(ValuationReport.class);
-        ExceptionManagement em2 = mock(ExceptionManagement.class);
-        when(doc2.getDocumentId()).thenReturn(DocumentId.from("key2", 1L));
-        when(doc2.getValuationReport()).thenReturn(report2);
-        when(report2.getExceptionManagement()).thenReturn(em2);
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Arrays.asList(doc1, doc2));
-        when(requestValidator.validateExceptionStatus(any())).thenReturn(false);
-        when(requestValidator.validateUser(eq("username"), eq(em1))).thenReturn(false);
-        when(requestValidator.validateUser(eq("username"), eq(em2))).thenReturn(true);
         when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
         when(requestValidator.validateExceptionStatus(any(), any())).thenReturn(true);
         when(requestValidator.validateApprover(any(), any(), any(), any())).thenReturn(false);
-        when(dataUpdater.addExceptionStatus(any(), any(), any(), anyString())).thenReturn(em2);
-        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Collections.singletonList(
-                WriteResult.forSuccess(DocumentId.from("key2", 2L), report2)
-        ));
 
         List<ActionUpdateResult> results = valuationActionService.updateExceptionStatus(requests, ExceptionStatus.Edit_Requested, "username");
 
-        assertEquals(2, results.size());
-    }
-
-    // Test for performResetAction when reset is not allowed
-    @Test
-    public void testPerformResetAction_NotAllowed() {
-        UpdateExceptionStatusRequest request = new UpdateExceptionStatusRequest();
-        request.setDocumentId(new ActionDocumentId("key", 1L));
-        List<UpdateExceptionStatusRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = mock(ValuationReportDocument.class);
-        ValuationReport report = mock(ValuationReport.class);
-        ExceptionManagement em = mock(ExceptionManagement.class);
-        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
-        when(doc.getValuationReport()).thenReturn(report);
-        when(report.getExceptionManagement()).thenReturn(em);
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateResetActionApprovalStatus(any(), any())).thenReturn(false);
-
-        List<ActionUpdateResult> results = valuationActionService.performResetAction(requests, "username");
-
         assertEquals(1, results.size());
-        assertTrue(results.get(0).getError().contains(ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
+        assertFalse(results.get(0).isSuccess());
+        assertTrue(results.get(0).getError().contains("Version mismatch"));
     }
 
-    // Test for assignExceptionToUser when approval status validation fails
     @Test
-    public void testAssignExceptionToUser_ApprovalStatusFailure() {
-        AssignTradeRequest request = new AssignTradeRequest();
-        request.setDocumentId(new ActionDocumentId("key", 1L));
-        List<AssignTradeRequest> requests = Collections.singletonList(request);
+    public void testRemoveJiraId_NullJiraReference() {
+        AddTradeJiraReferenceRequest request = mock(AddTradeJiraReferenceRequest.class);
+        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
+        when(request.getJiraReference()).thenReturn(null);
+        List<AddTradeJiraReferenceRequest> requests = Collections.singletonList(request);
 
-        ValuationReportDocument doc = mock(ValuationReportDocument.class);
-        ValuationReport report = mock(ValuationReport.class);
-        ExceptionManagement em = mock(ExceptionManagement.class);
-        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
-        when(doc.getValuationReport()).thenReturn(report);
-        when(report.getExceptionManagement()).thenReturn(em);
-
-        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-        when(requestValidator.validateApprovalStatus(any())).thenReturn(true);
-
-        List<ActionUpdateResult> results = valuationActionService.assignExceptionToUser(requests, "username");
-
-        assertEquals(1, results.size());
-        assertTrue(results.get(0).getError().contains(ActionRequestValidator.APPROVAL_STATUS_VALIDATION_ERROR));
-    }
-
-    // Test for addJiraType when dataUpdater throws an exception
-    @Test
-    public void testAddJiraType_DataUpdaterThrowsException() {
-        AddTradeJiraTypeRequest request = new AddTradeJiraTypeRequest();
-        request.setDocumentId(new ActionDocumentId("key", 1L));
-        List<AddTradeJiraTypeRequest> requests = Collections.singletonList(request);
-
-        ValuationReportDocument doc = mock(ValuationReportDocument.class);
-        ValuationReport report = mock(ValuationReport.class);
-        ExceptionManagement em = mock(ExceptionManagement.class);
-        when(doc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
-        when(doc.getValuationReport()).thenReturn(report);
-        when(report.getExceptionManagement()).thenReturn(em);
-
+        ValuationReportDocument doc = createValuationReportDocument("key1", 1L);
         when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
         when(requestValidator.validateUser(anyString(), any())).thenReturn(true);
         when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
-        when(dataUpdater.addJiraTypeToException(any(), any(), anyString())).thenThrow(new RuntimeException("Jira type error"));
+
+        List<ActionUpdateResult> results = valuationActionService.removeJiraId(requests, "username");
+
+        assertEquals(1, results.size());
+        assertFalse(results.get(0).isSuccess());
+        assertTrue(results.get(0).getError().contains("JIRA reference is null"));
+    }
+
+    @Test
+    public void testAssignExceptionToUser_InvalidUser() {
+        AssignTradeRequest request = mock(AssignTradeRequest.class);
+        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
+        List<AssignTradeRequest> requests = Collections.singletonList(request);
+
+        ValuationReportDocument doc = createValuationReportDocument("key1", 1L);
+        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
+        when(dataUpdater.assignException(any(), any(), anyString())).thenThrow(new IllegalArgumentException("Invalid user"));
+
+        List<ActionUpdateResult> results = valuationActionService.assignExceptionToUser(requests, "invalidUser");
+
+        assertEquals(1, results.size());
+        assertFalse(results.get(0).isSuccess());
+        assertTrue(results.get(0).getError().contains("Invalid user"));
+    }
+
+    @Test
+    public void testPerformResetAction_MultipleFlows() {
+        UpdateExceptionStatusRequest request1 = mock(UpdateExceptionStatusRequest.class);
+        UpdateExceptionStatusRequest request2 = mock(UpdateExceptionStatusRequest.class);
+        when(request1.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
+        when(request1.getFlow()).thenReturn("flow1");
+        when(request2.getDocumentId()).thenReturn(new ActionDocumentId("key2", 1L));
+        when(request2.getFlow()).thenReturn("flow2");
+        List<UpdateExceptionStatusRequest> requests = Arrays.asList(request1, request2);
+
+        ValuationReportDocument doc1 = createValuationReportDocument("key1", 1L);
+        ValuationReportDocument doc2 = createValuationReportDocument("key2", 1L);
+        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Arrays.asList(doc1, doc2));
+        when(requestValidator.validateResetActionApprovalStatus(any(), any())).thenReturn(true);
+        when(dataUpdater.resetAction(any(), any(), anyString())).thenReturn(mock(ExceptionManagement.class));
+        when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Arrays.asList(
+                createSuccessWriteResult("key1", 2L, doc1.getValuationReport()),
+                createSuccessWriteResult("key2", 2L, doc2.getValuationReport())
+        ));
+
+        List<ActionUpdateResult> results = valuationActionService.performResetAction(requests, "username");
+
+        assertEquals(2, results.size());
+        assertTrue(results.get(0).isSuccess());
+        assertTrue(results.get(1).isSuccess());
+        verify(dataUpdater, times(2)).resetAction(any(), any(), eq("username"));
+    }
+
+    @Test
+    public void testUpdateUserActionType_NullComment() {
+        UpdateUserActionTypeRequest request = mock(UpdateUserActionTypeRequest.class);
+        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
+        when(request.getUserActionType()).thenReturn("TEST_ACTION");
+        when(request.getComment()).thenReturn(null);
+        when(request.getAction()).thenReturn("action");
+        List<UpdateUserActionTypeRequest> requests = Collections.singletonList(request);
+
+        ValuationReportDocument doc = createValuationReportDocument("key1", 1L);
+        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
+
+        List<ActionUpdateResult> results = valuationActionService.updateUserActionType(requests, "username");
+
+        assertEquals(1, results.size());
+        assertFalse(results.get(0).isSuccess());
+        assertTrue(results.get(0).getError().contains("Comment is null"));
+    }
+
+    @Test
+    public void testAddJiraType_ExistingJiraType() {
+        AddTradeJiraTypeRequest request = mock(AddTradeJiraTypeRequest.class);
+        JiraType jiraType = mock(JiraType.class);
+        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
+        when(request.getJiraType()).thenReturn(jiraType);
+        when(jiraType.getIssueType()).thenReturn("Bug");
+        List<AddTradeJiraTypeRequest> requests = Collections.singletonList(request);
+
+        ValuationReportDocument doc = createValuationReportDocument("key1", 1L);
+        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
+        when(requestValidator.validateUser(anyString(), any())).thenReturn(true);
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
+        when(dataUpdater.addJiraTypeToException(any(), any(), anyString())).thenThrow(new IllegalStateException("JIRA type already exists"));
 
         List<ActionUpdateResult> results = valuationActionService.addJiraType(requests, "username");
 
         assertEquals(1, results.size());
+        assertFalse(results.get(0).isSuccess());
+        assertTrue(results.get(0).getError().contains("JIRA type already exists"));
     }
 
-    // Test for addCommentType when empty requests
     @Test
-    public void testAddCommentType_EmptyRequests() {
-        List<AddTradeCommentTypeRequest> requests = Collections.emptyList();
-        List<ActionUpdateResult> results = valuationActionService.addCommentType(requests, "username");
+    public void testUpdateEditedFields_NullExceptionStatus() {
+        EditRequest request = mock(EditRequest.class);
+        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
+        List<EditRequest> requests = Collections.singletonList(request);
+
+        ValuationReportDocument doc = createValuationReportDocument("key1", 1L);
+        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
+
+        List<ActionUpdateResult> results = valuationActionService.updateEditedFields(requests, "username", null);
+
+        assertEquals(1, results.size());
+        assertFalse(results.get(0).isSuccess());
+        assertTrue(results.get(0).getError().contains("Exception status is null"));
+    }
+
+    @Test
+    public void testGetTradeReportDocuments_EmptyDocumentIds() throws Exception {
+        Method method = ValuationActionService.class.getDeclaredMethod("getTradeReportDocuments", List.class);
+        method.setAccessible(true);
+
+        List<DocumentId> docIds = Collections.emptyList();
+        when(dfTradePersistManager.getAllRecordsById(docIds)).thenReturn(Collections.emptyList());
+
+        List<ValuationReportDocument> result = (List<ValuationReportDocument>) method.invoke(valuationActionService, docIds);
+
+        assertTrue("Result should be empty for empty document IDs", result.isEmpty());
+    }
+
+    @Test
+    public void testGetTradeWithComments_Success() throws Exception {
+        Method method = ValuationActionService.class.getDeclaredMethod("getTradeWithComments", List.class, Map.class, List.class, String.class);
+        method.setAccessible(true);
+
+        ValuationReportDocument doc = createValuationReportDocument("key1", 1L);
+        Map<DocumentId, UpdateRequest> requests = new HashMap<>();
+        AddTradeCommentRequest request = mock(AddTradeCommentRequest.class);
+        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
+        requests.put(doc.getDocumentId(), request);
+        List<ActionUpdateResult> failedTrades = new ArrayList<>();
+        when(requestValidator.validateUser("username", doc.getValuationReport().getExceptionManagement())).thenReturn(true);
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
+        when(dataUpdater.addCommentsToException(any(), any(), anyString())).thenReturn(mock(ExceptionManagement.class));
+
+        List<Pair<ValuationReport, Long>> result = (List<Pair<ValuationReport, Long>>) method.invoke(valuationActionService, Collections.singletonList(doc), requests, failedTrades, "username");
+
+        assertEquals(1, result.size());
+        assertTrue(failedTrades.isEmpty());
+    }
+
+    @Test
+    public void testGetTradeWithRemovedComments_Success() throws Exception {
+        Method method = ValuationActionService.class.getDeclaredMethod("getTradeWithRemovedComments", List.class, Map.class, List.class, String.class);
+        method.setAccessible(true);
+
+        ValuationReportDocument doc = createValuationReportDocument("key1", 1L);
+        Map<DocumentId, UpdateRequest> requests = new HashMap<>();
+        AddTradeCommentRequest request = mock(AddTradeCommentRequest.class);
+        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
+        requests.put(doc.getDocumentId(), request);
+        List<ActionUpdateResult> failedTrades = new ArrayList<>();
+        when(requestValidator.validateUser("username", doc.getValuationReport().getExceptionManagement())).thenReturn(true);
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
+        when(dataUpdater.removeCommentsToException(any(), any(), anyString())).thenReturn(mock(ExceptionManagement.class));
+
+        List<Pair<ValuationReport, Long>> result = (List<Pair<ValuationReport, Long>>) method.invoke(valuationActionService, Collections.singletonList(doc), requests, failedTrades, "username");
+
+        assertEquals(1, result.size());
+        assertTrue(failedTrades.isEmpty());
+    }
+
+    @Test
+    public void testGetTradeWithCommentType_Success() throws Exception {
+        Method method = ValuationActionService.class.getDeclaredMethod("getTradeWithCommentType", List.class, Map.class, List.class, String.class);
+        method.setAccessible(true);
+
+        ValuationReportDocument doc = createValuationReportDocument("key1", 1L);
+        Map<DocumentId, UpdateRequest> requests = new HashMap<>();
+        AddTradeCommentTypeRequest request = mock(AddTradeCommentTypeRequest.class);
+        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
+        requests.put(doc.getDocumentId(), request);
+        List<ActionUpdateResult> failedTrades = new ArrayList<>();
+        when(requestValidator.validateUser("username", doc.getValuationReport().getExceptionManagement())).thenReturn(true);
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
+        when(dataUpdater.addCommentTypeToException(any(), any(), anyString())).thenReturn(mock(ExceptionManagement.class));
+
+        List<Pair<ValuationReport, Long>> result = (List<Pair<ValuationReport, Long>>) method.invoke(valuationActionService, Collections.singletonList(doc), requests, failedTrades, "username");
+
+        assertEquals(1, result.size());
+        assertTrue(failedTrades.isEmpty());
+    }
+
+    @Test
+    public void testGetTradeWithRemovedCommentType_Success() throws Exception {
+        Method method = ValuationActionService.class.getDeclaredMethod("getTradeWithRemovedCommentType", List.class, Map.class, List.class, String.class);
+        method.setAccessible(true);
+
+        ValuationReportDocument doc = createValuationReportDocument("key1", 1L);
+        Map<DocumentId, UpdateRequest> requests = new HashMap<>();
+        AddTradeCommentTypeRequest request = mock(AddTradeCommentTypeRequest.class);
+        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
+        requests.put(doc.getDocumentId(), request);
+        List<ActionUpdateResult> failedTrades = new ArrayList<>();
+        when(requestValidator.validateUser("username", doc.getValuationReport().getExceptionManagement())).thenReturn(true);
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
+        when(dataUpdater.removeCommentTypeToException(any(), any(), anyString())).thenReturn(mock(ExceptionManagement.class));
+
+        List<Pair<ValuationReport, Long>> result = (List<Pair<ValuationReport, Long>>) method.invoke(valuationActionService, Collections.singletonList(doc), requests, failedTrades, "username");
+
+        assertEquals(1, result.size());
+        assertTrue(failedTrades.isEmpty());
+    }
+
+    @Test
+    public void testGetTradeWithAssignment_Success() throws Exception {
+        Method method = ValuationActionService.class.getDeclaredMethod("getTradeWithAssignment", List.class, Map.class, List.class, String.class);
+        method.setAccessible(true);
+
+        ValuationReportDocument doc = createValuationReportDocument("key1", 1L);
+        Map<DocumentId, UpdateRequest> requests = new HashMap<>();
+        AssignTradeRequest request = mock(AssignTradeRequest.class);
+        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
+        requests.put(doc.getDocumentId(), request);
+        List<ActionUpdateResult> failedTrades = new ArrayList<>();
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
+        when(dataUpdater.assignException(any(), any(), anyString())).thenReturn(mock(ExceptionManagement.class));
+
+        List<Pair<ValuationReport, Long>> result = (List<Pair<ValuationReport, Long>>) method.invoke(valuationActionService, Collections.singletonList(doc), requests, failedTrades, "username");
+
+        assertEquals(1, result.size());
+        assertTrue(failedTrades.isEmpty());
+    }
+
+    @Test
+    public void testGetTradeWithJiraReference_Success() throws Exception {
+        Method method = ValuationActionService.class.getDeclaredMethod("getTradeWithJiraReference", List.class, Map.class, List.class, String.class);
+        method.setAccessible(true);
+
+        ValuationReportDocument doc = createValuationReportDocument("key1", 1L);
+        Map<DocumentId, UpdateRequest> requests = new HashMap<>();
+        AddTradeJiraReferenceRequest request = mock(AddTradeJiraReferenceRequest.class);
+        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
+        when(request.getJiraReference()).thenReturn(mock(JiraReference.class));
+        when(request.getJiraReference().getJiraId()).thenReturn("JIRA-1");
+        requests.put(doc.getDocumentId(), request);
+        List<ActionUpdateResult> failedTrades = new ArrayList<>();
+        when(requestValidator.validateUser("username", doc.getValuationReport().getExceptionManagement())).thenReturn(true);
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
+        when(requestValidator.isJiraIdPresent(any(), eq("JIRA-1"))).thenReturn(false);
+        when(dataUpdater.addJiraIdToException(any(), any(), anyString())).thenReturn(mock(ExceptionManagement.class));
+
+        List<Pair<ValuationReport, Long>> result = (List<Pair<ValuationReport, Long>>) method.invoke(valuationActionService, Collections.singletonList(doc), requests, failedTrades, "username");
+
+        assertEquals(1, result.size());
+        assertTrue(failedTrades.isEmpty());
+    }
+
+    @Test
+    public void testRemoveJiraReference_Success() throws Exception {
+        Method method = ValuationActionService.class.getDeclaredMethod("removeJiraReference", List.class, Map.class, List.class, String.class);
+        method.setAccessible(true);
+
+        ValuationReportDocument doc = createValuationReportDocument("key1", 1L);
+        Map<DocumentId, UpdateRequest> requests = new HashMap<>();
+        AddTradeJiraReferenceRequest request = mock(AddTradeJiraReferenceRequest.class);
+        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
+        when(request.getJiraReference()).thenReturn(mock(JiraReference.class));
+        when(request.getJiraReference().getJiraId()).thenReturn("JIRA-1");
+        requests.put(doc.getDocumentId(), request);
+        List<ActionUpdateResult> failedTrades = new ArrayList<>();
+        when(requestValidator.validateUser("username", doc.getValuationReport().getExceptionManagement())).thenReturn(true);
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
+        when(requestValidator.isJiraIdPresent(any(), eq("JIRA-1"))).thenReturn(true);
+        when(dataUpdater.removeJiraIdFromException(any(), any(), anyString())).thenReturn(mock(ExceptionManagement.class));
+
+        List<Pair<ValuationReport, Long>> result = (List<Pair<ValuationReport, Long>>) method.invoke(valuationActionService, Collections.singletonList(doc), requests, failedTrades, "username");
+
+        assertEquals(1, result.size());
+        assertTrue(failedTrades.isEmpty());
+    }
+
+    @Test
+    public void testGetTradeWithJiraType_Success() throws Exception {
+        Method method = ValuationActionService.class.getDeclaredMethod("getTradeWithJiraType", List.class, Map.class, List.class, String.class);
+        method.setAccessible(true);
+
+        ValuationReportDocument doc = createValuationReportDocument("key1", 1L);
+        Map<DocumentId, UpdateRequest> requests = new HashMap<>();
+        AddTradeJiraTypeRequest request = mock(AddTradeJiraTypeRequest.class);
+        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
+        requests.put(doc.getDocumentId(), request);
+        List<ActionUpdateResult> failedTrades = new ArrayList<>();
+        when(requestValidator.validateUser("username", doc.getValuationReport().getExceptionManagement())).thenReturn(true);
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
+        when(dataUpdater.addJiraTypeToException(any(), any(), anyString())).thenReturn(mock(ExceptionManagement.class));
+
+        List<Pair<ValuationReport, Long>> result = (List<Pair<ValuationReport, Long>>) method.invoke(valuationActionService, Collections.singletonList(doc), requests, failedTrades, "username");
+
+        assertEquals(1, result.size());
+        assertTrue(failedTrades.isEmpty());
+    }
+
+    @Test
+    public void testRemoveJiraType_Success() throws Exception {
+        Method method = ValuationActionService.class.getDeclaredMethod("removeJiraType", List.class, Map.class, List.class, String.class);
+        method.setAccessible(true);
+
+        ValuationReportDocument doc = createValuationReportDocument("key1", 1L);
+        Map<DocumentId, UpdateRequest> requests = new HashMap<>();
+        AddTradeJiraTypeRequest request = mock(AddTradeJiraTypeRequest.class);
+        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
+        when(request.getJiraType()).thenReturn(mock(JiraType.class));
+        when(request.getJiraType().getIssueType()).thenReturn("Bug");
+        requests.put(doc.getDocumentId(), request);
+        List<ActionUpdateResult> failedTrades = new ArrayList<>();
+        when(requestValidator.validateUser("username", doc.getValuationReport().getExceptionManagement())).thenReturn(true);
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
+        when(doc.getValuationReport().getExceptionManagement().getIssueType().value()).thenReturn("Bug");
+        when(dataUpdater.removeJiraTypeFromException(any(), any(), anyString())).thenReturn(mock(ExceptionManagement.class));
+
+        List<Pair<ValuationReport, Long>> result = (List<Pair<ValuationReport, Long>>) method.invoke(valuationActionService, Collections.singletonList(doc), requests, failedTrades, "username");
+
+        assertEquals(1, result.size());
+        assertTrue(failedTrades.isEmpty());
+    }
+
+    @Test
+    public void testGetTradeWithExceptionStatus_Success() throws Exception {
+        Method method = ValuationActionService.class.getDeclaredMethod("getTradeWithExceptionStatus", List.class, ExceptionStatus.class, Map.class, List.class, String.class);
+        method.setAccessible(true);
+
+        ValuationReportDocument doc = createValuationReportDocument("key1", 1L);
+        Map<DocumentId, UpdateRequest> requests = new HashMap<>();
+        UpdateExceptionStatusRequest request = mock(UpdateExceptionStatusRequest.class);
+        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
+        requests.put(doc.getDocumentId(), request);
+        List<ActionUpdateResult> failedTrades = new ArrayList<>();
+        when(requestValidator.validateUser("username", doc.getValuationReport().getExceptionManagement())).thenReturn(true);
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
+        when(requestValidator.validateExceptionStatus(any(), any())).thenReturn(true);
+        when(requestValidator.validateApprover(any(), any(), any(), any())).thenReturn(false);
+        when(dataUpdater.addExceptionStatus(any(), any(), any(), anyString())).thenReturn(mock(ExceptionManagement.class));
+
+        List<Pair<ValuationReport, Long>> result = (List<Pair<ValuationReport, Long>>) method.invoke(valuationActionService, Collections.singletonList(doc), ExceptionStatus.Edit_Requested, requests, failedTrades, "username");
+
+        assertEquals(1, result.size());
+        assertTrue(failedTrades.isEmpty());
+    }
+
+    @Test
+    public void testRollBackRejectedRecords_Success() throws Exception {
+        Method method = ValuationActionService.class.getDeclaredMethod("rollBackRejectedRecords", Map.class);
+        method.setAccessible(true);
+
+        Map<DocumentId, UpdateRequest> tradeRequestMap = new HashMap<>();
+        DocumentId docId = DocumentId.from("key1", 3L);
+        tradeRequestMap.put(docId, mock(UpdateRequest.class));
+        ValuationReportDocument prevDoc = createValuationReportDocument("key1", 1L);
+        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(prevDoc));
+        when(dfTradePersistManager.upsertAllRecords(anyList())).thenReturn(Collections.singletonList(createSuccessWriteResult("key1", 1L, prevDoc.getValuationReport())));
+
+        List<ActionUpdateResult> results = (List<ActionUpdateResult>) method.invoke(valuationActionService, tradeRequestMap);
+
+        assertEquals(1, results.size());
+        assertTrue(results.get(0).isSuccess());
+    }
+
+    @Test
+    public void testGetResult_SuccessAndFailure() throws Exception {
+        Method method = ValuationActionService.class.getDeclaredMethod("getResult", List.class, List.class);
+        method.setAccessible(true);
+
+        ValuationReportDocument doc1 = createValuationReportDocument("key1", 1L);
+        ValuationReportDocument doc2 = createValuationReportDocument("key2", 1L);
+        List<ValuationReportDocument> docs = Arrays.asList(doc1, doc2);
+        WriteResult<ValuationReport> success = createSuccessWriteResult("key1", 2L, doc1.getValuationReport());
+        WriteResult<ValuationReport> failure = createFailureWriteResult("Save error");
+        List<WriteResult<ValuationReport>> writeResults = Arrays.asList(success, failure);
+
+        List<ActionUpdateResult> results = (List<ActionUpdateResult>) method.invoke(valuationActionService, docs, writeResults);
+
+        assertEquals(2, results.size());
+        assertTrue(results.get(0).isSuccess());
+        assertFalse(results.get(1).isSuccess());
+        assertTrue(results.get(1).getError().contains("Save error"));
+    }
+
+    @Test
+    public void testGetResult_NullWriteResults() throws Exception {
+        Method method = ValuationActionService.class.getDeclaredMethod("getResult", List.class, List.class);
+        method.setAccessible(true);
+
+        ValuationReportDocument doc = createValuationReportDocument("key1", 1L);
+        List<ValuationReportDocument> docs = Collections.singletonList(doc);
+
+        List<ActionUpdateResult> results = (List<ActionUpdateResult>) method.invoke(valuationActionService, docs, null);
+
         assertTrue(results.isEmpty());
     }
 
-    // Test for removeCommentType when empty requests
     @Test
-    public void testRemoveCommentType_EmptyRequests() {
-        List<AddTradeCommentTypeRequest> requests = Collections.emptyList();
-        List<ActionUpdateResult> results = valuationActionService.removeCommentType(requests, "username");
+    public void testPopulateTradeRequestMap() throws Exception {
+        Method method = ValuationActionService.class.getDeclaredMethod("populateTradeRequestMap", UpdateRequest.class, Map.class);
+        method.setAccessible(true);
+
+        UpdateRequest request = mock(UpdateRequest.class);
+        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
+        Map<DocumentId, UpdateRequest> map = new HashMap<>();
+
+        method.invoke(valuationActionService, request, map);
+
+        assertEquals(1, map.size());
+        assertEquals(request, map.get(DocumentId.from("key1", 1L)));
+    }
+
+    @Test
+    public void testGetTradePrimaryKey() throws Exception {
+        Method method = ValuationActionService.class.getDeclaredMethod("getTradePrimaryKey", DocumentId.class);
+        method.setAccessible(true);
+
+        DocumentId docId = DocumentId.from("key1", 1L);
+
+        ActionDocumentId result = (ActionDocumentId) method.invoke(valuationActionService, docId);
+
+        assertEquals("key1", result.getKey());
+        assertEquals(Long.valueOf(1L), result.getVersion());
+    }
+
+    @Test
+    public void testGetValuationReport() throws Exception {
+        Method method = ValuationActionService.class.getDeclaredMethod("getValuationReport", ValuationReport.class, ExceptionManagement.class);
+        method.setAccessible(true);
+
+        ValuationReport tradeReport = mock(ValuationReport.class);
+        ExceptionManagement em = mock(ExceptionManagement.class);
+        NonReportableData nrd = mock(NonReportableData.class);
+        when(tradeReport.getNonReportableData()).thenReturn(nrd);
+
+        ValuationReport result = (ValuationReport) method.invoke(valuationActionService, tradeReport, em);
+
+        assertNotNull(result);
+    }
+
+    @Test
+    public void testGetReportsWithExpectedBaseVersion() throws Exception {
+        Method method = ValuationActionService.class.getDeclaredMethod("getReportsWithExpectedBaseVersion", ValuationReportDocument.class, ValuationReport.class);
+        method.setAccessible(true);
+
+        ValuationReportDocument doc = createValuationReportDocument("key1", 1L);
+        ValuationReport report = mock(ValuationReport.class);
+
+        Pair<ValuationReport, Long> result = (Pair<ValuationReport, Long>) method.invoke(valuationActionService, doc, report);
+
+        assertEquals(report, result.getLeft());
+        assertEquals(Long.valueOf(1L), result.getRight());
+    }
+
+    @Test
+    public void testEditFields_Success() throws Exception {
+        Method method = ValuationActionService.class.getDeclaredMethod("editFields", List.class, Map.class, List.class, String.class, ExceptionStatus.class);
+        method.setAccessible(true);
+
+        ValuationReportDocument doc = createValuationReportDocument("key1", 1L);
+        Map<DocumentId, UpdateRequest> requests = new HashMap<>();
+        EditRequest request = mock(EditRequest.class);
+        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
+        requests.put(doc.getDocumentId(), request);
+        List<ActionUpdateResult> failedTrades = new ArrayList<>();
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
+        when(dataUpdater.updateTradeReportData(any(), any(), anyString(), any())).thenReturn(mock(ValuationReport.class));
+
+        List<Pair<ValuationReport, Long>> result = (List<Pair<ValuationReport, Long>>) method.invoke(valuationActionService, Collections.singletonList(doc), requests, failedTrades, "username", ExceptionStatus.Edit_Requested);
+
+        assertEquals(1, result.size());
+        assertTrue(failedTrades.isEmpty());
+    }
+
+    @Test
+    public void testResetActionOnValuation_Success() throws Exception {
+        Method method = ValuationActionService.class.getDeclaredMethod("resetActionOnValuation", List.class, Map.class, List.class, String.class);
+        method.setAccessible(true);
+
+        ValuationReportDocument doc = createValuationReportDocument("key1", 1L);
+        Map<DocumentId, UpdateRequest> requests = new HashMap<>();
+        UpdateExceptionStatusRequest request = mock(UpdateExceptionStatusRequest.class);
+        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
+        when(request.getFlow()).thenReturn("flow1");
+        requests.put(doc.getDocumentId(), request);
+        List<ActionUpdateResult> failedTrades = new ArrayList<>();
+        when(requestValidator.validateResetActionApprovalStatus(any(), any())).thenReturn(true);
+        when(dataUpdater.resetAction(any(), any(), anyString())).thenReturn(mock(ExceptionManagement.class));
+
+        List<Pair<ValuationReport, Long>> result = (List<Pair<ValuationReport, Long>>) method.invoke(valuationActionService, Collections.singletonList(doc), requests, failedTrades, "username");
+
+        assertEquals(1, result.size());
+        assertTrue(failedTrades.isEmpty());
+    }
+
+    @Test
+    public void testGetUserActionTypeTrades_Success() throws Exception {
+        Method method = ValuationActionService.class.getDeclaredMethod("getUserActionTypeTrades", List.class, Map.class, List.class, String.class);
+        method.setAccessible(true);
+
+        ValuationReportDocument doc = createValuationReportDocument("key1", 1L);
+        Map<DocumentId, UpdateRequest> requests = new HashMap<>();
+        UpdateUserActionTypeRequest request = mock(UpdateUserActionTypeRequest.class);
+        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
+        when(request.getUserActionType()).thenReturn("APPROVE");
+        when(request.getComment()).thenReturn(mock(Comment.class));
+        when(request.getComment().getComment()).thenReturn("Test comment");
+        when(request.getAction()).thenReturn("action");
+        requests.put(doc.getDocumentId(), request);
+        List<ActionUpdateResult> failedTrades = new ArrayList<>();
+        when(dataUpdater.addComments(any(), anyString(), anyString(), any())).thenReturn(mock(ExceptionManagement.class));
+
+        List<Pair<ValuationReport, Long>> result = (List<Pair<ValuationReport, Long>>) method.invoke(valuationActionService, Collections.singletonList(doc), requests, failedTrades, "username");
+
+        assertEquals(1, result.size());
+        assertTrue(failedTrades.isEmpty());
+    }
+
+    @Test
+    public void testGetTradeReportWithUserActionType() throws Exception {
+        Method method = ValuationActionService.class.getDeclaredMethod("getTradeReportWithUserActionType", ValuationReport.class, ExceptionManagement.class, UserActionType.class);
+        method.setAccessible(true);
+
+        ValuationReport tradeReport = mock(ValuationReport.class);
+        ExceptionManagement em = mock(ExceptionManagement.class);
+        NonReportableData nrd = mock(NonReportableData.class);
+        when(tradeReport.getNonReportableData()).thenReturn(nrd);
+        UserActionType userActionType = UserActionType.fromValue("APPROVE");
+
+        ValuationReport result = (ValuationReport) method.invoke(valuationActionService, tradeReport, em, userActionType);
+
+        assertNotNull(result);
+    }
+
+    @Test
+    public void testAddJiraId_Success() {
+        AddTradeJiraReferenceRequest request = mock(AddTradeJiraReferenceRequest.class);
+        when(request.getDocumentId()).thenReturn(new ActionDocumentId("key1", 1L));
+        when(request.getJiraReference()).thenReturn(mock(JiraReference.class));
+        when(request.getJiraReference().getJiraId()).thenReturn("JIRA-1");
+        List<AddTradeJiraReferenceRequest> requests = Collections.singletonList(request);
+
+        ValuationReportDocument doc = createValuationReportDocument("key1", 1L);
+        when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
+        when(requestValidator.validateUser(anyString(), any())).thenReturn(true);
+        when(requestValidator.validateApprovalStatus(any())).thenReturn(false);
+        when(requestValidator.isJiraIdPresent(any(), anyString())).thenReturn(false);
+        when(dataUpdater.addJiraIdToException(any(), any(), anyString())).thenReturn(mock(ExceptionManagement.class));
+        when(dfTradePersistManager.saveAllRecords [insert other necessary classes]
+
+        List<ActionUpdateResult> results = valuationActionService.addJiraId(requests, "username");
+
+        assertEquals(1, results.size());
+        assertTrue(results.get(0).isSuccess());
+    }
+
+    @Test
+    public void testRemoveComment_NullRequests() {
+        List<ActionUpdateResult> results = valuationActionService.removeComment(null, "username");
         assertTrue(results.isEmpty());
     }
 
-    // Test for updateUserActionType when empty requests
     @Test
-    public void testUpdateUserActionType_EmptyRequests() {
-        List<UpdateUserActionTypeRequest> requests = Collections.emptyList();
-        List<ActionUpdateResult> results = valuationActionService.updateUserActionType(requests, "username");
+    public void testAddCommentType_NullRequests() {
+        List<ActionUpdateResult> results = valuationActionService.addCommentType(null, "username");
         assertTrue(results.isEmpty());
     }
 
-    // Test for removeJiraId when empty requests
     @Test
-    public void testRemoveJiraId_EmptyRequests() {
-        List<AddTradeJiraReferenceRequest> requests = Collections.emptyList();
-        List<ActionUpdateResult> results = valuationActionService.removeJiraId(requests, "username");
+    public void testRemoveJiraType_NullRequests() {
+        List<ActionUpdateResult> results = valuationActionService.removeJiraType(null, "username");
         assertTrue(results.isEmpty());
     }
 
+    @Test
+    public void testAddJiraType_NullRequests() {
+        List<ActionUpdateResult> results = valuationActionService.addJiraType(null, "username");
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    public void testUpdateEditedFields_NullRequests() {
+        List<ActionUpdateResult> results = valuationActionService.updateEditedFields(null, "username", ExceptionStatus.Edit_Requested);
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    public void testPerformResetAction_NullRequests() {
+        List<ActionUpdateResult> results = valuationActionService.performResetAction(null, "username");
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    public void testAssignExceptionToUser_NullRequests() {
+        List<ActionUpdateResult> results = valuationActionService.assignExceptionToUser(null, "username");
+        assertTrue(results.isEmpty());
+    }
+
+    @Test
+    public void testUpdateExceptionStatus_NullRequests() {
+        List<ActionUpdateResult> results = valuationActionService.updateExceptionStatus(null, ExceptionStatus.Edit_Requested, "username");
+        assertTrue(results.isEmpty());
+    }
 }
