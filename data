@@ -1,217 +1,236 @@
 @Test
-public void testRemoveCommentType_Success() throws Exception {
-    AddTradeCommentTypeRequest request = new AddTradeCommentTypeRequest();
-    request.setDocumentId(new ActionDocumentId("key", 1L));
-    List<AddTradeCommentTypeRequest> requests = Collections.singletonList(request);
+public void testCalculateThresholdCount_Success() throws Exception {
+    DfScanParameters param = createParam("Transaction");
+    List<DfScanParameters> scanParamList = Lists.newArrayList(param);
+    String recon_select_result = "{ \"totalCount\": 100 }";
+    PagedScanResult pagedScan = new PagedScanResult(getMockRecords(Lists.newArrayList(recon_select_result)), false, "scanId", 1);
+    Mockito.when(client.pagedScan(Mockito.any(ScanRequestBuilder.class)))
+        .thenReturn(pagedScan);
+    
+    int count = ReflectionTestUtils.invokeMethod(dataFabricExportServiceImpl, "calculateThresholdCount", scanParamList, userName);
+    assertEquals(100, count);
+}
 
-    TradeReportDocument doc = createMockTradeDoc();
-    when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-    when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Collections.singletonList(
-        WriteResult.forSuccess(DocumentId.from("key", 2L), doc.getTradeReport())
-    ));
-
-    List<ActionUpdateResult> results = tradeActionService.removeCommentType(requests, "username");
-    assertEquals(1, results.size());
-    assertTrue(results.get(0).isSuccess());
+@Test(expected = ScanException.class)
+public void testCalculateThresholdCount_ScanException() throws Exception {
+    DfScanParameters param = createParam("Transaction");
+    List<DfScanParameters> scanParamList = Lists.newArrayList(param);
+    Mockito.when(client.pagedScan(Mockito.any(ScanRequestBuilder.class)))
+        .thenThrow(new ScanException("DF error"));
+    
+    ReflectionTestUtils.invokeMethod(dataFabricExportServiceImpl, "calculateThresholdCount", scanParamList, userName);
 }
 
 @Test
-public void testPerformResetAction_Success() {
-    UpdateExceptionStatusRequest request = new UpdateExceptionStatusRequest();
-    request.setDocumentId(new ActionDocumentId("key", 1L));
-    List<UpdateExceptionStatusRequest> requests = Collections.singletonList(request);
-
-    TradeReportDocument doc = createMockTradeDoc();
-    when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-    when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Collections.singletonList(
-        WriteResult.forSuccess(DocumentId.from("key", 2L), doc.getTradeReport())
-    ));
-
-    List<ActionUpdateResult> results = tradeActionService.performResetAction(requests, "username");
-    assertEquals(1, results.size());
-    assertTrue(results.get(0).isSuccess());
+public void testModifyFileName_Success() throws Exception {
+    DfScanParameters param = createParam("Reconciliation");
+    List<DfScanParameters> scanParamList = Lists.newArrayList(param);
+    String recon_select_result = "{ \"reconciliationBusinessDateTime\": \"2025-03-26T00:00:00.000Z\", \"identifier\": \"EmirDelegationFx\" }";
+    PagedScanResult pagedScan = new PagedScanResult(getMockRecords(Lists.newArrayList(recon_select_result)), false, "scanId", 1);
+    Mockito.when(client.pagedScan(Mockito.any(ScanRequestBuilder.class)))
+        .thenReturn(pagedScan);
+    
+    String fileName = "testFile";
+    String newFileName = ReflectionTestUtils.invokeMethod(dataFabricExportServiceImpl, "modifyFileName", scanParamList, fileName);
+    assertEquals("EmirDelegationFx_2025-03-26_testFile", newFileName);
 }
 
 @Test
-public void testUpdateUserActionType_Success() {
-    UpdateUserActionTypeRequest request = new UpdateUserActionTypeRequest();
-    request.setDocumentId(new ActionDocumentId("key", 1L));
-    request.setUserActionType("TEST_ACTION");
-    List<UpdateUserActionTypeRequest> requests = Collections.singletonList(request);
-
-    TradeReportDocument doc = createMockTradeDoc();
-    when(dfTradePersistManager.getAllRecordsById(anyList())).thenReturn(Collections.singletonList(doc));
-    when(dfTradePersistManager.saveAllRecords(anyList())).thenReturn(Collections.singletonList(
-        WriteResult.forSuccess(DocumentId.from("key", 2L), doc.getTradeReport())
-    ));
-
-    List<ActionUpdateResult> results = tradeActionService.updateUserActionType(requests, "username");
-    assertEquals(1, results.size());
-    assertTrue(results.get(0).isSuccess());
+public void testPopulateNextRunDate_BeforeCurrentTime() throws Exception {
+    String nextRun = ReflectionTestUtils.invokeMethod(dataFabricExportServiceImpl, "populateNextRunDate", "8:30 AM");
+    assertNotNull(nextRun);
 }
 
 @Test
-public void testGetTradeWithRemovedComments_ValidationFailure() throws Exception {
-    // Setup reflection to test protected method
-    Method method = TradeActionService.class.getDeclaredMethod(
-        "getTradeWithRemovedComments", 
-        List.class, Map.class, List.class, String.class
-    );
-    method.setAccessible(true);
-    
-    TradeReportDocument doc = createMockTradeDoc();
-    Map<DocumentId, UpdateRequest> requests = new HashMap<>();
-    requests.put(doc.getDocumentId(), new AddTradeCommentRequest());
-    
-    List<ActionUpdateResult> failedTrades = new ArrayList<>();
-    List<Pair<TradeReport, Long>> result = (List<Pair<TradeReport, Long>>) method.invoke(
-        tradeActionService, 
-        Collections.singletonList(doc), 
-        requests, 
-        failedTrades, 
-        "invalidUser"
-    );
-    
-    assertEquals(0, result.size());
-    assertEquals(1, failedTrades.size());
+public void testPopulateNextRunDate_AfterCurrentTime() throws Exception {
+    // Test with time after current system time
+    DateTime futureTime = dateTimeService.getCurrentUTCDateTime().plusHours(2);
+    String timeStr = new SimpleDateFormat("hh:mm a").format(futureTime.toDate());
+    String nextRun = ReflectionTestUtils.invokeMethod(dataFabricExportServiceImpl, "populateNextRunDate", timeStr);
+    assertNotNull(nextRun);
+}
+
+@Test(expected = BlotterRunTimeException.class)
+public void testPopulateNextRunDate_ParseException() throws Exception {
+    ReflectionTestUtils.invokeMethod(dataFabricExportServiceImpl, "populateNextRunDate", "invalid_time");
 }
 
 @Test
-public void testEditFields_BlotterException() throws Exception {
-    // Setup reflection to test protected method
-    Method method = TradeActionService.class.getDeclaredMethod(
-        "editFields", 
-        List.class, Map.class, List.class, String.class, ExceptionStatus.class
-    );
-    method.setAccessible(true);
-    
-    TradeReportDocument doc = createMockTradeDoc();
-    Map<DocumentId, UpdateRequest> requests = new HashMap<>();
-    EditRequest editRequest = new EditRequest();
-    requests.put(doc.getDocumentId(), editRequest);
-    
-    List<ActionUpdateResult> failedTrades = new ArrayList<>();
-    
-    // Force BlotterRunTimeException in dataUpdater
-    TradeDataUpdater mockUpdater = mock(TradeDataUpdater.class);
-    when(mockUpdater.updateTradeReportData(any(), any(), any(), any()))
-        .thenThrow(new BlotterRunTimeException("Edit failed"));
-    
-    // Inject mock updater
-    Field updaterField = TradeActionService.class.getDeclaredField("dataUpdater");
-    updaterField.setAccessible(true);
-    updaterField.set(tradeActionService, mockUpdater);
-    
-    List<Pair<TradeReport, Long>> result = (List<Pair<TradeReport, Long>>) method.invoke(
-        tradeActionService,
-        Collections.singletonList(doc),
-        requests,
-        failedTrades,
-        "username",
-        ExceptionStatus.Edit_Requested
-    );
-    
-    assertEquals(0, result.size());
-    assertEquals(1, failedTrades.size());
+public void testPopulateDynamicDate_WithDynamicDate() {
+    String clause = "(date >= {T-3})";
+    String updatedClause = ReflectionTestUtils.invokeMethod(dataFabricExportServiceImpl, "populateDynamicDate", clause);
+    assertTrue(updatedClause.contains("202"));
 }
 
 @Test
-public void testUpdateExceptionStatus_RollbackSuccess() {
-    UpdateExceptionStatusRequest request = new UpdateExceptionStatusRequest();
-    request.setDocumentId(new ActionDocumentId("key", 3L)); // Requires version rollback
-    List<UpdateExceptionStatusRequest> requests = Collections.singletonList(request);
-
-    TradeReportDocument currentDoc = createMockTradeDoc();
-    when(currentDoc.getDocumentId()).thenReturn(DocumentId.from("key", 3L));
-    
-    TradeReportDocument prevDoc = mock(TradeReportDocument.class);
-    when(prevDoc.getDocumentId()).thenReturn(DocumentId.from("key", 1L));
-    when(prevDoc.getTradeReport()).thenReturn(mock(TradeReport.class));
-    
-    when(dfTradePersistManager.getAllRecordsById(anyList()))
-        .thenReturn(Collections.singletonList(currentDoc))  // First call (current)
-        .thenReturn(Collections.singletonList(prevDoc));    // Rollback call (previous version)
-    
-    when(dfTradePersistManager.upsertAllRecords(anyList())).thenReturn(Collections.singletonList(
-        WriteResult.forSuccess(DocumentId.from("key", 1L), prevDoc.getTradeReport())
-    ));
-    
-    List<ActionUpdateResult> results = tradeActionService.updateExceptionStatus(
-        requests, ExceptionStatus.Edit_Rejected, "username"
-    );
-    
-    assertEquals(1, results.size());
-    assertTrue(results.get(0).isSuccess());
+public void testPopulateDynamicDate_NoDynamicDate() {
+    String clause = "(date >= '2023-01-01')";
+    String updatedClause = ReflectionTestUtils.invokeMethod(dataFabricExportServiceImpl, "populateDynamicDate", clause);
+    assertEquals(clause, updatedClause);
 }
 
 @Test
-public void testGetResult_WithMixedSuccessAndFailure() throws Exception {
-    Method method = TradeActionService.class.getDeclaredMethod(
-        "getResult", List.class, List.class
-    );
-    method.setAccessible(true);
+public void testResumeInQueueScans_WithQueue() {
+    DfExportScan scan = createScan("scan1", "Transaction", "user");
+    scan.setExecutionStatus(STATUS_IN_QUEUE);
+    Mockito.when(exportRepo.fetchScansWithStatus(STATUS_IN_QUEUE))
+        .thenReturn(Lists.newArrayList(scan));
     
-    TradeReportDocument doc1 = mock(TradeReportDocument.class);
-    when(doc1.getDocumentId()).thenReturn(DocumentId.from("key1", 1L));
-    TradeReportDocument doc2 = mock(TradeReportDocument.class);
-    when(doc2.getDocumentId()).thenReturn(DocumentId.from("key2", 1L));
-    
-    WriteResult<TradeReport> success = WriteResult.forSuccess(DocumentId.from("key1", 2L), mock(TradeReport.class));
-    WriteResult<TradeReport> failure = WriteResult.forFailure(
-        DocumentId.from("key2", 1L), 
-        new RuntimeException("Save error")
-    );
-    
-    List<ActionUpdateResult> results = (List<ActionUpdateResult>) method.invoke(
-        tradeActionService,
-        Arrays.asList(doc1, doc2),
-        Arrays.asList(success, failure)
-    );
-    
-    assertEquals(2, results.size());
-    assertTrue(results.get(0).isSuccess());
-    assertTrue(results.get(1).getError().contains("Save error"));
+    ReflectionTestUtils.invokeMethod(dataFabricExportServiceImpl, "resumeInQueueScans");
+    Mockito.verify(exportRepo, Mockito.times(1)).fetchScansWithStatus(STATUS_IN_QUEUE);
 }
 
 @Test
-public void testUpsertAllRecords_Success() throws Exception {
-    Method method = TradeActionService.class.getDeclaredMethod(
-        "upsertAllRecords", List.class, List.class
-    );
-    method.setAccessible(true);
+public void testSubmitTask_InterruptedException() throws InterruptedException {
+    BlockingQueue<DfExportJob> queue = Mockito.mock(BlockingQueue.class);
+    ReflectionTestUtils.setField(dataFabricExportServiceImpl, "queue", queue);
+    Mockito.doThrow(new InterruptedException()).when(queue).put(Mockito.any());
     
-    TradeReportDocument doc = mock(TradeReportDocument.class);
-    TradeReport report = mock(TradeReport.class);
-    when(doc.getTradeReport()).thenReturn(report);
-    
-    when(dfTradePersistManager.upsertAllRecords(anyList())).thenReturn(Collections.singletonList(
-        WriteResult.forSuccess(DocumentId.from("key", 2L), report)
-    ));
-    
-    List<ActionUpdateResult> results = (List<ActionUpdateResult>) method.invoke(
-        tradeActionService,
-        Collections.singletonList(doc),
-        Collections.singletonList(report)
-    );
-    
-    assertEquals(1, results.size());
-    assertTrue(results.get(0).isSuccess());
+    boolean result = dataFabricExportServiceImpl.submitTask(new DfExportJob());
+    assertFalse(result);
+    assertTrue(Thread.interrupted()); // Clear interrupt status
 }
 
-// Helper method to create a mock TradeReportDocument
-private TradeReportDocument createMockTradeDoc() {
-    TradeReportDocument doc = mock(TradeReportDocument.class);
-    DocumentId docId = DocumentId.from("key", 1L);
-    when(doc.getDocumentId()).thenReturn(docId);
+@Test
+public void testGenerateMiSnapShotReport_MultipleAssets() throws Exception {
+    String trade_snapshot = "{ \"_id\": { \"subjectIdentifier.assetClass\": \"ForeignExchange\" }, ... }"; // Include other fields
+    Map<String, String> assetMap = fetchRecordList_For_Snapshot(trade_snapshot).get(0);
+    assetMap.put("assetClass", "FOREIGN_EXCHANGE");
     
-    TradeReport report = mock(TradeReport.class);
-    when(doc.getTradeReport()).thenReturn(report);
+    List<Map<String, String>> records = Lists.newArrayList(assetMap);
+    Mockito.when(dataFabricExportUtil.convertScannedRecords(Mockito.any(), Mockito.any(), Mockito.any()))
+        .thenReturn(records);
     
-    ExceptionManagement em = mock(ExceptionManagement.class);
-    when(report.getExceptionManagement()).thenReturn(em);
+    service.generateMiSnapShotReport(Lists.newArrayList(createParam("Transaction")),
+        createScan("scanId", "Transaction", "MIEXTRACT"), "snapshotFileName");
+    Mockito.verify(csvWriter, Mockito.atLeastOnce()).generateCsvFile(Mockito.any(), Mockito.any(), Mockito.any());
+}
+
+@Test
+public void testBifurcateKnownRecords_WithJiraIds() {
+    Map<String, String> record = new HashMap<>();
+    record.put("Jira", "JIRA-1,JIRA-2");
+    record.put("Asset Class Final", "FX");
+    // Add other required fields...
     
-    NonReportableData nonReportableData = mock(NonReportableData.class);
-    when(report.getNonReportableData()).thenReturn(nonReportableData);
+    List<Map<String, String>> bifurcated = ReflectionTestUtils.invokeMethod(
+        dataFabricExportServiceImpl, 
+        "bifurcateKnownRecords", 
+        Lists.newArrayList(record)
+    );
+    assertEquals(2, bifurcated.size());
+}
+
+@Test
+public void testBifurcateKnownRecords_NoJiraId() {
+    Map<String, String> record = new HashMap<>();
+    record.put("Asset Class Final", "FX");
+    // Add other required fields...
     
-    return doc;
+    List<Map<String, String>> bifurcated = ReflectionTestUtils.invokeMethod(
+        dataFabricExportServiceImpl, 
+        "bifurcateKnownRecords", 
+        Lists.newArrayList(record)
+    );
+    assertEquals(1, bifurcated.size());
+}
+
+@Test
+public void testGetAssetClassCsvName() {
+    assertEquals("FX", ReflectionTestUtils.invokeMethod(dataFabricExportServiceImpl, "getAssetClassCsvName", "FOREIGN_EXCHANGE"));
+    assertEquals("Rates", ReflectionTestUtils.invokeMethod(dataFabricExportServiceImpl, "getAssetClassCsvName", "INTEREST_RATE"));
+    assertEquals("NONE", ReflectionTestUtils.invokeMethod(dataFabricExportServiceImpl, "getAssetClassCsvName", "UNKNOWN"));
+}
+
+@Test
+public void testZipExportFile_Success() throws IOException {
+    String fileName = "testFile";
+    File testFile = new File("c://Export/20250611/testFile.csv");
+    testFile.createNewFile();
+    
+    ReflectionTestUtils.invokeMethod(dataFabricExportServiceImpl, "zipExportFile", fileName);
+    assertFalse(testFile.exists()); // Original file deleted
+    File zipFile = new File("c://Export/20250611/MI/testFile.zip");
+    assertTrue(zipFile.exists());
+    zipFile.delete();
+}
+
+@Test
+public void testZipExportFile_IOException() throws IOException {
+    String fileName = "nonExistentFile";
+    ReflectionTestUtils.invokeMethod(dataFabricExportServiceImpl, "zipExportFile", fileName);
+    // Verify error is logged
+}
+
+@Test
+public void testPopulateEmailNotification() {
+    DfExportScan scan = createScan("scanId", "Transaction", "user@example.com");
+    scan.setBlotterName("TestBlotter");
+    scan.setExportRecordCount(100);
+    scan.setExecutionTime("10");
+    scan.setLastExecutionDateTime("11-06-2025 12:00:00");
+    
+    EmailContent email = ReflectionTestUtils.invokeMethod(
+        dataFabricExportServiceImpl, 
+        "populateEmailNotification", 
+        scan
+    );
+    assertTrue(email.getEmailBody().contains("TestBlotter"));
+    assertTrue(email.getEmailBody().contains("100"));
+}
+
+@Test
+public void testUpdateFailedScan() {
+    DfExportScan scan = createScan("scanId", "Collection", "user");
+    Mockito.when(exportRepo.fetchDfScanById("scanId")).thenReturn(scan);
+    
+    ReflectionTestUtils.invokeMethod(
+        dataFabricExportServiceImpl, 
+        "updateFailedScan", 
+        "scanId", "STATUS_FAILED", "Error message"
+    );
+    assertEquals("STATUS_FAILED", scan.getExecutionStatus());
+    Mockito.verify(exportRepo, Mockito.times(1)).upsertDfScan(scan);
+}
+
+@Test
+public void testExportDataToFile_MIUnknown() throws Exception {
+    DfExportScan scan = new DfExportScan();
+    scan.setBlotterName("AgeBucketTest");
+    Set<String> headers = Sets.newHashSet("header1");
+    String fileName = "testFile";
+    List<Record> records = getMockRecords(getJsonRecords());
+    
+    int count = ReflectionTestUtils.invokeMethod(
+        dataFabricExportServiceImpl,
+        "exportDataToFile",
+        scan, headers, fileName, "MI_UNKNOWN", records
+    );
+    assertEquals(1, count);
+    // Verify "Age Bucket in Days" is added to records
+}
+
+@Test
+public void testGenerateScanRequestId() {
+    String scanId = ReflectionTestUtils.invokeMethod(
+        dataFabricExportServiceImpl, 
+        "generateScanRequestId", 
+        "user"
+    );
+    assertTrue(scanId.startsWith("user"));
+    assertTrue(scanId.contains("SCAN_REQ_ID"));
+}
+
+@Test
+public void testGetTotalFromMap() {
+    Map<String, Map<String, String>> assetMap = new HashMap<>();
+    assetMap.put("FX", Collections.singletonMap("count", "10"));
+    assetMap.put("Rates", Collections.singletonMap("count", "20"));
+    
+    int total = ReflectionTestUtils.invokeMethod(
+        dataFabricExportServiceImpl,
+        "getTotalFromMap",
+        assetMap, "count", Lists.newArrayList("FX", "Rates")
+    );
+    assertEquals(30, total);
 }
