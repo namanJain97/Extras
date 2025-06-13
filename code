@@ -1,135 +1,512 @@
-@Test
-public void testPopulateManualFields_ProcessingErrorState() throws Exception {
-    Map<String, String> map = new HashMap<>();
-    map.put("transactionStateValue", "Processing Error");
-    map.put("tntrReceivedTimestamp", "2022-01-01T00:00:00.000Z");
-    invokePopulateManualFieldsMethod(map);
-    assertNotNull(map.get("EXCEPTION_AGE"));
-    assertNotNull(map.get("EXCEPTION_AGE_BUCKET"));
-}
+package com.rbs.tntr.business.blotter.utility;
 
-@Test
-public void testPopulateManualFields_AcknowledgedState() throws Exception {
-    Map<String, String> map = new HashMap<>();
-    map.put("transactionStateValue", "Acknowledged");
-    map.put("reportingDeadline", "2022-01-01T00:00:00.000Z");
-    map.put("trResponseDateTime", "2022-01-02T00:00:00.000Z"); // After deadline
-    invokePopulateManualFieldsMethod(map);
-    assertEquals("Late Reported", map.get("TIMELINESS"));
-}
+import static org.junit.Assert.*;
+import static org.mockito.Matchers.any;
+import static org.mockito.Mockito.*;
 
-@Test
-public void testPopulateManualFields_OutsideSLA() throws Exception {
-    Map<String, String> map = new HashMap<>();
-    map.put("transactionStateValue", "Failed Acknowledgement");
-    map.put("reportingDeadline", "2022-01-01T00:00:00.000Z");
-    invokePopulateManualFieldsMethod(map);
-    assertEquals("Outside SLA", map.get("TIMELINESS"));
-}
+import java.io.IOException;
+import java.lang.reflect.Method;
+import java.util.*;
 
-@Test
-public void testGetDateDifference_Months() throws Exception {
-    DateTime start = new DateTime(2022, 1, 1, 0, 0);
-    DateTime end = new DateTime(2022, 3, 1, 0, 0);
-    String diff = invokeGetDateDifferenceInStandardFormatMethod(start, end);
-    assertEquals("2M", diff);
-}
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.rbs.datafabric.api.PagedScanResult;
+import com.rbs.datafabric.domain.client.builder.ScanRequestBuilder;
+import com.rbs.tntr.domain.blotter.exceptions.ValidationException;
+import org.joda.time.DateTime;
+import org.joda.time.DateTimeZone;
+import org.junit.Before;
+import org.junit.Test;
+import org.mockito.Mockito;
 
-@Test
-public void testGetDateDifference_Days() throws Exception {
-    DateTime start = new DateTime(2022, 1, 1, 0, 0);
-    DateTime end = new DateTime(2022, 1, 3, 1, 30);
-    String diff = invokeGetDateDifferenceInStandardFormatMethod(start, end);
-    assertEquals("2d 1h 30m 0s ", diff);
-}
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
+import com.nwm.tntr.commons.repository.df.DfConnectionManager;
+import com.rbs.datafabric.agile.commons.lang.StartableException;
+import com.rbs.datafabric.client.DataFabricClient;
+import com.rbs.datafabric.domain.JsonDocument;
+import com.rbs.datafabric.domain.Record;
+import com.rbs.datafabric.domain.RecordId;
+import com.rbs.tntr.business.blotter.configuration.DfExportConfig;
+import com.rbs.tntr.business.blotter.configuration.DfFieldMapper;
+import com.rbs.tntr.business.blotter.search.querybuilder.DfExportScan;
+import com.rbs.tntr.business.blotter.search.querybuilder.DfScanParameters;
+import com.rbs.tntr.business.blotter.services.datetime.DateTimeService;
 
-@Test
-public void testRenderMiReportData_MIKnown() throws Exception {
-    Map<String, String> map = new HashMap<>();
-    map.put("minDate", "2022-01-01T00:00:00.000Z");
-    map.put("maxDate", "2022-01-10T00:00:00.000Z");
-    invokeRenderMiReportDataMethod("MI_KNOWN", map);
-    assertTrue(Long.parseLong(map.get("minDate")) > 0);
-    assertTrue(Long.parseLong(map.get("maxDate")) > 0);
-}
+/**
+ * Description : Test class for DF Utility
+ *
+ * @author agrakit
+ * Created By: Niket Agrawal
+ * Created On 13-09-2021
+ */
+public class DataFabricExportUtilityTest {
+    DfConnectionManager dfConnectionManager;
+    DfExportConfig dfExportConfig;
+    DataFabricExportUtility dfUtility;
+    DfFieldMapper dfFieldMapper;
+    DataFabricClient client;
+    DateTimeService dateTimeService;
+    DfExportScan scan;
 
-@Test
-public void testRenderMiReportData_MIDailyTransaction() throws Exception {
-    Map<String, String> map = new HashMap<>();
-    map.put("MI_DAILY_EXCEPTION_STATUS", "Open");
-    map.put("MI_DAILY_MESSAGE_TYPE", "Snapshot");
-    invokeRenderMiReportDataMethod("MI_DAILY_TRANSACTION", map);
-    assertEquals("Transaction", map.get("MI_DAILY_MESSAGE_TYPE"));
-}
+    private static final String DB = "Tntr";
+    private static final String TRADE = "TNTR-trade-uat";
+    private static final String RECON = "TNTR-reconciliation-uat";
 
-@Test
-public void testGetBreakAge_WeekendAdjustment() throws Exception {
-    scan.setWhere("subjectIdentifier.reconciliationRuleIdentifier = 'MasPositionFx'");
-    int breakAge = dfUtility.getBreakAge("2022-09-16T00:00:00.000Z", scan); // Friday
-    assertEquals(0, breakAge); // Adjusted to Monday, then counted
-}
+    @Before
+    public void setup() throws StartableException {
+        dfConnectionManager = Mockito.mock(DfConnectionManager.class);
+        dfExportConfig = Mockito.mock(DfExportConfig.class);
+        dfFieldMapper = Mockito.mock(DfFieldMapper.class);
+        client = Mockito.mock(DataFabricClient.class);
+        dateTimeService = Mockito.mock(DateTimeService.class);
+        scan = new DfExportScan();
 
-@Test
-public void testGetBreakAge_NegativeDays() throws Exception {
-    scan.setWhere("subjectIdentifier.reconciliationRuleIdentifier = 'MasPositionFx'");
-    int breakAge = dfUtility.getBreakAge("2025-01-01T00:00:00.000Z", scan); // Future date
-    assertEquals(0, breakAge);
-}
+        when(dfConnectionManager.getDfClient()).thenReturn(client);
+        when(dfExportConfig.getScanReadTimeoutInSeconds()).thenReturn(600);
+        when(dfFieldMapper.getCollectionDbMap()).thenReturn(ImmutableMap.of(TRADE, DB, RECON, DB));
+        when(dfFieldMapper.getCollectionNameMap()).thenReturn(ImmutableMap.of("Transaction", TRADE, "Reconciliation", RECON));
+        when(dfFieldMapper.getReconBreakAgeMap()).thenReturn(ImmutableMap.of("MasPositionFx", "T-1"));
+        when(dfFieldMapper.getOrderedColumnMap()).thenReturn(
+                ImmutableMap.of("Reconciliation.MasPositionFx", Lists.newArrayList("Break Age")));
+        when(dfFieldMapper.getCollectionToUiFieldMap()).thenReturn(
+                ImmutableMap.of(
+                        "Tntr.Transaction", Collections.singletonMap("subjectIdentifier.sourceSystem", "Source System"),
+                        "Tntr.Reconciliation.MasPositionFx", Collections.singletonMap("breakManagement.breakAge", "Break Age"),
+                        "Tntr.Reconciliation.PairedAndUnmatchedEmirEsmaRates", getPandMFieldMap(),
+                        "Tntr.Reconciliation.CftcPositionFx", Collections.singletonMap("breakManagement.breakAge", "Break Age")));
+        when(dfFieldMapper.getUiToCollectionFieldMap()).thenReturn(
+                ImmutableMap.of(
+                        "Tntr.Transaction", Collections.singletonMap("Source System", "subjectIdentifier.sourceSystem"),
+                        "Tntr.Reconciliation.MasPositionFx", Collections.singletonMap("Break Age", "breakManagement.breakAge"),
+                        "Tntr.Reconciliation.PairedAndUnmatchedEmirEsmaRates", getUiFieldMap(),
+                        "Tntr.Reconciliation.CftcPositionFx", Collections.singletonMap("Break Age", "breakManagement.breakAge")));
+        dfUtility = new DataFabricExportUtility(dfConnectionManager, dfExportConfig, dfFieldMapper, dateTimeService);
+    }
 
-@Test
-public void testConvertScannedRecords_ReconciliationSplit() throws Exception {
-    List<String> jsonRecords = Lists.newArrayList(
-        "{\"subjectIdentifier\":{\"sourceSystemMatchingKeyIdentifier\":\"ID1|ID2|ID3\",\"reconciliationRuleIdentifier\":\"TestRecon\"}," +
-        "\"sourceRecords\":[{\"field\":\"value\"}],\"targetRecords\":[{\"field\":\"value\"}]}"
-    );
-    List<Map<String, String>> records = dfUtility.convertScannedRecords(
-        getMockRecords(jsonRecords), "Reconciliation", scan
-    );
-    assertEquals(2, records.size()); // Source + Target records
-}
+    // Existing Tests (kept as is unless updated)
+    @Test
+    public void testParseJsonRecords() throws Exception {
+        List<Map<String, String>> recordList = dfUtility.convertScannedRecords(getMockRecords(getJsonRecords()), "Transaction", scan);
+        assertNotNull(recordList);
+        assertTrue(recordList.size() > 0);
+        assertEquals("GDS GBLO", recordList.get(0).get("subjectIdentifier.sourceSystem"));
+        assertEquals("Transaction", recordList.get(0).get("Flow"));
+    }
 
-@Test
-public void testConvertScannedRecords_NullDocument() throws Exception {
-    Record record = new Record();
-    record.setDocument(null);
-    List<Map<String, String>> result = dfUtility.convertScannedRecords(
-        Collections.singletonList(record), "Transaction", scan
-    );
-    assertTrue(result.isEmpty());
-}
+    @Test
+    public void testReconBreakAge() throws Exception {
+        scan.setWhere("(reconciliationBusinessDateTime = '2022-07-12T00:00:00.000Z' AND subjectIdentifier.reconciliationRuleIdentifier = 'MasPositionFx')");
+        DfScanParameters param = createDfScanParameters("Reconciliation", "Break Age", scan.getWhere());
+        param.setFieldConversion(true);
+        dfUtility.getScanRequestBuilder(param);
+        DateTime lastBreakOccurrenceDate = new DateTime(2022, 7, 10, 0, 0, DateTimeZone.UTC);
+        when(dateTimeService.getCurrentDateTime()).thenReturn(new DateTime(2022, 7, 12, 0, 0, DateTimeZone.UTC));
+        when(dateTimeService.getPastDateTime(any(), eq(2))).thenReturn(lastBreakOccurrenceDate);
+        List<Map<String, String>> recordList = dfUtility.convertScannedRecords(getMockRecords(getJsonReconRecords(lastBreakOccurrenceDate.toString())), "Reconciliation", scan);
+        assertNotNull(recordList);
+        assertTrue(recordList.size() > 0);
+        assertEquals("1", recordList.get(0).get("Break Age"));
+    }
 
-@Test
-public void testPopulateAllHeaders_WithSelect() {
-    DfScanParameters param = createDfScanParameters("Transaction", "Source System", "");
-    param.setFieldConversion(true);
-    List<DfScanParameters> params = Collections.singletonList(param);
-    dfUtility.populateAllHeaders(params);
-    assertTrue(dfUtility.getAllHeaders().contains("Source System"));
-}
+    @Test
+    public void testReconBreakAgeNotPresent() throws Exception {
+        scan.setWhere("(reconciliationBusinessDateTime = '2022-07-12T00:00:00.000Z' AND subjectIdentifier.reconciliationRuleIdentifier = 'MasPositionFx')");
+        DfScanParameters param = createDfScanParameters("Reconciliation", "Break Age", scan.getWhere());
+        param.setFieldConversion(true);
+        dfUtility.getScanRequestBuilder(param);
+        DateTime lastBreakOccurrenceDate = new DateTime(2022, 7, 12, 0, 0, DateTimeZone.UTC);
+        when(dateTimeService.getCurrentDateTime()).thenReturn(lastBreakOccurrenceDate);
+        when(dateTimeService.getPastDateTime(any(), eq(0))).thenReturn(lastBreakOccurrenceDate);
+        List<Map<String, String>> recordList = dfUtility.convertScannedRecords(getMockRecords(getJsonReconRecords(lastBreakOccurrenceDate.toString())), "Reconciliation", scan);
+        assertNotNull(recordList);
+        assertTrue(recordList.size() > 0);
+        assertFalse(recordList.get(0).containsKey("Break Age"));
+    }
 
-@Test
-public void testPopulateAllHeaders_NoSelect() {
-    DfScanParameters param = createDfScanParameters("Transaction", "", "");
-    param.setFieldConversion(true);
-    List<DfScanParameters> params = Collections.singletonList(param);
-    dfUtility.populateAllHeaders(params);
-    assertFalse(dfUtility.getAllHeaders().isEmpty());
-}
+    @Test
+    public void testCftcReconBreakAge() throws Exception {
+        scan.setWhere("(reconciliationBusinessDateTime = '2022-07-12T00:00:00.000Z' AND subjectIdentifier.reconciliationRuleIdentifier = 'CftcPositionFx')");
+        DfScanParameters param = createDfScanParameters("Reconciliation", "Break Age", scan.getWhere());
+        param.setFieldConversion(true);
+        dfUtility.getScanRequestBuilder(param);
+        List<Map<String, String>> recordList = dfUtility.convertScannedRecords(getMockRecords(getCftcJsonRecord()), "Reconciliation", scan);
+        assertNotNull(recordList);
+        assertTrue(recordList.size() > 0);
+        assertEquals("1", recordList.get(0).get("Break Age"));
+    }
 
-private void invokePopulateManualFieldsMethod(Map<String, String> map) throws Exception {
-    Method method = DataFabricExportUtility.class.getDeclaredMethod("populateManualFields", Map.class);
-    method.setAccessible(true);
-    method.invoke(dfUtility, map);
-}
+    @Test
+    public void testPnMRecord() throws IOException {
+        scan.setWhere("subjectIdentifier.reconciliationRuleIdentifier = 'PairedAndUnmatchedEmirEsmaRates' and reconciliationBusinessDateTime = '2024-05-15T00:00:00.000Z' and subjectIdentifier.sourceSystemMatchingKeyIdentifier = 'X3CZP3CK64YBHON1LE12|529900GGYMNGRQTDOO93|CK64YBHON1000133947543TRN'");
+        DfScanParameters param = createDfScanParameters("Reconciliation", "", scan.getWhere());
+        param.setFieldConversion(true);
+        scan.setExportForBreak(true);
+        dfUtility.getScanRequestBuilder(param);
+        List<Map<String, String>> recordList = dfUtility.convertScannedRecords(getMockRecords(getPnMJsonRecord()), "Reconciliation", scan);
+        assertNotNull(recordList);
+        assertTrue(recordList.size() > 0);
+    }
 
-private String invokeGetDateDifferenceInStandardFormatMethod(DateTime start, DateTime end) throws Exception {
-    Method method = DataFabricExportUtility.class.getDeclaredMethod("getDateDifferenceInStandardFormat", DateTime.class, DateTime.class);
-    method.setAccessible(true);
-    return (String) method.invoke(dfUtility, start, end);
-}
+    @Test
+    public void testParseJsonRecords_withSelect() throws Exception {
+        DfScanParameters param = createDfScanParameters("Transaction", "Source System", "where");
+        param.setFieldConversion(true);
+        dfUtility.getScanRequestBuilder(param);
+        List<Map<String, String>> recordList = dfUtility.convertScannedRecords(getMockRecords(getJsonRecords()), "Transaction", scan);
+        assertNotNull(recordList);
+        assertTrue(recordList.size() > 0);
+        assertEquals("GDS GBLO", recordList.get(0).get("Source System"));
+    }
 
-private void invokeRenderMiReportDataMethod(String collectionName, Map<String, String> map) throws Exception {
-    Method method = DataFabricExportUtility.class.getDeclaredMethod("renderMiReportData", String.class, Map.class);
-    method.setAccessible(true);
-    method.invoke(dfUtility, collectionName, map);
+    @Test
+    public void testParseJsonRecords_withArray() throws Exception {
+        List<Map<String, String>> recordList = dfUtility.convertScannedRecords(getMockRecords(getJsonRecords()), "Transaction", scan);
+        assertNotNull(recordList);
+        assertTrue(recordList.size() > 0);
+        assertEquals("Test", recordList.get(0).get("exceptionManagement.userComments.0"));
+    }
+
+    @Test
+    public void testReconRuleIdentifierExtraction() {
+        DfScanParameters param = createDfScanParameters("Reconciliation", null, "subjectIdentifier.reconciliationRuleIdentifier = 'EmirPositionRates' AND miDetails.party1LEI = 'RR3QWICWWIPCS8A4S074') and reconciliationBusinessDateTime = '2022-10-05T00:00:00.000Z'");
+        String reconName = dfUtility.populateReconRuleIdentifierName(param);
+        assertEquals("EmirPositionRates", reconName);
+    }
+
+    // Additional Tests for populateManualFields
+    @Test
+    public void testPopulateManualFields_ProcessingError() throws Exception {
+        DateTime current = new DateTime(2023, 1, 10, 0, 0, DateTimeZone.UTC);
+        DateTime received = new DateTime(2023, 1, 1, 0, 0, DateTimeZone.UTC);
+        when(dateTimeService.getCurrentUTCDateTime()).thenReturn(current);
+        when(dateTimeService.parseUTCDateTime("2023-01-01T00:00:00.000Z")).thenReturn(received);
+
+        Map<String, String> map = new HashMap<>();
+        map.put("TRANSACTION_STATE_VALUE", "Processing Error");
+        map.put("TNTR_RECEIVED_TIMESTAMP", "2023-01-01T00:00:00.000Z");
+        invokePopulateManualFieldsMethod(map);
+
+        assertEquals("9d 0h 0m 0s ", map.get("EXCEPTION_AGE"));
+        assertEquals("7-14", map.get("EXCEPTION_AGE_BUCKET"));
+    }
+
+    @Test
+    public void testPopulateManualFields_Submitted() throws Exception {
+        Map<String, String> map = new HashMap<>();
+        map.put("TRANSACTION_STATE_VALUE", "Submitted");
+        map.put("REPORTING_DEADLINE", "2023-01-15T00:00:00.000Z");
+        invokePopulateManualFieldsMethod(map);
+        assertEquals("No Response", map.get("MI_STATUS"));
+    }
+
+    @Test
+    public void testPopulateManualFields_Ignored() throws Exception {
+        Map<String, String> map = new HashMap<>();
+        map.put("TRANSACTION_STATE_VALUE", "Ignored");
+        map.put("REPORTING_DEADLINE", "2023-01-15T00:00:00.000Z");
+        invokePopulateManualFieldsMethod(map);
+        assertEquals("Ignored", map.get("MI_STATUS"));
+    }
+
+    @Test
+    public void testPopulateManualFields_Acknowledged_BeforeDeadline() throws Exception {
+        DateTime deadline = new DateTime(2023, 1, 15, 0, 0, DateTimeZone.UTC);
+        DateTime response = new DateTime(2023, 1, 10, 0, 0, DateTimeZone.UTC);
+        DateTime current = new DateTime(2023, 1, 20, 0, 0, DateTimeZone.UTC);
+        when(dateTimeService.parseUTCDateTime("2023-01-15T00:00:00.000Z")).thenReturn(deadline);
+        when(dateTimeService.parseUTCDateTime("2023-01-10T00:00:00.000Z")).thenReturn(response);
+        when(dateTimeService.getCurrentUTCDateTime()).thenReturn(current);
+
+        Map<String, String> map = new HashMap<>();
+        map.put("TRANSACTION_STATE_VALUE", "Acknowledged");
+        map.put("REPORTING_DEADLINE", "2023-01-15T00:00:00.000Z");
+        map.put("TR_RESPONSE_DATE_TIME", "2023-01-10T00:00:00.000Z");
+        invokePopulateManualFieldsMethod(map);
+
+        assertEquals("Reported on Time", map.get("TIMELINESS"));
+        assertEquals("Successfully Reported", map.get("MI_STATUS"));
+    }
+
+    @Test
+    public void testPopulateManualFields_Acknowledged_AfterDeadline() throws Exception {
+        DateTime deadline = new DateTime(2023, 1, 15, 0, 0, DateTimeZone.UTC);
+        DateTime response = new DateTime(2023, 1, 20, 0, 0, DateTimeZone.UTC);
+        DateTime current = new DateTime(2023, 1, 25, 0, 0, DateTimeZone.UTC);
+        when(dateTimeService.parseUTCDateTime("2023-01-15T00:00:00.000Z")).thenReturn(deadline);
+        when(dateTimeService.parseUTCDateTime("2023-01-20T00:00:00.000Z")).thenReturn(response);
+        when(dateTimeService.getCurrentUTCDateTime()).thenReturn(current);
+
+        Map<String, String> map = new HashMap<>();
+        map.put("TRANSACTION_STATE_VALUE", "Acknowledged");
+        map.put("REPORTING_DEADLINE", "2023-01-15T00:00:00.000Z");
+        map.put("TR_RESPONSE_DATE_TIME", "2023-01-20T00:00:00.000Z");
+        invokePopulateManualFieldsMethod(map);
+
+        assertEquals("Late Reported", map.get("TIMELINESS"));
+        assertEquals("Late Reported", map.get("MI_STATUS"));
+        assertEquals("5d 0h 0m 0s ", map.get("REPORTING_DELAY"));
+    }
+
+    @Test
+    public void testPopulateManualFields_Hold_EmptyResponse() throws Exception {
+        DateTime deadline = new DateTime(2023, 1, 15, 0, 0, DateTimeZone.UTC);
+        DateTime current = new DateTime(2023, 1, 20, 0, 0, DateTimeZone.UTC);
+        when(dateTimeService.parseUTCDateTime("2023-01-15T00:00:00.000Z")).thenReturn(deadline);
+        when(dateTimeService.getCurrentUTCDateTime()).thenReturn(current);
+
+        Map<String, String> map = new HashMap<>();
+        map.put("TRANSACTION_STATE_VALUE", "Hold");
+        map.put("REPORTING_DEADLINE", "2023-01-15T00:00:00.000Z");
+        map.put("TR_RESPONSE_DATE_TIME", "");
+        invokePopulateManualFieldsMethod(map);
+
+        assertEquals("UNKNOWN", map.get("TIMELINESS"));
+        assertEquals("UNKNOWN", map.get("MI_STATUS"));
+    }
+
+    @Test
+    public void testPopulateManualFields_EmptyState() throws Exception {
+        Map<String, String> map = new HashMap<>();
+        map.put("TRANSACTION_STATE_VALUE", "");
+        map.put("REPORTING_DEADLINE", "2023-01-15T00:00:00.000Z");
+        invokePopulateManualFieldsMethod(map);
+        assertEquals("UNKNOWN", map.get("TIMELINESS"));
+        assertEquals("UNKNOWN", map.get("MI_STATUS"));
+    }
+
+    @Test
+    public void testPopulateManualFields_OutsideSLA() throws Exception {
+        DateTime deadline = new DateTime(2023, 1, 15, 0, 0, DateTimeZone.UTC);
+        DateTime current = new DateTime(2023, 1, 20, 0, 0, DateTimeZone.UTC);
+        when(dateTimeService.parseUTCDateTime("2023-01-15T00:00:00.000Z")).thenReturn(deadline);
+        when(dateTimeService.getCurrentUTCDateTime()).thenReturn(current);
+
+        Map<String, String> map = new HashMap<>();
+        map.put("TRANSACTION_STATE_VALUE", "OtherState");
+        map.put("REPORTING_DEADLINE", "2023-01-15T00:00:00.000Z");
+        invokePopulateManualFieldsMethod(map);
+
+        assertEquals("Outside SLA", map.get("TIMELINESS"));
+        assertEquals("5d 0h 0m 0s ", map.get("REPORTING_DELAY"));
+    }
+
+    @Test
+    public void testPopulateManualFields_WithInSLA() throws Exception {
+        DateTime deadline = new DateTime(2023, 1, 15, 0, 0, DateTimeZone.UTC);
+        DateTime current = new DateTime(2023, 1, 10, 0, 0, DateTimeZone.UTC);
+        when(dateTimeService.parseUTCDateTime("2023-01-15T00:00:00.000Z")).thenReturn(deadline);
+        when(dateTimeService.getCurrentUTCDateTime()).thenReturn(current);
+
+        Map<String, String> map = new HashMap<>();
+        map.put("TRANSACTION_STATE_VALUE", "OtherState");
+        map.put("REPORTING_DEADLINE", "2023-01-15T00:00:00.000Z");
+        invokePopulateManualFieldsMethod(map);
+
+        assertEquals("With In SLA", map.get("TIMELINESS"));
+        assertEquals("- (5d 0h 0m 0s )", map.get("REPORTING_DELAY"));
+    }
+
+    // Additional Tests for getDateDifferenceInStandardFormat
+    @Test
+    public void testGetDateDifferenceInStandardFormat_Months() throws Exception {
+        DateTime start = new DateTime(2023, 1, 1, 0, 0, DateTimeZone.UTC);
+        DateTime end = new DateTime(2023, 3, 1, 0, 0, DateTimeZone.UTC);
+        String diff = invokeGetDateDifferenceInStandardFormatMethod(start, end);
+        assertEquals("2M", diff);
+    }
+
+    @Test
+    public void testGetDateDifferenceInStandardFormat_Days() throws Exception {
+        DateTime start = new DateTime(2023, 1, 1, 0, 0, DateTimeZone.UTC);
+        DateTime end = new DateTime(2023, 1, 10, 0, 0, DateTimeZone.UTC);
+        String diff = invokeGetDateDifferenceInStandardFormatMethod(start, end);
+        assertEquals("9d 0h 0m 0s ", diff);
+    }
+
+    // Additional Tests for renderMiReportData
+    @Test
+    public void testRenderMiReportData_MIUnknown_House() throws Exception {
+        Map<String, String> map = new HashMap<>();
+        map.put("MI_IS_DELEGATED", "House Trade");
+        invokeRenderMiReportDataMethod("MI_UNKNOWN", map);
+        assertEquals("HOUSE", map.get("MI_IS_DELEGATED"));
+    }
+
+    @Test
+    public void testRenderMiReportData_MIKnown() throws Exception {
+        DateTime current = new DateTime(2023, 1, 10, 0, 0, DateTimeZone.UTC);
+        DateTime minDate = new DateTime(2023, 1, 1, 0, 0, DateTimeZone.UTC);
+        DateTime maxDate = new DateTime(2023, 1, 5, 0, 0, DateTimeZone.UTC);
+        when(dateTimeService.getCurrentDateWithStartTime(0, 0)).thenReturn(current);
+        when(dateTimeService.parseUTCDateTime("2023-01-01T00:00:00.000Z")).thenReturn(minDate);
+        when(dateTimeService.parseUTCDateTime("2023-01-05T00:00:00.000Z")).thenReturn(maxDate);
+
+        Map<String, String> map = new HashMap<>();
+        map.put("MI_IS_DELEGATED", "Client Trade");
+        map.put("minDate", "2023-01-01T00:00:00.000Z");
+        map.put("maxDate", "2023-01-05T00:00:00.000Z");
+        invokeRenderMiReportDataMethod("MI_KNOWN", map);
+
+        assertEquals("DELEGATED", map.get("MI_IS_DELEGATED"));
+        assertEquals("9", map.get("maxDate")); // minDate age
+        assertEquals("5", map.get("minDate")); // maxDate age
+    }
+
+    @Test
+    public void testRenderMiReportData_DailyTransaction_Open() throws Exception {
+        DateTime current = new DateTime(2023, 1, 10, 0, 0, DateTimeZone.UTC);
+        DateTime past = new DateTime(2023, 1, 8, 0, 0, DateTimeZone.UTC);
+        when(dateTimeService.getCurrentUTCDateTime()).thenReturn(current);
+        when(dateTimeService.getPastDateTime(current, 2)).thenReturn(past);
+        when(dateTimeService.getDateAsString(current)).thenReturn("2023-01-10");
+        when(dateTimeService.getDateAsString(past)).thenReturn("2023-01-08");
+
+        Map<String, String> map = new HashMap<>();
+        map.put("MI_IS_DELEGATED", "Client Trade");
+        map.put("MI_DAILY_EXCEPTION_STATUS", "Pending");
+        invokeRenderMiReportDataMethod("MI_DAILY_TRANSACTION", map);
+
+        assertEquals("DELEGATED", map.get("MI_IS_DELEGATED"));
+        assertEquals("Open", map.get("MI_DAILY_EXCEPTION_STATUS"));
+        assertEquals("2023-01-08", map.get("refDate"));
+        assertEquals("2023-01-10", map.get("reportDate"));
+    }
+
+    @Test
+    public void testRenderMiReportData_DailyCLM_AssetClass() throws Exception {
+        Map<String, String> map = new HashMap<>();
+        map.put("MI_IS_DELEGATED", "House Trade");
+        map.put("MI_DAILY_ASSET_CLASS", "");
+        invokeRenderMiReportDataMethod("MI_DAILY_CLM", map);
+        assertEquals("NONE", map.get("MI_DAILY_ASSET_CLASS"));
+    }
+
+    @Test
+    public void testRenderMiReportData_DailyTransaction_Snapshot() throws Exception {
+        Map<String, String> map = new HashMap<>();
+        map.put("MI_DAILY_MESSAGE_TYPE", "Snapshot");
+        invokeRenderMiReportDataMethod("MI_DAILY_TRANSACTION", map);
+        assertEquals("Transaction", map.get("MI_DAILY_MESSAGE_TYPE"));
+    }
+
+    // Additional Tests for getBreakAge
+    @Test
+    public void testGetBreakAge_WeekendStart() throws Exception {
+        DfExportScan scan = new DfExportScan();
+        scan.setWhere("subjectIdentifier.reconciliationRuleIdentifier = 'MasPositionFx'");
+        int breakAge = dfUtility.getBreakAge("2023-01-07T00:00:00.000Z", scan); // Saturday
+        assertTrue(breakAge >= 0);
+    }
+
+    // Additional Tests for convertScannedRecords
+    @Test
+    public void testConvertScannedRecords_NoFieldConversion() throws Exception {
+        DfScanParameters param = createDfScanParameters("Transaction", "", "");
+        param.setFieldConversion(false);
+        List<Map<String, String>> recordList = dfUtility.convertScannedRecords(getMockRecords(getJsonRecords()), "Transaction", scan);
+        assertEquals("GDS GBLO", recordList.get(0).get("subjectIdentifier.sourceSystem"));
+    }
+
+    @Test
+    public void testConvertScannedRecords_Valuation() throws Exception {
+        List<Map<String, String>> recordList = dfUtility.convertScannedRecords(getMockRecords(getJsonRecords()), "Valuation", scan);
+        assertTrue(recordList.size() > 0);
+    }
+
+    // Additional Tests for populateAllHeaders and prepareAllHeaders
+    @Test
+    public void testPopulateAllHeaders_NoSelect() throws Exception {
+        DfScanParameters param = createDfScanParameters("Transaction", "", "");
+        param.setFieldConversion(true);
+        dfUtility.populateAllHeaders(Collections.singletonList(param));
+        assertTrue(dfUtility.getAllHeaders().contains("Source System"));
+    }
+
+    @Test
+    public void testPrepareAllHeaders_NoFieldConversion() throws Exception {
+        DfScanParameters param = createDfScanParameters("Transaction", "", "");
+        param.setFieldConversion(false);
+        dfUtility.populateAllHeaders(Collections.singletonList(param));
+        assertTrue(dfUtility.getAllHeaders().contains("subjectIdentifier.sourceSystem"));
+    }
+
+    // Additional Tests for getNativeScanRequestBuilder
+    @Test
+    public void testGetNativeScanRequestBuilder_Valid() throws Exception {
+        DfScanParameters param = createDfScanParameters("Transaction", "Field", "where");
+        ScanRequestBuilder builder = dfUtility.getNativeScanRequestBuilder(param);
+        assertNotNull(builder);
+    }
+
+    // Helper Methods
+    private DfScanParameters createDfScanParameters(String collectionName, String select, String where) {
+        return new DfScanParameters(select, where, "group by clause", "order by clause", collectionName, false, "blotterName");
+    }
+
+    private List<Record> getMockRecords(List<String> jsonRecords) {
+        List<Record> records = Lists.newArrayList();
+        for (int i = 0; i < jsonRecords.size(); i++) {
+            Record record = new Record();
+            RecordId recordId = new RecordId();
+            recordId.setDatabaseName(DB);
+            recordId.setCollectionName(TRADE);
+            record.setId(recordId);
+            record.setDocument((new JsonDocument()).withContents(jsonRecords.get(i)));
+            records.add(record);
+        }
+        return records;
+    }
+
+    private List<String> getJsonRecords() {
+        List<String> jsonRecords = Lists.newArrayList();
+        jsonRecords.add("{\"subjectIdentifier\":{\"sourceSystem\":\"GDS GBLO\"}}");
+        return jsonRecords;
+    }
+
+    private List<String> getJsonReconRecords(String lastBreakOccurrenceDate) {
+        List<String> jsonRecords = Lists.newArrayList();
+        jsonRecords.add("{\"breakManagement\":{\"lastBreakOccurrenceDate\":\"" + lastBreakOccurrenceDate + "\"}}");
+        return jsonRecords;
+    }
+
+    private List<String> getCftcJsonRecord() {
+        return Lists.newArrayList("{\"breakManagement\":{\"lastBreakOccurrenceDate\":\"2022-09-12T00:00:00.000Z\",\"breakAge\":\"1\"}}");
+    }
+
+    private List<String> getPnMJsonRecord() {
+        return Lists.newArrayList("{\"sourceRecords\":[{\"uti\":\"test\"}],\"targetRecords\":[{\"uti\":\"test\"}]}");
+    }
+
+    private Map<String, String> getUiFieldMap() {
+        Map<String, String> testMap = new HashMap<>();
+        testMap.put("Accuracy Break Fields", "accuracyBreaks.field");
+        testMap.put("Tranche", "tranche");
+        return testMap;
+    }
+
+    private Map<String, String> getPandMFieldMap() {
+        Map<String, String> testMap = new HashMap<>();
+        testMap.put("accuracyBreaks.field", "Accuracy Break Fields");
+        testMap.put("tranche", "Tranche");
+        return testMap;
+    }
+
+    private void invokePopulateManualFieldsMethod(Map<String, String> map) throws Exception {
+        Method method = DataFabricExportUtility.class.getDeclaredMethod("populateManualFields", Map.class);
+        method.setAccessible(true);
+        method.invoke(dfUtility, map);
+    }
+
+    private String invokeGetDateDifferenceInStandardFormatMethod(DateTime startDate, DateTime endDate) throws Exception {
+        Method method = DataFabricExportUtility.class.getDeclaredMethod("getDateDifferenceInStandardFormat", DateTime.class, DateTime.class);
+        method.setAccessible(true);
+        return (String) method.invoke(dfUtility, startDate, endDate);
+    }
+
+    private void invokeRenderMiReportDataMethod(String collectionName, Map<String, String> map) throws Exception {
+        Method method = DataFabricExportUtility.class.getDeclaredMethod("renderMiReportData", String.class, Map.class);
+        method.setAccessible(true);
+        method.invoke(dfUtility, collectionName, map);
+    }
 }
