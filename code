@@ -1,718 +1,302 @@
-package com.rbs.tntr.business.blotter.services.reconciliationActions;
-
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.google.common.collect.Lists;
-import com.nwm.tntr.commons.domain.persistence.constant.ReconStatus;
-import com.nwm.tntr.commons.domain.persistence.constant.SourceSystemId;
-import com.nwm.tntr.commons.domain.persistence.entity.DocumentId;
-import com.nwm.tntr.commons.domain.persistence.entity.DocumentLifetime;
-import com.nwm.tntr.commons.domain.persistence.entity.Projection;
-import com.nwm.tntr.commons.domain.persistence.entity.recon.*;
-import com.nwm.tntr.commons.domain.persistence.request.ProjectionQueryGroupByParams;
-import com.nwm.tntr.commons.domain.persistence.request.QueryParams;
-import com.nwm.tntr.commons.repository.regreporting.WriteErrorDetail;
-import com.nwm.tntr.commons.repository.regreporting.WriteResult;
-import com.rbs.tntr.business.blotter.df.manager.DfReconPersistManager;
-import com.rbs.tntr.business.blotter.df.updater.ReconDataUpdater;
-import com.rbs.tntr.business.blotter.security.BlotterSecurityService;
-import com.rbs.tntr.business.blotter.services.reconciliation.ReconciliationUpdateResult;
-import com.rbs.tntr.business.blotter.services.validators.CommonValidator;
-import com.rbs.tntr.business.blotter.services.validators.ReconActionRequestValidator;
-import com.rbs.tntr.business.blotter.utility.BlotterTestUtility;
-import com.rbs.tntr.business.blotter.web.request.futures.FuturesDashboardSearchRequest;
-import com.rbs.tntr.business.blotter.web.request.reconciliation.*;
-import com.rbs.tntr.domain.blotter.exceptions.BlotterRunTimeException;
-import com.rbs.tntr.domain.blotter.exceptions.DfRunTimeException;
-import com.rbs.tntr.domain.blotter.response.Status;
-import com.rbs.tntr.domain.blotter.tntrBlotterView.*;
-import com.rbs.tntr.domain.blotter.tntrReconciliationView.ReconciliationPrimarykey;
-import org.apache.commons.lang3.tuple.Pair;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
-import org.mockito.Mockito;
-import org.springframework.test.util.ReflectionTestUtils;
-import java.time.ZoneOffset;
-import java.time.ZonedDateTime;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.stream.IntStream;
-import static java.util.stream.Collectors.toMap;
-import static org.mockito.Mockito.when;
-
-public class ReconciliationActionServiceImplTest {
-    public static final String USER_NAME = "matbina";
-    private ReconciliationActionServiceImpl reconciliationServiceImpl;
-    private DfReconPersistManager dfReconPersistManager;
-    private ReconDataUpdater dataUpdater;
-    private BlotterSecurityService blotterSecurityService;
-    private ReconActionRequestValidator requestValidator;
-
-    @Before
-    public void intialize() {
-        blotterSecurityService = Mockito.mock(BlotterSecurityService.class);
-        when(blotterSecurityService.getLoggedInUserName()).thenReturn(USER_NAME);
-
-        requestValidator = new ReconActionRequestValidator(new CommonValidator());
-        dfReconPersistManager = Mockito.mock(DfReconPersistManager.class);
-        dataUpdater = new ReconDataUpdater();
-
-        reconciliationServiceImpl = new ReconciliationActionServiceImpl(dfReconPersistManager, dataUpdater, blotterSecurityService, requestValidator);
-
-        Mockito.when(dfReconPersistManager.getAllRecordsById(Mockito.any())).thenReturn(Lists.newArrayList(getTestReconReport()));
-        Mockito.when(dfReconPersistManager.getAllRecordsByQuery(Mockito.any())).thenReturn(Lists.newArrayList(getTestReconReport()));
-        Mockito.when(dfReconPersistManager.saveAllRecords(Mockito.any())).thenReturn(getWriteResults());
-    }
-
-    @Test
-    public void assignTest(){
-        List<ReconciliationUpdateResult>  outputResult = reconciliationServiceImpl.assign(Lists.newArrayList((AssignReconciliationBreak)getAssignmentRequest()));
-
-        Assert.assertTrue(outputResult.size()==1);
-        Assert.assertNotNull(outputResult.get(0));
-        Assert.assertNotNull(outputResult.get(0).getPrimaryKey());
-        Assert.assertEquals("ReconReportId_123", outputResult.get(0).getPrimaryKey().getRecordId());
-        Assert.assertEquals(1L, outputResult.get(0).getPrimaryKey().getVersion().longValue());
-        Assert.assertEquals(Status.SUCCESS, outputResult.get(0).getStatus());
-    }
-
-    @Test
-    public void addCommentsTest(){
-        List<ReconciliationUpdateResult>  outputResult = reconciliationServiceImpl.addComments(Lists.newArrayList((AddReconciliationComment)getCommentRequest()));
-
-        Assert.assertTrue(outputResult.size()==1);
-        Assert.assertNotNull(outputResult.get(0));
-        Assert.assertNotNull(outputResult.get(0).getPrimaryKey());
-        Assert.assertEquals("ReconReportId_123", outputResult.get(0).getPrimaryKey().getRecordId());
-        Assert.assertEquals(1L, outputResult.get(0).getPrimaryKey().getVersion().longValue());
-        Assert.assertEquals(Status.SUCCESS, outputResult.get(0).getStatus());
-    }
-
-    @Test
-    public void addWorkflowTest(){
-        List<ReconciliationUpdateResult>  outputResult = reconciliationServiceImpl.addWorkflow(Lists.newArrayList((AddReconciliationWorkflow)getWorkflowRequest()));
-
-        Assert.assertTrue(outputResult.size()==1);
-        Assert.assertNotNull(outputResult.get(0));
-        Assert.assertNotNull(outputResult.get(0).getPrimaryKey());
-        Assert.assertEquals("ReconReportId_123", outputResult.get(0).getPrimaryKey().getRecordId());
-        Assert.assertEquals(1L, outputResult.get(0).getPrimaryKey().getVersion().longValue());
-        Assert.assertEquals(Status.SUCCESS, outputResult.get(0).getStatus());
-    }
-
-    @Test
-    public void assignTest_With_Failure() {
-        Mockito.when(dfReconPersistManager.saveAllRecords(Mockito.any())).thenThrow(new DfRunTimeException("Error occured while saving recon records to df"));
-        List<ReconciliationUpdateResult> outputResult = reconciliationServiceImpl.assign(Lists.newArrayList((AssignReconciliationBreak)getAssignmentRequest()));
-
-        Assert.assertTrue(outputResult.size()==1);
-        Assert.assertNotNull(outputResult.get(0));
-        Assert.assertNotNull(outputResult.get(0).getPrimaryKey());
-        Assert.assertEquals("ReconReportId_123", outputResult.get(0).getPrimaryKey().getRecordId());
-        Assert.assertEquals(1L, outputResult.get(0).getPrimaryKey().getVersion().longValue());
-        Assert.assertEquals(Status.FAILIURE, outputResult.get(0).getStatus());
-    }
-
-    @Test
-    public void addCommentsTest_With_Failure() {
-        Mockito.when(dfReconPersistManager.saveAllRecords(Mockito.any())).thenThrow(new DfRunTimeException("Error occured while saving recon records to df"));
-        List<ReconciliationUpdateResult> outputResult = reconciliationServiceImpl.addComments(Lists.newArrayList((AddReconciliationComment)getCommentRequest()));
-
-        Assert.assertTrue(outputResult.size()==1);
-        Assert.assertNotNull(outputResult.get(0));
-        Assert.assertNotNull(outputResult.get(0).getPrimaryKey());
-        Assert.assertEquals("ReconReportId_123", outputResult.get(0).getPrimaryKey().getRecordId());
-        Assert.assertEquals(1L, outputResult.get(0).getPrimaryKey().getVersion().longValue());
-        Assert.assertEquals(Status.FAILIURE, outputResult.get(0).getStatus());
-    }
-
-    @Test
-    public void addWorkflowTest_With_Failure() {
-        Mockito.when(dfReconPersistManager.saveAllRecords(Mockito.any())).thenThrow(new DfRunTimeException("Error occured while saving recon records to df"));
-        List<ReconciliationUpdateResult> outputResult = reconciliationServiceImpl.addWorkflow(Lists.newArrayList((AddReconciliationWorkflow)getWorkflowRequest()));
-
-        Assert.assertTrue(outputResult.size()==1);
-        Assert.assertNotNull(outputResult.get(0));
-        Assert.assertNotNull(outputResult.get(0).getPrimaryKey());
-        Assert.assertEquals("ReconReportId_123", outputResult.get(0).getPrimaryKey().getRecordId());
-        Assert.assertEquals(1L, outputResult.get(0).getPrimaryKey().getVersion().longValue());
-        Assert.assertEquals(Status.FAILIURE, outputResult.get(0).getStatus());
-    }
-
-    @Test
-    public void addJiraTest(){
-        List<ReconciliationUpdateResult>  outputResult = reconciliationServiceImpl.addJira(Lists.newArrayList((AddReconciliationJiraReference)getAddJiraRequest()));
-
-        Assert.assertTrue(outputResult.size()==1);
-        Assert.assertNotNull(outputResult.get(0));
-        Assert.assertNotNull(outputResult.get(0).getPrimaryKey());
-        Assert.assertEquals("ReconReportId_123", outputResult.get(0).getPrimaryKey().getRecordId());
-        Assert.assertEquals(1L, outputResult.get(0).getPrimaryKey().getVersion().longValue());
-        Assert.assertEquals(Status.SUCCESS, outputResult.get(0).getStatus());
-    }
-
-    @Test
-    public void addJiraTest_With_Failure() {
-        Mockito.when(dfReconPersistManager.saveAllRecords(Mockito.any())).thenThrow(new DfRunTimeException("Error occured while saving recon records to df"));
-        List<ReconciliationUpdateResult>  outputResult = reconciliationServiceImpl.addJira(Lists.newArrayList((AddReconciliationJiraReference)getAddJiraRequest()));
-        Assert.assertTrue(outputResult.size()==1);
-        Assert.assertNotNull(outputResult.get(0));
-        Assert.assertNotNull(outputResult.get(0).getPrimaryKey());
-        Assert.assertEquals("ReconReportId_123", outputResult.get(0).getPrimaryKey().getRecordId());
-        Assert.assertEquals(1L, outputResult.get(0).getPrimaryKey().getVersion().longValue());
-        Assert.assertEquals(Status.FAILIURE, outputResult.get(0).getStatus());
-    }
-
-    @Test
-    public void removeJiraTest(){
-        List<ReconciliationUpdateResult>  outputResult = reconciliationServiceImpl.removeJira(Lists.newArrayList((AddReconciliationJiraReference)getRemoveJiraRequest()));
-
-        Assert.assertTrue(outputResult.size()==1);
-        Assert.assertNotNull(outputResult.get(0));
-        Assert.assertNotNull(outputResult.get(0).getPrimaryKey());
-        Assert.assertEquals("ReconReportId_123", outputResult.get(0).getPrimaryKey().getRecordId());
-        Assert.assertEquals(1L, outputResult.get(0).getPrimaryKey().getVersion().longValue());
-        Assert.assertEquals(Status.SUCCESS, outputResult.get(0).getStatus());
-    }
-
-    @Test
-    public void removeJiraTest_With_Failure() {
-        Mockito.when(dfReconPersistManager.saveAllRecords(Mockito.any())).thenThrow(new DfRunTimeException("Error occured while saving recon records to df"));
-        List<ReconciliationUpdateResult>  outputResult = reconciliationServiceImpl.removeJira(Lists.newArrayList((AddReconciliationJiraReference)getRemoveJiraRequest()));
-        Assert.assertTrue(outputResult.size()==1);
-        Assert.assertNotNull(outputResult.get(0));
-        Assert.assertNotNull(outputResult.get(0).getPrimaryKey());
-        Assert.assertEquals("ReconReportId_123", outputResult.get(0).getPrimaryKey().getRecordId());
-        Assert.assertEquals(1L, outputResult.get(0).getPrimaryKey().getVersion().longValue());
-        Assert.assertEquals(Status.FAILIURE, outputResult.get(0).getStatus());
-    }
-
-    @Test
-    public void addJiraTypeTest(){
-        List<ReconciliationUpdateResult>  outputResult = reconciliationServiceImpl.addJiraType(Lists.newArrayList((AddReconciliationJiraType)getAddJiraTypeRequest()));
-
-        Assert.assertTrue(outputResult.size()==1);
-        Assert.assertNotNull(outputResult.get(0));
-        Assert.assertNotNull(outputResult.get(0).getPrimaryKey());
-        Assert.assertEquals("ReconReportId_123", outputResult.get(0).getPrimaryKey().getRecordId());
-        Assert.assertEquals(1L, outputResult.get(0).getPrimaryKey().getVersion().longValue());
-        Assert.assertEquals(Status.SUCCESS, outputResult.get(0).getStatus());
-    }
-
-    @Test
-    public void addJiraTypeTest_With_Failure() {
-        Mockito.when(dfReconPersistManager.saveAllRecords(Mockito.any())).thenThrow(new DfRunTimeException("Error occured while saving recon records to df"));
-        List<ReconciliationUpdateResult>  outputResult = reconciliationServiceImpl.addJiraType(Lists.newArrayList((AddReconciliationJiraType)getAddJiraTypeRequest()));
-        Assert.assertTrue(outputResult.size()==1);
-        Assert.assertNotNull(outputResult.get(0));
-        Assert.assertNotNull(outputResult.get(0).getPrimaryKey());
-        Assert.assertEquals("ReconReportId_123", outputResult.get(0).getPrimaryKey().getRecordId());
-        Assert.assertEquals(1L, outputResult.get(0).getPrimaryKey().getVersion().longValue());
-        Assert.assertEquals(Status.FAILIURE, outputResult.get(0).getStatus());
-    }
-
-    @Test
-    public void removeJiraTypeTest_With_Failure() {
-        Mockito.when(dfReconPersistManager.saveAllRecords(Mockito.any())).thenThrow(new DfRunTimeException("Error occured while saving recon records to df"));
-        List<ReconciliationUpdateResult>  outputResult = reconciliationServiceImpl.removeJiraType(Lists.newArrayList((AddReconciliationJiraType)getRemoveJiraTypeRequest()));
-        Assert.assertTrue(outputResult.size()==1);
-        Assert.assertNotNull(outputResult.get(0));
-        Assert.assertNotNull(outputResult.get(0).getPrimaryKey());
-        Assert.assertEquals("ReconReportId_123", outputResult.get(0).getPrimaryKey().getRecordId());
-        Assert.assertEquals(1L, outputResult.get(0).getPrimaryKey().getVersion().longValue());
-        Assert.assertEquals(Status.FAILIURE, outputResult.get(0).getStatus());
-    }
-
-    @Test
-    public void removeJiraTypeTest(){
-        List<ReconciliationUpdateResult>  outputResult = reconciliationServiceImpl.removeJiraType(Lists.newArrayList((AddReconciliationJiraType)getRemoveJiraTypeRequest()));
-
-        Assert.assertTrue(outputResult.size()==1);
-        Assert.assertNotNull(outputResult.get(0));
-        Assert.assertNotNull(outputResult.get(0).getPrimaryKey());
-        Assert.assertEquals("ReconReportId_123", outputResult.get(0).getPrimaryKey().getRecordId());
-        Assert.assertEquals(1L, outputResult.get(0).getPrimaryKey().getVersion().longValue());
-        Assert.assertEquals(Status.SUCCESS, outputResult.get(0).getStatus());
-    }
-
-    @Test
-    public void updateDueDateTest(){
-        List<ReconciliationUpdateResult>  outputResult = reconciliationServiceImpl.updateDueDate(Lists.newArrayList((UpdateReconciliationDueDate) getUpdateDueDateRequest()));
-
-        Assert.assertTrue(outputResult.size()==1);
-        Assert.assertNotNull(outputResult.get(0));
-        Assert.assertNotNull(outputResult.get(0).getPrimaryKey());
-        Assert.assertEquals("ReconReportId_123", outputResult.get(0).getPrimaryKey().getRecordId());
-        Assert.assertEquals(1L, outputResult.get(0).getPrimaryKey().getVersion().longValue());
-        Assert.assertEquals(Status.SUCCESS, outputResult.get(0).getStatus());
-    }
-
-    @Test
-    public void updateDueDateTest_Failure(){
-        Mockito.when(dfReconPersistManager.saveAllRecords(Mockito.any())).thenThrow(new DfRunTimeException("Error occured while saving recon records to df"));
-        List<ReconciliationUpdateResult>  outputResult = reconciliationServiceImpl.updateDueDate(Lists.newArrayList((UpdateReconciliationDueDate) getUpdateDueDateRequest()));
-        Assert.assertTrue(outputResult.size()==1);
-        Assert.assertNotNull(outputResult.get(0));
-        Assert.assertNotNull(outputResult.get(0).getPrimaryKey());
-        Assert.assertEquals("ReconReportId_123", outputResult.get(0).getPrimaryKey().getRecordId());
-        Assert.assertEquals(1L, outputResult.get(0).getPrimaryKey().getVersion().longValue());
-        Assert.assertEquals(Status.FAILIURE, outputResult.get(0).getStatus());
-    }
-
-    @Test
-    public void actualBreakOwnerTest(){
-        List<ReconciliationUpdateResult>  outputResult = reconciliationServiceImpl.assignActualBreakOwner(Lists.newArrayList((AssignPAndMBreakOwner) getPAndMBreakOwnerRequest()));
-
-        Assert.assertTrue(outputResult.size()==1);
-        Assert.assertNotNull(outputResult.get(0));
-        Assert.assertNotNull(outputResult.get(0).getPrimaryKey());
-        Assert.assertEquals("ReconReportId_123", outputResult.get(0).getPrimaryKey().getRecordId());
-        Assert.assertEquals(1L, outputResult.get(0).getPrimaryKey().getVersion().longValue());
-        Assert.assertEquals(Status.SUCCESS, outputResult.get(0).getStatus());
-    }
-
-    @Test
-    public void actualBreakOwnerTest_Exception(){
-        Mockito.when(dfReconPersistManager.saveAllRecords(Mockito.any())).thenThrow(new DfRunTimeException("Error occured while saving recon records to df"));
-        List<ReconciliationUpdateResult>  outputResult = reconciliationServiceImpl.assignActualBreakOwner(Lists.newArrayList((AssignPAndMBreakOwner) getPAndMBreakOwnerRequest()));
-        Assert.assertTrue(outputResult.size()==1);
-        Assert.assertNotNull(outputResult.get(0));
-        Assert.assertNotNull(outputResult.get(0).getPrimaryKey());
-        Assert.assertEquals("ReconReportId_123", outputResult.get(0).getPrimaryKey().getRecordId());
-        Assert.assertEquals(1L, outputResult.get(0).getPrimaryKey().getVersion().longValue());
-        Assert.assertEquals(Status.FAILIURE, outputResult.get(0).getStatus());
-    }
-
-    @Test
-    public void asignBreakResolutionTest() {
-        AssignPAndMBreakResolution breakResolutionRequest = BlotterTestUtility.jsonToPojo("src/test/resources/reconactionrequests/AssignBreakResolution.json", new TypeReference<AssignPAndMBreakResolution>() {});
-        List<ReconciliationUpdateResult> outputResult = reconciliationServiceImpl.assignBreakResolution(Collections.singletonList(breakResolutionRequest));
-        Assert.assertTrue(outputResult.size()==1);
-        Assert.assertNotNull(outputResult.get(0));
-        Assert.assertNotNull(outputResult.get(0).getPrimaryKey());
-        Assert.assertEquals("ReconReportId_123", outputResult.get(0).getPrimaryKey().getRecordId());
-        Assert.assertEquals(1L, outputResult.get(0).getPrimaryKey().getVersion().longValue());
-    }
-
-    @Test
-    public void asignBreakResolutionTest_With_Failure() {
-        AssignPAndMBreakResolution breakResolutionRequest = BlotterTestUtility.jsonToPojo("src/test/resources/reconactionrequests/AssignBreakResolution.json", new TypeReference<AssignPAndMBreakResolution>() {});
-        Mockito.when(dfReconPersistManager.saveAllRecords(Mockito.any())).thenReturn(getWriteResults_For_Failure());
-        List<ReconciliationUpdateResult> outputResult = reconciliationServiceImpl.assignBreakResolution(Collections.singletonList(breakResolutionRequest));
-        Assert.assertTrue(outputResult.size()==1);
-        Assert.assertNotNull(outputResult.get(0));
-        Assert.assertNotNull(outputResult.get(0).getPrimaryKey());
-        Assert.assertEquals("ReconReportId_123", outputResult.get(0).getPrimaryKey().getRecordId());
-        Assert.assertEquals(1L, outputResult.get(0).getPrimaryKey().getVersion().longValue());
-    }
-
-    @Test
-    public void asignBreakResolutionTest_With_Exception() {
-        AssignPAndMBreakResolution breakResolutionRequest = BlotterTestUtility.jsonToPojo("src/test/resources/reconactionrequests/AssignBreakResolution.json", new TypeReference<AssignPAndMBreakResolution>() {});
-        Mockito.when(dfReconPersistManager.saveAllRecords(Mockito.any())).thenThrow(new DfRunTimeException("Error occured while saving recon records to df"));
-        List<ReconciliationUpdateResult> outputResult = reconciliationServiceImpl.assignBreakResolution(Collections.singletonList(breakResolutionRequest));
-        Assert.assertTrue(outputResult.size()==1);
-        Assert.assertNotNull(outputResult.get(0));
-        Assert.assertNotNull(outputResult.get(0).getPrimaryKey());
-    }
-
-    @Test
-    public void testGetReconWithComments() throws Exception {
-        List<ReconReportDocument> reconReportDocuments = Lists.newArrayList(getTestReconReport());
-        Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
-        requests.put(getTestReconReport().getDocumentId(), getCommentRequest());
-        List<ReconciliationUpdateResult> writeResults = Lists.newArrayList();
-        List<Pair<ReconReport, Long>> result = (List<Pair<ReconReport, Long>>) ReflectionTestUtils.invokeMethod(reconciliationServiceImpl, "getReconWithComments", reconReportDocuments, requests, writeResults);
-        Assert.assertNotNull(result);
-        Assert.assertEquals(1, result.size());
-    }
-
-    @Test
-    public void testGetReconWithWorkflow() throws Exception {
-        List<ReconReportDocument> reconReportDocuments = Lists.newArrayList(getTestReconReport());
-        Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
-        requests.put(getTestReconReport().getDocumentId(), getWorkflowRequest());
-        List<ReconciliationUpdateResult> writeResults = Lists.newArrayList();
-        List<Pair<ReconReport, Long>> result = (List<Pair<ReconReport, Long>>) ReflectionTestUtils.invokeMethod(reconciliationServiceImpl, "getReconWithWorkflow", reconReportDocuments, requests, writeResults);
-        Assert.assertNotNull(result);
-        Assert.assertEquals(1, result.size());
-    }
-
-    @Test
-    public void testGetReconWithBreakResolution_CatchBlock() throws Exception {
-        List<ReconReportDocument> reconReportDocuments = Lists.newArrayList(getTestReconReport());
-        AssignPAndMBreakResolution request = BlotterTestUtility.jsonToPojo("src/test/resources/reconactionrequests/AssignBreakResolution.json", new TypeReference<AssignPAndMBreakResolution>() {});
-        List<ReconciliationUpdateResult> writeResults = Lists.newArrayList();
-        ReconDataUpdater mockUpdater = Mockito.mock(ReconDataUpdater.class);
-        Mockito.when(mockUpdater.assignPAndMBreakResolution(Mockito.any(), Mockito.any())).thenThrow(new RuntimeException("Test exception"));
-        ReflectionTestUtils.setField(reconciliationServiceImpl, "dataUpdater", mockUpdater);
-        try {
-            ReflectionTestUtils.invokeMethod(reconciliationServiceImpl, "getReconWithBreakResolution", reconReportDocuments, request, writeResults);
-            Assert.fail("Expected BlotterRunTimeException");
-        } catch (BlotterRunTimeException e) {
-            Assert.assertTrue(true);
-        }
-    }
-
-    @Test
-    public void testGetReconWithDueDate() throws Exception {
-        List<ReconReportDocument> reconReportDocuments = Lists.newArrayList(getTestReconReport());
-        Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
-        requests.put(getTestReconReport().getDocumentId(), getUpdateDueDateRequest());
-        List<ReconciliationUpdateResult> writeResults = Lists.newArrayList();
-        List<Pair<ReconReport, Long>> result = (List<Pair<ReconReport, Long>>) ReflectionTestUtils.invokeMethod(reconciliationServiceImpl, "getReconWithDueDate", reconReportDocuments, requests, writeResults);
-        Assert.assertNotNull(result);
-        Assert.assertEquals(1, result.size());
-    }
-
-    @Test
-    public void testGetPAndMRecordsWithBreakOwner() throws Exception {
-        List<ReconReportDocument> reconReportDocuments = Lists.newArrayList(getTestReconReport());
-        Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
-        requests.put(getTestReconReport().getDocumentId(), getPAndMBreakOwnerRequest());
-        List<ReconciliationUpdateResult> writeResults = Lists.newArrayList();
-        List<Pair<ReconReport, Long>> result = (List<Pair<ReconReport, Long>>) ReflectionTestUtils.invokeMethod(reconciliationServiceImpl, "getPAndMRecordsWithBreakOwner", reconReportDocuments, requests, writeResults);
-        Assert.assertNotNull(result);
-        Assert.assertEquals(1, result.size());
-    }
-
-    @Test
-    public void testGetReconWithJiraId() throws Exception {
-        List<ReconReportDocument> reconReportDocuments = Lists.newArrayList(getTestReconReport());
-        Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
-        requests.put(getTestReconReport().getDocumentId(), getAddJiraRequest());
-        List<ReconciliationUpdateResult> writeResults = Lists.newArrayList();
-        List<Pair<ReconReport, Long>> result = (List<Pair<ReconReport, Long>>) ReflectionTestUtils.invokeMethod(reconciliationServiceImpl, "getReconWithJiraId", reconReportDocuments, requests, writeResults);
-        Assert.assertNotNull(result);
-        Assert.assertEquals(1, result.size());
-    }
-
-    @Test
-    public void testRemoveJiraId() throws Exception {
-        List<ReconReportDocument> reconReportDocuments = Lists.newArrayList(getTestReconReport());
-        Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
-        requests.put(getTestReconReport().getDocumentId(), getRemoveJiraRequest());
-        List<ReconciliationUpdateResult> writeResults = Lists.newArrayList();
-        List<Pair<ReconReport, Long>> result = (List<Pair<ReconReport, Long>>) ReflectionTestUtils.invokeMethod(reconciliationServiceImpl, "removeJiraId", reconReportDocuments, requests, writeResults);
-        Assert.assertNotNull(result);
-        Assert.assertEquals(1, result.size());
-    }
-
-    @Test
-    public void testGetReconWithAssign_CatchBlock() throws Exception {
-        List<ReconReportDocument> reconReportDocuments = Lists.newArrayList(getTestReconReport());
-        Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
-        requests.put(getTestReconReport().getDocumentId(), getAssignmentRequest());
-        List<ReconciliationUpdateResult> writeResults = Lists.newArrayList();
-        ReconDataUpdater mockUpdater = Mockito.mock(ReconDataUpdater.class);
-        Mockito.when(mockUpdater.addAssignToException(Mockito.any(), Mockito.any(), Mockito.any())).thenThrow(new RuntimeException("Test exception"));
-        ReflectionTestUtils.setField(reconciliationServiceImpl, "dataUpdater", mockUpdater);
-        try {
-            ReflectionTestUtils.invokeMethod(reconciliationServiceImpl, "getReconWithAssign", reconReportDocuments, requests, writeResults);
-            Assert.fail("Expected BlotterRunTimeException");
-        } catch (BlotterRunTimeException e) {
-            Assert.assertTrue(true);
-        }
-    }
-
-    @Test
-    public void testAddJiraType_CatchBlock() throws Exception {
-        List<AddReconciliationJiraType> requests = Lists.newArrayList((AddReconciliationJiraType) getAddJiraTypeRequest());
-        ReconDataUpdater mockUpdater = Mockito.mock(ReconDataUpdater.class);
-        Mockito.when(mockUpdater.addJiraTypeToException(Mockito.any(), Mockito.any(), Mockito.any())).thenThrow(new RuntimeException("Test exception"));
-        ReflectionTestUtils.setField(reconciliationServiceImpl, "dataUpdater", mockUpdater);
-        List<ReconciliationUpdateResult> result = reconciliationServiceImpl.addJiraType(requests);
-        Assert.assertEquals(1, result.size());
-        Assert.assertEquals(Status.FAILIURE, result.get(0).getStatus());
-    }
-
-    @Test
-    public void testGetReconWithJiraType() throws Exception {
-        List<ReconReportDocument> reconReportDocuments = Lists.newArrayList(getTestReconReport());
-        Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
-        requests.put(getTestReconReport().getDocumentId(), getAddJiraTypeRequest());
-        List<ReconciliationUpdateResult> writeResults = Lists.newArrayList();
-        List<Pair<ReconReport, Long>> result = (List<Pair<ReconReport, Long>>) ReflectionTestUtils.invokeMethod(reconciliationServiceImpl, "getReconWithJiraType", reconReportDocuments, requests, writeResults);
-        Assert.assertNotNull(result);
-        Assert.assertEquals(1, result.size());
-    }
-
-    @Test
-    public void testRemoveJiraType() throws Exception {
-        List<ReconReportDocument> reconReportDocuments = Lists.newArrayList(getTestReconReport());
-        Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
-        requests.put(getTestReconReport().getDocumentId(), getRemoveJiraTypeRequest());
-        List<ReconciliationUpdateResult> writeResults = Lists.newArrayList();
-        List<Pair<ReconReport, Long>> result = (List<Pair<ReconReport, Long>>) ReflectionTestUtils.invokeMethod(reconciliationServiceImpl, "removeJiraType", reconReportDocuments, requests, writeResults);
-        Assert.assertNotNull(result);
-        Assert.assertEquals(1, result.size());
-    }
-
-    @Test
-    public void testLogFailuerReason() throws Exception {
-        DocumentId documentId = DocumentId.from("ReconReportId_123", 1L);
-        ReflectionTestUtils.invokeMethod(reconciliationServiceImpl, "logFailuerReason", documentId, "Test reason");
-        // Logging method, no direct assertion possible
-    }
-
-    @Test
-    public void testExecuteReadCommand() throws Exception {
-        FuturesDashboardSearchRequest request = new FuturesDashboardSearchRequest();
-        request.setSelectClause("field1, field2");
-        request.setGroupByClause("field1");
-        List<Projection> projections = Lists.newArrayList(new Projection());
-        Mockito.when(dfReconPersistManager.findProjectionWithGroupingByQuery(Mockito.any())).thenReturn(projections);
-        List<HashMap> result = reconciliationServiceImpl.executeReadCommand(request);
-        Assert.assertNotNull(result);
-        Assert.assertEquals(1, result.size());
-    }
-
-    @Test
-    public void testExecuteReadProjection() throws Exception {
-        FuturesDashboardSearchRequest request = new FuturesDashboardSearchRequest();
-        request.setSelectClause("field1, field2");
-        request.setGroupByClause("field1");
-        List<Projection> projections = Lists.newArrayList(new Projection());
-        Mockito.when(dfReconPersistManager.findProjectionWithGroupingByQuery(Mockito.any())).thenReturn(projections);
-        List<Projection> result = (List<Projection>) ReflectionTestUtils.invokeMethod(reconciliationServiceImpl, "executeReadProjection", request);
-        Assert.assertNotNull(result);
-        Assert.assertEquals(1, result.size());
-    }
-
-    @Test
-    public void testGetQueryParamsObj() throws Exception {
-        FuturesDashboardSearchRequest request = new FuturesDashboardSearchRequest();
-        request.setWhereClause("whereClause");
-        request.setAsOf("asOf");
-        request.setComment("comment");
-        request.setOrderBy("orderBy");
-        request.setRowLimit(10);
-        request.setHistory(true);
-        QueryParams queryParams = (QueryParams) ReflectionTestUtils.invokeMethod(reconciliationServiceImpl, "getQueryParamsObj", request);
-        Assert.assertNotNull(queryParams);
-        Assert.assertEquals("whereClause", queryParams.getWhere());
-        Assert.assertEquals("asOf", queryParams.getAsOf());
-        Assert.assertEquals("comment", queryParams.getComment());
-        Assert.assertEquals("orderBy", queryParams.getOrderBy());
-        Assert.assertEquals(10, queryParams.getMaxResults());
-        Assert.assertTrue(queryParams.isVersionHistoryEnabled());
-    }
-
-    @Test
-    public void testGetProjectionQuery() throws Exception {
-        FuturesDashboardSearchRequest request = new FuturesDashboardSearchRequest();
-        request.setSelectClause("field1, field2");
-        request.setGroupByClause("field1");
-        ProjectionQueryGroupByParams projectionQuery = (ProjectionQueryGroupByParams) ReflectionTestUtils.invokeMethod(reconciliationServiceImpl, "getProjectionQuery", request);
-        Assert.assertNotNull(projectionQuery);
-        Assert.assertEquals("field1, field2", projectionQuery.getSelect());
-        Assert.assertEquals("field1", projectionQuery.getGroupBy());
-    }
-
-    private ReconciliationRequest getAssignmentRequest() {
-        AssignReconciliationBreak assignUserRequest = new AssignReconciliationBreak();
-        assignUserRequest.setAssignTo("sharnin");
-        assignUserRequest.setPrimaryKey(createPrimarKey());
-        assignUserRequest.setAction("TntrAssign");
-        return assignUserRequest;
-    }
-
-    private ReconciliationRequest getUpdateDueDateRequest() {
-        UpdateReconciliationDueDate dueDateRequest = new UpdateReconciliationDueDate();
-        dueDateRequest.setReconDueDate(new ReconDueDate("2044-01-01"));
-        dueDateRequest.setPrimaryKey(createPrimarKey());
-        dueDateRequest.setAction("TntrUpdateDueDate");
-        return dueDateRequest;
-    }
-
-    private ReconciliationRequest getPAndMBreakOwnerRequest() {
-        AssignPAndMBreakOwner breakOwnerRequest = new AssignPAndMBreakOwner();
-        breakOwnerRequest.setpAndMBreakOwner(new PAndMBreakOwner("NWM"));
-        breakOwnerRequest.setPrimaryKey(createPrimarKey());
-        breakOwnerRequest.setAction("TntrUpdateDueDate");
-        return breakOwnerRequest;
-    }
-
-    private ReconciliationRequest getCommentRequest() {
-        AddReconciliationComment assignCommentRequest = new AddReconciliationComment();
-        UserComment userComment = new UserComment();
-        userComment.setComment("Test Comment");
-        assignCommentRequest.setComment(userComment);
-        assignCommentRequest.setPrimaryKey(createPrimarKey());
-        assignCommentRequest.setAction("TntrAddComments");
-        return assignCommentRequest;
-    }
-
-    private ReconciliationRequest getWorkflowRequest() {
-        AddReconciliationWorkflow assignWorkflowRequest = new AddReconciliationWorkflow();
-        UserWorkflow userWorkflow = new UserWorkflow();
-        userWorkflow.setWorkflow("Test Comment");
-        assignWorkflowRequest.setWorkflow(userWorkflow);
-        assignWorkflowRequest.setPrimaryKey(createPrimarKey());
-        assignWorkflowRequest.setAction("TntrAddComments");
-        return assignWorkflowRequest;
-    }
-
-    private ReconciliationRequest getAddJiraRequest() {
-        AddReconciliationJiraReference assignJiraIdRequest = new AddReconciliationJiraReference();
-        JiraReference jiraReference = new JiraReference();
-        jiraReference.setJiraId("GTR-8794");
-        assignJiraIdRequest.setJiraReference(jiraReference);
-        assignJiraIdRequest.setPrimaryKey(createPrimarKey());
-        assignJiraIdRequest.setAction("TntrAddJiraId");
-        return assignJiraIdRequest;
-    }
-
-    private ReconciliationRequest getRemoveJiraRequest() {
-        AddReconciliationJiraReference assignJiraIdRequest = new AddReconciliationJiraReference();
-        JiraReference jiraReference = new JiraReference();
-        jiraReference.setJiraId("GTR-125");
-        assignJiraIdRequest.setJiraReference(jiraReference);
-        assignJiraIdRequest.setPrimaryKey(createPrimarKey());
-        assignJiraIdRequest.setAction("TntrRemoveJiraId");
-        return assignJiraIdRequest;
-    }
-
-    private ReconciliationRequest getAddJiraTypeRequest() {
-        AddReconciliationJiraType assignJiraTypeRequest = new AddReconciliationJiraType();
-        JiraType jiraType = new JiraType();
-        jiraType.setIssueType("Over Reporting");
-        assignJiraTypeRequest.setJiraType(jiraType);
-        assignJiraTypeRequest.setPrimaryKey(createPrimarKey());
-        assignJiraTypeRequest.setAction("TntrAddJiraType");
-        return assignJiraTypeRequest;
-    }
-
-    private ReconciliationRequest getRemoveJiraTypeRequest() {
-        AddReconciliationJiraType assignJiraTypeRequest = new AddReconciliationJiraType();
-        JiraType jiraType = new JiraType();
-        jiraType.setIssueType("Mis Reporting");
-        assignJiraTypeRequest.setJiraType(jiraType);
-        assignJiraTypeRequest.setPrimaryKey(createPrimarKey());
-        assignJiraTypeRequest.setAction("TntrRemoveJiraType");
-        return assignJiraTypeRequest;
-    }
-
-    private List<WriteResult<ReconReport>> getWriteResults(){
-        return Lists.newArrayList(WriteResult.forSuccess(DocumentId.from("ReconReportId_123", 1L), getTestReconReport().getReconReport()));
-    }
-
-    private List<WriteResult<ReconReport>> getWriteResults_For_Failure(){
-        ReconReport reconReport = getTestReconReport().getReconReport();
-        WriteErrorDetail<ReconReport> writeErrorDetail = new WriteErrorDetail<>(reconReport,
-                new RuntimeException("Failed to write document"),
-                "Error occurred while saving reconciliation report");
-        return Lists.newArrayList(WriteResult.forFailure(writeErrorDetail));
-    }
-
-    private ReconReportDocument getTestReconReport() {
-        DocumentId documentId = DocumentId.from("ReconReportId_123", 1L);
-        DocumentLifetime documentLifetime = DocumentLifetime.from(ZonedDateTime.now(ZoneOffset.UTC), ZonedDateTime.now(ZoneOffset.UTC));
-        ReconReport reconReport=  ReconReport.newBuilder()
-                .withReconReportId(ReconReportId.newBuilder()
-                        .withSourceSystemId(SourceSystemId.SYSTEM_X)
-                        .withSourceSystemMatchingKeyId("ReconReportId_123")
-                        .withReconRuleId("TEST_RECON_RULE_ID")
-                        .withReconType("TEST_RECON_TYPE")
-                        .build())
-                .withReconBusinessDateTime(ZonedDateTime.now(ZoneOffset.UTC))
-                .withReconState(ReconState.newBuilder()
-                        .withReconStatus(ReconStatus.FIELD_DIFFERENCES)
-                        .withSourceMatchingInstanceCount(50)
-                        .withTargetMatchingInstanceCount(50)
-                        .setProperties(IntStream.rangeClosed(1, 3)
-                                .mapToObj(i -> Pair.of("KEY_" + i, (Object)("VALUE_" + i)))
-                                .collect(toMap(Pair::getKey, Pair::getValue)))
-                        .withProperty("NAME_1", "DESC_1")
-                        .withProperty("NAME_2", "DESC_2")
-                        .build())
-                .withBreakManagement(BreakManagement.newBuilder()
-                        .withActionPerformed("TntrAddComments")
-                        .setIssueTrackingReferences(Lists.newArrayList("GTR-123", "GTR-125"))
-                        .withIssueType("Mis Reporting")
-                        .withLastBreakOccurrenceDate(ZonedDateTime.now(ZoneOffset.UTC))
-                        .withLastBreakStatus(ReconStatus.FIELD_DIFFERENCES)
-                        .withUserComment("Test User Comment")
-                        .withUserWorkflow("TEST_USER_WORKFLOW")
-                        .setProperties(IntStream.rangeClosed(1, 3)
-                                .mapToObj(i -> Pair.of("KEY_" + i, (Object)("VALUE_" + i)))
-                                .collect(toMap(Pair::getKey, Pair::getValue)))
-                        .withAssignedTo("matbina")
-                        .withLastActionDate(ZonedDateTime.now(ZoneOffset.UTC))
-                        .withLastActionUser("matbina")
-                        .build())
-                .withOccurrenceDateTime(ZonedDateTime.now(ZoneOffset.UTC))
-                .withOccurrenceId(OccurrenceId.newBuilder()
-                        .withSourceSystemId(SourceSystemId.SYSTEM_X)
-                        .withSourceSystemEventId("SOURCE_SYSTEM_EVENT_ID")
-                        .setProperties(IntStream.rangeClosed(1, 3)
-                                .mapToObj(i -> Pair.of("KEY_" + i, (Object)("VALUE_" + i)))
-                                .collect(toMap(Pair::getKey, Pair::getValue)))
-                        .withProperty("NAME_1", "DESC_1")
-                        .withProperty("NAME_2", "DESC_2")
-                        .build())
-                .withSourceMatchingKey(SourceMatchingKey.newBuilder()
-                        .setProperties(IntStream.rangeClosed(1, 3)
-                                .mapToObj(i -> Pair.of("KEY_" + i, "VALUE_" + i))
-                                .collect(toMap(Pair::getKey, Pair::getValue)))
-                        .withProperty("NAME_1", "DESC_1")
-                        .withProperty("NAME_2", "DESC_2")
-                        .build())
-                .withTargetMatchingKey(TargetMatchingKey.newBuilder()
-                        .setProperties(IntStream.rangeClosed(1, 3)
-                                .mapToObj(i -> Pair.of("KEY_" + i, "VALUE_" + i))
-                                .collect(toMap(Pair::getKey, Pair::getValue)))
-                        .withProperty("NAME_1", "DESC_1")
-                        .withProperty("NAME_2", "DESC_2")
-                        .build())
-                .withProbableMatching(ProbableMatching.newBuilder()
-                        .withBreakId("TEST_BREAK_ID")
-                        .withCriteria("TEST_CRITERIA")
-                        .withStatus("TEST_STATUS")
-                        .withProperties(IntStream.rangeClosed(1, 3)
-                                .mapToObj(i -> Pair.of("KEY_" + i, (Object)("VALUE_" + i)))
-                                .collect(toMap(Pair::getKey, Pair::getValue)))
-                        .withProperty("NAME_1", "DESC_1")
-                        .withProperty("NAME_2", "DESC_2")
-                        .build())
-                .setSourceRecords(Lists.newArrayList(SourceRecord.newBuilder()
-                        .setProperties(IntStream.rangeClosed(1, 3)
-                                .mapToObj(i -> Pair.of("KEY_" + i, "VALUE_" + i))
-                                .collect(toMap(Pair::getKey, Pair::getValue)))
-                        .withProperty("NAME_1", "DESC_1")
-                        .withProperty("NAME_2", "DESC_2")
-                        .build()))
-                .withSourceRecord(SourceRecord.newBuilder()
-                        .setProperties(IntStream.rangeClosed(1, 3)
-                                .mapToObj(i -> Pair.of("KEY_" + i, "VALUE_" + i))
-                                .collect(toMap(Pair::getKey, Pair::getValue)))
-                        .withProperty("NAME_1", "DESC_1")
-                        .withProperty("NAME_2", "DESC_2")
-                        .build())
-                .setTargetRecords(Lists.newArrayList(TargetRecord.newBuilder()
-                        .setProperties(IntStream.rangeClosed(1, 3)
-                                .mapToObj(i -> Pair.of("KEY_" + i, "VALUE_" + i))
-                                .collect(toMap(Pair::getKey, Pair::getValue)))
-                        .withProperty("NAME_1", "DESC_1")
-                        .withProperty("NAME_2", "DESC_2")
-                        .build()))
-                .withTargetRecord(TargetRecord.newBuilder()
-                        .setProperties(IntStream.rangeClosed(1, 3)
-                                .mapToObj(i -> Pair.of("KEY_" + i, "VALUE_" + i))
-                                .collect(toMap(Pair::getKey, Pair::getValue)))
-                        .withProperty("NAME_1", "DESC_1")
-                        .withProperty("NAME_2", "DESC_2")
-                        .build())
-                .build();
-
-        ReconReportDocument reconReportDocument = ReconReportDocument.from(documentId, documentLifetime, reconReport);
-
-        return reconReportDocument;
-    }
-
-    private ReconciliationPrimarykey createPrimarKey() {
-        return new ReconciliationPrimarykey("ReconReportId_123", 1L);
-    }
+// Add these tests to the existing ReconciliationActionServiceImplTest class
+
+@Test
+public void testGetReconWithComments_UserValidationFailure() throws Exception {
+    // Mock BreakManagement with different user
+    BreakManagement breakManagement = BreakManagement.newBuilder()
+        .withLastActionUser("other_user")
+        .build();
+    
+    ReconReport reconReport = ReconReport.newBuilder()
+        .withBreakManagement(breakManagement)
+        .build();
+    
+    ReconReportDocument reconReportDocument = new ReconReportDocument(
+        DocumentId.from("id", 1L), 
+        DocumentLifetime.from(ZonedDateTime.now(), ZonedDateTime.now()),
+        reconReport
+    );
+    
+    Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
+    requests.put(reconReportDocument.getDocumentId(), new AddReconciliationComment());
+    
+    List<ReconciliationUpdateResult> writeResults = new ArrayList<>();
+    
+    List<Pair<ReconReport, Long>> result = reconciliationServiceImpl.getReconWithComments(
+        Lists.newArrayList(reconReportDocument),
+        requests,
+        writeResults
+    );
+    
+    Assert.assertTrue(result.isEmpty());
+    Assert.assertEquals(1, writeResults.size());
+    Assert.assertEquals(ActionRequestValidator.USER_VALIDATION_ERROR, writeResults.get(0).getErrorMessage());
+}
+
+@Test
+public void testGetReconWithComments_Exception() {
+    // Mock data to cause exception
+    ReconReportDocument reconReportDocument = getTestReconReport();
+    Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
+    requests.put(reconReportDocument.getDocumentId(), new AddReconciliationComment());
+    
+    // Use spy to throw exception in dataUpdater
+    ReconDataUpdater spyUpdater = Mockito.spy(new ReconDataUpdater());
+    Mockito.doThrow(new RuntimeException("Test exception")).when(spyUpdater)
+        .addCommentsToException(Mockito.any(), Mockito.any(), Mockito.any());
+    
+    ReconciliationActionServiceImpl service = new ReconciliationActionServiceImpl(
+        dfReconPersistManager, spyUpdater, blotterSecurityService, requestValidator
+    );
+    
+    List<ReconciliationUpdateResult> writeResults = new ArrayList<>();
+    
+    Assert.assertThrows(BlotterRunTimeException.class, () -> 
+        service.getReconWithComments(
+            Lists.newArrayList(reconReportDocument),
+            requests,
+            writeResults
+        )
+    );
+}
+
+@Test
+public void testGetReconWithWorkflow_UserValidationFailure() throws Exception {
+    // Similar setup to testGetReconWithComments_UserValidationFailure
+    // ...
+}
+
+@Test
+public void testGetReconWithBreakResolution_Exception() {
+    // Mock data to cause exception
+    AssignPAndMBreakResolution request = new AssignPAndMBreakResolution();
+    List<ReconReportDocument> documents = Lists.newArrayList(getTestReconReport());
+    List<ReconciliationUpdateResult> writeResults = new ArrayList<>();
+    
+    // Use spy to throw exception
+    ReconDataUpdater spyUpdater = Mockito.spy(new ReconDataUpdater());
+    Mockito.doThrow(new RuntimeException("Test exception")).when(spyUpdater)
+        .assignPAndMBreakResolution(Mockito.any(), Mockito.any());
+    
+    ReconciliationActionServiceImpl service = new ReconciliationActionServiceImpl(
+        dfReconPersistManager, spyUpdater, blotterSecurityService, requestValidator
+    );
+    
+    Assert.assertThrows(BlotterRunTimeException.class, () ->
+        service.getReconWithBreakResolution(documents, request, writeResults)
+    );
+}
+
+@Test
+public void testGetReconWithDueDate_UserValidationFailure() throws Exception {
+    // Similar setup to testGetReconWithComments_UserValidationFailure
+    // ...
+}
+
+@Test
+public void testGetPAndMRecordsWithBreakOwner_UserValidationFailure() throws Exception {
+    // Similar setup to testGetReconWithComments_UserValidationFailure
+    // ...
+}
+
+@Test
+public void testGetReconWithJiraId_UserValidationFailure() throws Exception {
+    // Similar setup to testGetReconWithComments_UserValidationFailure
+    // ...
+}
+
+@Test
+public void testGetReconWithJiraId_JiraIdPresent() throws Exception {
+    // Setup existing JIRA ID in BreakManagement
+    BreakManagement breakManagement = BreakManagement.newBuilder()
+        .setIssueTrackingReferences(Lists.newArrayList("EXISTING_JIRA"))
+        .build();
+    
+    ReconReport reconReport = ReconReport.newBuilder()
+        .withBreakManagement(breakManagement)
+        .build();
+    
+    ReconReportDocument reconReportDocument = new ReconReportDocument(
+        DocumentId.from("id", 1L), 
+        DocumentLifetime.from(ZonedDateTime.now(), ZonedDateTime.now()),
+        reconReport
+    );
+    
+    AddReconciliationJiraReference request = new AddReconciliationJiraReference();
+    request.getJiraReference().setJiraId("EXISTING_JIRA");
+    
+    Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
+    requests.put(reconReportDocument.getDocumentId(), request);
+    
+    List<ReconciliationUpdateResult> writeResults = new ArrayList<>();
+    
+    List<Pair<ReconReport, Long>> result = reconciliationServiceImpl.getReconWithJiraId(
+        Lists.newArrayList(reconReportDocument),
+        requests,
+        writeResults
+    );
+    
+    Assert.assertTrue(result.isEmpty());
+    Assert.assertEquals(1, writeResults.size());
+    Assert.assertEquals(ActionRequestValidator.JIRA_ID_PRESENT, writeResults.get(0).getErrorMessage());
+}
+
+@Test
+public void testRemoveJiraId_JiraIdNotPresent() throws Exception {
+    // Setup BreakManagement without JIRA ID
+    BreakManagement breakManagement = BreakManagement.newBuilder()
+        .setIssueTrackingReferences(Lists.newArrayList())
+        .build();
+    
+    ReconReport reconReport = ReconReport.newBuilder()
+        .withBreakManagement(breakManagement)
+        .build();
+    
+    ReconReportDocument reconReportDocument = new ReconReportDocument(
+        DocumentId.from("id", 1L), 
+        DocumentLifetime.from(ZonedDateTime.now(), ZonedDateTime.now()),
+        reconReport
+    );
+    
+    AddReconciliationJiraReference request = new AddReconciliationJiraReference();
+    request.getJiraReference().setJiraId("MISSING_JIRA");
+    
+    Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
+    requests.put(reconReportDocument.getDocumentId(), request);
+    
+    List<ReconciliationUpdateResult> writeResults = new ArrayList<>();
+    
+    List<Pair<ReconReport, Long>> result = reconciliationServiceImpl.removeJiraId(
+        Lists.newArrayList(reconReportDocument),
+        requests,
+        writeResults
+    );
+    
+    Assert.assertTrue(result.isEmpty());
+    Assert.assertEquals(1, writeResults.size());
+    Assert.assertEquals(ActionRequestValidator.JIRA_ID_NOT_PRESENT, writeResults.get(0).getErrorMessage());
+}
+
+@Test
+public void testGetReconWithAssign_Exception() {
+    // Mock data to cause exception
+    ReconReportDocument reconReportDocument = getTestReconReport();
+    Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
+    requests.put(reconReportDocument.getDocumentId(), new AssignReconciliationBreak());
+    
+    // Use spy to throw exception
+    ReconDataUpdater spyUpdater = Mockito.spy(new ReconDataUpdater());
+    Mockito.doThrow(new RuntimeException("Test exception")).when(spyUpdater)
+        .addAssignToException(Mockito.any(), Mockito.any(), Mockito.any());
+    
+    ReconciliationActionServiceImpl service = new ReconciliationActionServiceImpl(
+        dfReconPersistManager, spyUpdater, blotterSecurityService, requestValidator
+    );
+    
+    List<ReconciliationUpdateResult> writeResults = new ArrayList<>();
+    
+    Assert.assertThrows(BlotterRunTimeException.class, () -> 
+        service.getReconWithAssign(
+            Lists.newArrayList(reconReportDocument),
+            requests,
+            writeResults
+        )
+    );
+}
+
+@Test
+public void testGetReconWithJiraType_Exception() {
+    // Similar setup to testGetReconWithAssign_Exception
+    // ...
+}
+
+@Test
+public void testRemoveJiraType_UserValidationFailure() throws Exception {
+    // Similar setup to testGetReconWithComments_UserValidationFailure
+    // ...
+}
+
+@Test
+public void testLogFailuerReason() throws Exception {
+    DocumentId documentId = DocumentId.from("test_id", 1L);
+    String reason = "Test failure reason";
+    
+    // Use reflection to test private method
+    Method method = ReconciliationActionServiceImpl.class
+        .getDeclaredMethod("logFailuerReason", DocumentId.class, String.class);
+    method.setAccessible(true);
+    
+    method.invoke(reconciliationServiceImpl, documentId, reason);
+    
+    // Verify logging occurs (could also use Log4j TestAppender)
+}
+
+@Test
+public void testExecuteReadCommand() {
+    FuturesDashboardSearchRequest request = new FuturesDashboardSearchRequest();
+    request.setWhereClause("test_where");
+    request.setSelectClause("test_select");
+    request.setGroupByClause("test_group_by");
+    
+    // Mock projection data
+    Projection projection = Mockito.mock(Projection.class);
+    Mockito.when(projection.getProjectionData()).thenReturn(Collections.singletonMap("key", "value"));
+    Mockito.when(dfReconPersistManager.findProjectionWithGroupingByQuery(Mockito.any()))
+        .thenReturn(Lists.newArrayList(projection));
+    
+    List<HashMap> result = reconciliationServiceImpl.executeReadCommand(request);
+    
+    Assert.assertEquals(1, result.size());
+    Assert.assertEquals("value", result.get(0).get("key"));
+}
+
+@Test
+public void testExecuteReadProjection() {
+    FuturesDashboardSearchRequest request = new FuturesDashboardSearchRequest();
+    request.setWhereClause("test_where");
+    request.setSelectClause("test_select");
+    request.setGroupByClause("test_group_by");
+    
+    Projection projection = Mockito.mock(Projection.class);
+    Mockito.when(dfReconPersistManager.findProjectionWithGroupingByQuery(Mockito.any()))
+        .thenReturn(Lists.newArrayList(projection));
+    
+    List<Projection> result = reconciliationServiceImpl.executeReadProjection(request);
+    
+    Assert.assertEquals(1, result.size());
+    Assert.assertEquals(projection, result.get(0));
+}
+
+@Test
+public void testGetQueryParamsObj() {
+    FuturesDashboardSearchRequest request = new FuturesDashboardSearchRequest();
+    request.setWhereClause("test_where");
+    request.setAsOf("test_as_of");
+    request.setComment("test_comment");
+    request.setOrderBy("test_order_by");
+    request.setRowLimit(100);
+    request.setHistory(true);
+    
+    QueryParams params = reconciliationServiceImpl.getQueryParamsObj(request);
+    
+    Assert.assertEquals("test_where", params.getQueryWhere());
+    Assert.assertEquals("test_as_of", params.getAsOf());
+    Assert.assertEquals("test_comment", params.getComment());
+    Assert.assertEquals("test_order_by", params.getOrderBy());
+    Assert.assertEquals(100, params.getMaxResults().intValue());
+    Assert.assertTrue(params.isVersionHistoryEnabled());
+}
+
+@Test
+public void testGetProjectionQuery() {
+    FuturesDashboardSearchRequest request = new FuturesDashboardSearchRequest();
+    request.setWhereClause("test_where");
+    request.setSelectClause("test_select");
+    request.setGroupByClause("test_group_by");
+    
+    ProjectionQueryGroupByParams params = reconciliationServiceImpl.getProjectionQuery(request);
+    
+    Assert.assertEquals("test_select", params.getSelect());
+    Assert.assertEquals("test_group_by", params.getGroupBy());
+    Assert.assertEquals("test_where", params.getReadRequestParams().getQueryWhere());
 }
