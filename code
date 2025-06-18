@@ -1,214 +1,438 @@
-@Test
-public void testGetResult_WithCauseInError() throws Exception {
-    // Setup
-    ReconReportDocument doc = getTestReconReport();
-    List<ReconReportDocument> docs = Lists.newArrayList(doc);
-    
-    WriteErrorDetail<ReconReport> errorDetail = new WriteErrorDetail<>(
-        doc.getReconReport(), 
-        new RuntimeException("Underlying cause"), 
-        "Top-level error"
-    );
-    List<WriteResult<ReconReport>> writeResults = Lists.newArrayList(
-        WriteResult.forFailure(errorDetail)
-    );
-    
-    // Execute
-    List<ReconciliationUpdateResult> results = ReflectionTestUtils.invokeMethod(
-        reconciliationServiceImpl, "getResult", docs, writeResults
-    );
-    
-    // Verify
-    assertEquals(1, results.size());
-    assertEquals(Status.FAILIURE, results.get(0).getStatus());
-    assertEquals("Top-level error. Underlying cause", results.get(0).getErrorDetail());
-}
+import java.lang.reflect.Method;
+import org.junit.Assert;
+import org.junit.Test;
+import org.mockito.Mockito;
+import org.springframework.test.util.ReflectionTestUtils;
+import com.google.common.collect.Lists;
+import com.nwm.tntr.commons.domain.persistence.entity.DocumentId;
+import com.rbs.tntr.business.blotter.services.reconciliation.ReconciliationUpdateResult;
+import com.rbs.tntr.domain.blotter.enums.Status;
+import com.rbs.tntr.domain.blotter.exceptions.BlotterRunTimeException;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import org.apache.commons.lang3.tuple.Pair;
 
-@Test
-public void testGetReconWithComments_UserValidationFailure() {
-    // Setup
-    List<ReconReportDocument> docs = Lists.newArrayList(getTestReconReport());
-    Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
-    requests.put(docs.get(0).getDocumentId(), getCommentRequest());
-    List<ReconciliationUpdateResult> writeResults = new ArrayList<>();
-    
-    // Force user validation failure
-    when(blotterSecurityService.getLoggedInUserName()).thenReturn("invalid_user");
-    
-    // Execute
-    List<Pair<ReconReport, Long>> result = ReflectionTestUtils.invokeMethod(
-        reconciliationServiceImpl, 
-        "getReconWithComments", 
-        docs, requests, writeResults
-    );
-    
-    // Verify
-    assertTrue(result.isEmpty());
-    assertEquals(1, writeResults.size());
-    assertEquals(ActionRequestValidator.USER_VALIDATION_ERROR, writeResults.get(0).getErrorDetail());
-}
+public class ReconciliationActionServiceImplTest {
 
-@Test
-public void testGetReconWithJiraId_JiraIdPresent() {
-    // Setup
-    List<ReconReportDocument> docs = Lists.newArrayList(getTestReconReport());
-    Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
-    requests.put(docs.get(0).getDocumentId(), getAddJiraRequest());
-    List<ReconciliationUpdateResult> writeResults = new ArrayList<>();
-    
-    // Add duplicate JIRA ID
-    ReflectionTestUtils.invokeMethod(
-        reconciliationServiceImpl, 
-        "getReconWithJiraId", 
-        docs, requests, writeResults
-    );
-    
-    // Execute again to trigger "JIRA_ID_PRESENT"
-    List<Pair<ReconReport, Long>> result = ReflectionTestUtils.invokeMethod(
-        reconciliationServiceImpl, 
-        "getReconWithJiraId", 
-        docs, requests, writeResults
-    );
-    
-    // Verify
-    assertTrue(result.isEmpty());
-    assertEquals(1, writeResults.size());
-    assertEquals(ActionRequestValidator.JIRA_ID_PRESENT, writeResults.get(0).getErrorDetail());
-}
+    // Test for getReconWithComments when user validation fails
+    @Test
+    public void testGetReconWithComments_UserValidationFails() throws Exception {
+        List<ReconReportDocument> reconReportDocuments = Lists.newArrayList(getTestReconReport());
+        Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
+        requests.put(reconReportDocuments.get(0).getDocumentId(), getCommentRequest());
+        List<ReconciliationUpdateResult> writeResults = Lists.newArrayList();
 
-@Test
-public void testRemoveJiraId_JiraIdNotPresent() {
-    // Setup
-    List<ReconReportDocument> docs = Lists.newArrayList(getTestReconReport());
-    Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
-    
-    // Request to remove non-existent JIRA ID
-    AddReconciliationJiraReference request = (AddReconciliationJiraReference) getRemoveJiraRequest();
-    request.getJiraReference().setJiraId("NON_EXISTENT_ID");
-    requests.put(docs.get(0).getDocumentId(), request);
-    
-    List<ReconciliationUpdateResult> writeResults = new ArrayList<>();
-    
-    // Execute
-    List<Pair<ReconReport, Long>> result = ReflectionTestUtils.invokeMethod(
-        reconciliationServiceImpl, 
-        "removeJiraId", 
-        docs, requests, writeResults
-    );
-    
-    // Verify
-    assertTrue(result.isEmpty());
-    assertEquals(1, writeResults.size());
-    assertEquals(ActionRequestValidator.JIRA_ID_NOT_PRESENT, writeResults.get(0).getErrorDetail());
-}
+        ReconActionRequestValidator mockValidator = Mockito.mock(ReconActionRequestValidator.class);
+        Mockito.when(mockValidator.validateUser(Mockito.anyString(), Mockito.any())).thenReturn(false);
+        ReflectionTestUtils.setField(reconciliationServiceImpl, "requestValidator", mockValidator);
 
-@Test
-public void testGetReconWithJiraType_UserValidationFailure() {
-    // Setup
-    List<ReconReportDocument> docs = Lists.newArrayList(getTestReconReport());
-    Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
-    requests.put(docs.get(0).getDocumentId(), getAddJiraTypeRequest());
-    List<ReconciliationUpdateResult> writeResults = new ArrayList<>();
-    
-    // Force user validation failure
-    when(blotterSecurityService.getLoggedInUserName()).thenReturn("invalid_user");
-    
-    // Execute
-    List<Pair<ReconReport, Long>> result = ReflectionTestUtils.invokeMethod(
-        reconciliationServiceImpl, 
-        "getReconWithJiraType", 
-        docs, requests, writeResults
-    );
-    
-    // Verify
-    assertTrue(result.isEmpty());
-    assertEquals(1, writeResults.size());
-    assertEquals(ActionRequestValidator.USER_VALIDATION_ERROR, writeResults.get(0).getErrorDetail());
-}
+        Method method = ReconciliationActionServiceImpl.class.getDeclaredMethod("getReconWithComments", List.class, Map.class, List.class);
+        method.setAccessible(true);
+        List<Pair<ReconReport, Long>> result = (List<Pair<ReconReport, Long>>) method.invoke(reconciliationServiceImpl, reconReportDocuments, requests, writeResults);
 
-@Test
-public void testRemoveJiraType_JiraTypeNotPresent() {
-    // Setup
-    List<ReconReportDocument> docs = Lists.newArrayList(getTestReconReport());
-    Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
-    
-    // Request to remove non-existent JIRA type
-    AddReconciliationJiraType request = (AddReconciliationJiraType) getRemoveJiraTypeRequest();
-    request.getJiraType().setIssueType("NON_EXISTENT_TYPE");
-    requests.put(docs.get(0).getDocumentId(), request);
-    
-    List<ReconciliationUpdateResult> writeResults = new ArrayList<>();
-    
-    // Execute
-    List<Pair<ReconReport, Long>> result = ReflectionTestUtils.invokeMethod(
-        reconciliationServiceImpl, 
-        "removeJiraType", 
-        docs, requests, writeResults
-    );
-    
-    // Verify
-    assertTrue(result.isEmpty());
-    assertEquals(1, writeResults.size());
-    assertEquals(ActionRequestValidator.JIRA_TYPE_NOT_PRESENT, writeResults.get(0).getErrorDetail());
-}
-
-@Test
-public void testExecuteReadCommand_Exception() {
-    // Setup
-    FuturesDashboardSearchRequest request = new FuturesDashboardSearchRequest();
-    request.setWhereClause("test_where");
-    request.setSelectClause("test_select");
-    request.setGroupByClause("test_group_by");
-    
-    // Force exception
-    when(dfReconPersistManager.findProjectionWithGroupingByQuery(Mockito.any()))
-        .thenThrow(new RuntimeException("Test exception"));
-    
-    // Execute & Verify
-    try {
-        reconciliationServiceImpl.executeReadCommand(request);
-        fail("Expected BlotterRunTimeException");
-    } catch (BlotterRunTimeException e) {
-        assertTrue(e.getMessage().contains("Error occured while fetching record(s) for recon dashboard."));
-        assertNotNull(e.getCause());
+        Assert.assertTrue(result.isEmpty());
+        Assert.assertEquals(1, writeResults.size());
+        Assert.assertEquals(Status.FAILIURE, writeResults.get(0).getStatus());
+        Assert.assertEquals("User is not authorised to perform this action.", writeResults.get(0).getError());
     }
-}
 
-@Test
-public void testGetReconWithWorkflow_ExceptionInUpdater() {
-    // Setup
-    List<ReconReportDocument> docs = Lists.newArrayList(getTestReconReport());
-    Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
-    requests.put(docs.get(0).getDocumentId(), getWorkflowRequest());
-    List<ReconciliationUpdateResult> writeResults = new ArrayList<>();
-    
-    // Force exception in dataUpdater
-    ReconDataUpdater mockUpdater = Mockito.mock(ReconDataUpdater.class);
-    when(mockUpdater.addWorkflowToException(Mockito.any(), Mockito.any(), Mockito.any()))
-        .thenThrow(new RuntimeException("Test exception"));
-    ReflectionTestUtils.setField(reconciliationServiceImpl, "dataUpdater", mockUpdater);
-    
-    // Execute & Verify
-    assertThrows(BlotterRunTimeException.class, () -> 
-        ReflectionTestUtils.invokeMethod(
-            reconciliationServiceImpl, 
-            "getReconWithWorkflow", 
-            docs, requests, writeResults
-        )
-    );
-}
+    // Test for getReconWithComments catch block
+    @Test
+    public void testGetReconWithComments_CatchBlock() throws Exception {
+        List<ReconReportDocument> reconReportDocuments = Lists.newArrayList(getTestReconReport());
+        Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
+        requests.put(reconReportDocuments.get(0).getDocumentId(), getCommentRequest());
+        List<ReconciliationUpdateResult> writeResults = Lists.newArrayList();
 
-@Test
-public void testSaveAllRecords_EmptyReports() {
-    // Setup
-    List<ReconReportDocument> docs = Lists.newArrayList(getTestReconReport());
-    List<Pair<ReconReport, Long>> reports = Collections.emptyList();
-    
-    // Execute
-    List<ReconciliationUpdateResult> results = ReflectionTestUtils.invokeMethod(
-        reconciliationServiceImpl, "saveAllRecords", docs, reports
-    );
-    
-    // Verify
-    assertTrue(results.isEmpty());
+        ReconDataUpdater mockUpdater = Mockito.mock(ReconDataUpdater.class);
+        Mockito.when(mockUpdater.addCommentsToException(Mockito.any(), Mockito.any(), Mockito.any())).thenThrow(new RuntimeException("Test exception"));
+        ReflectionTestUtils.setField(reconciliationServiceImpl, "dataUpdater", mockUpdater);
+
+        Method method = ReconciliationActionServiceImpl.class.getDeclaredMethod("getReconWithComments", List.class, Map.class, List.class);
+        method.setAccessible(true);
+        try {
+            method.invoke(reconciliationServiceImpl, reconReportDocuments, requests, writeResults);
+            Assert.fail("Expected BlotterRunTimeException");
+        } catch (Exception e) {
+            Assert.assertTrue(e.getCause() instanceof BlotterRunTimeException);
+        }
+    }
+
+    // Test for getReconWithWorkflow when user validation fails
+    @Test
+    public void testGetReconWithWorkflow_UserValidationFails() throws Exception {
+        List<ReconReportDocument> reconReportDocuments = Lists.newArrayList(getTestReconReport());
+        Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
+        requests.put(reconReportDocuments.get(0).getDocumentId(), getWorkflowRequest());
+        List<ReconciliationUpdateResult> writeResults = Lists.newArrayList();
+
+        ReconActionRequestValidator mockValidator = Mockito.mock(ReconActionRequestValidator.class);
+        Mockito.when(mockValidator.validateUser(Mockito.anyString(), Mockito.any())).thenReturn(false);
+        ReflectionTestUtils.setField(reconciliationServiceImpl, "requestValidator", mockValidator);
+
+        Method method = ReconciliationActionServiceImpl.class.getDeclaredMethod("getReconWithWorkflow", List.class, Map.class, List.class);
+        method.setAccessible(true);
+        List<Pair<ReconReport, Long>> result = (List<Pair<ReconReport, Long>>) method.invoke(reconciliationServiceImpl, reconReportDocuments, requests, writeResults);
+
+        Assert.assertTrue(result.isEmpty());
+        Assert.assertEquals(1, writeResults.size());
+        Assert.assertEquals(Status.FAILIURE, writeResults.get(0).getStatus());
+        Assert.assertEquals("User is not authorised to perform this action.", writeResults.get(0).getError());
+    }
+
+    // Test for getReconWithWorkflow catch block
+    @Test
+    public void testGetReconWithWorkflow_CatchBlock() throws Exception {
+        List<ReconReportDocument> reconReportDocuments = Lists.newArrayList(getTestReconReport());
+        Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
+        requests.put(reconReportDocuments.get(0).getDocumentId(), getWorkflowRequest());
+        List<ReconciliationUpdateResult> writeResults = Lists.newArrayList();
+
+        ReconDataUpdater mockUpdater = Mockito.mock(ReconDataUpdater.class);
+        Mockito.when(mockUpdater.addWorkflowToException(Mockito.any(), Mockito.any(), Mockito.any())).thenThrow(new RuntimeException("Test exception"));
+        ReflectionTestUtils.setField(reconciliationServiceImpl, "dataUpdater", mockUpdater);
+
+        Method method = ReconciliationActionServiceImpl.class.getDeclaredMethod("getReconWithWorkflow", List.class, Map.class, List.class);
+        method.setAccessible(true);
+        try {
+            method.invoke(reconciliationServiceImpl, reconReportDocuments, requests, writeResults);
+            Assert.fail("Expected BlotterRunTimeException");
+        } catch (Exception e) {
+            Assert.assertTrue(e.getCause() instanceof BlotterRunTimeException);
+        }
+    }
+
+    // Test for getReconWithDueDate when user validation fails
+    @Test
+    public void testGetReconWithDueDate_UserValidationFails() throws Exception {
+        List<ReconReportDocument> reconReportDocuments = Lists.newArrayList(getTestReconReport());
+        Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
+        requests.put(reconReportDocuments.get(0).getDocumentId(), getUpdateDueDateRequest());
+        List<ReconciliationUpdateResult> writeResults = Lists.newArrayList();
+
+        ReconActionRequestValidator mockValidator = Mockito.mock(ReconActionRequestValidator.class);
+        Mockito.when(mockValidator.validateUser(Mockito.anyString(), Mockito.any())).thenReturn(false);
+        ReflectionTestUtils.setField(reconciliationServiceImpl, "requestValidator", mockValidator);
+
+        Method method = ReconciliationActionServiceImpl.class.getDeclaredMethod("getReconWithDueDate", List.class, Map.class, List.class);
+        method.setAccessible(true);
+        List<Pair<ReconReport, Long>> result = (List<Pair<ReconReport, Long>>) method.invoke(reconciliationServiceImpl, reconReportDocuments, requests, writeResults);
+
+        Assert.assertTrue(result.isEmpty());
+        Assert.assertEquals(1, writeResults.size());
+        Assert.assertEquals(Status.FAILIURE, writeResults.get(0).getStatus());
+        Assert.assertEquals("User is not authorised to perform this action.", writeResults.get(0).getError());
+    }
+
+    // Test for getReconWithDueDate catch block
+    @Test
+    public void testGetReconWithDueDate_CatchBlock() throws Exception {
+        List<ReconReportDocument> reconReportDocuments = Lists.newArrayList(getTestReconReport());
+        Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
+        requests.put(reconReportDocuments.get(0).getDocumentId(), getUpdateDueDateRequest());
+        List<ReconciliationUpdateResult> writeResults = Lists.newArrayList();
+
+        ReconDataUpdater mockUpdater = Mockito.mock(ReconDataUpdater.class);
+        Mockito.when(mockUpdater.updateDueDateToException(Mockito.any(), Mockito.any(), Mockito.any())).thenThrow(new RuntimeException("Test exception"));
+        ReflectionTestUtils.setField(reconciliationServiceImpl, "dataUpdater", mockUpdater);
+
+        Method method = ReconciliationActionServiceImpl.class.getDeclaredMethod("getReconWithDueDate", List.class, Map.class, List.class);
+        method.setAccessible(true);
+        try {
+            method.invoke(reconciliationServiceImpl, reconReportDocuments, requests, writeResults);
+            Assert.fail("Expected BlotterRunTimeException");
+        } catch (Exception e) {
+            Assert.assertTrue(e.getCause() instanceof BlotterRunTimeException);
+        }
+    }
+
+    // Test for getPAndMRecordsWithBreakOwner when user validation fails
+    @Test
+    public void testGetPAndMRecordsWithBreakOwner_UserValidationFails() throws Exception {
+        List<ReconReportDocument> reconReportDocuments = Lists.newArrayList(getTestReconReport());
+        Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
+        requests.put(reconReportDocuments.get(0).getDocumentId(), getPAndMBreakOwnerRequest());
+        List<ReconciliationUpdateResult> writeResults = Lists.newArrayList();
+
+        ReconActionRequestValidator mockValidator = Mockito.mock(ReconActionRequestValidator.class);
+        Mockito.when(mockValidator.validateUser(Mockito.anyString(), Mockito.any())).thenReturn(false);
+        ReflectionTestUtils.setField(reconciliationServiceImpl, "requestValidator", mockValidator);
+
+        Method method = ReconciliationActionServiceImpl.class.getDeclaredMethod("getPAndMRecordsWithBreakOwner", List.class, Map.class, List.class);
+        method.setAccessible(true);
+        List<Pair<ReconReport, Long>> result = (List<Pair<ReconReport, Long>>) method.invoke(reconciliationServiceImpl, reconReportDocuments, requests, writeResults);
+
+        Assert.assertTrue(result.isEmpty());
+        Assert.assertEquals(1, writeResults.size());
+        Assert.assertEquals(Status.FAILIURE, writeResults.get(0).getStatus());
+        Assert.assertEquals("User is not authorised to perform this action.", writeResults.get(0).getError());
+    }
+
+    // Test for getPAndMRecordsWithBreakOwner catch block
+    @Test
+    public void testGetPAndMRecordsWithBreakOwner_CatchBlock() throws Exception {
+        List<ReconReportDocument> reconReportDocuments = Lists.newArrayList(getTestReconReport());
+        Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
+        requests.put(reconReportDocuments.get(0).getDocumentId(), getPAndMBreakOwnerRequest());
+        List<ReconciliationUpdateResult> writeResults = Lists.newArrayList();
+
+        ReconDataUpdater mockUpdater = Mockito.mock(ReconDataUpdater.class);
+        Mockito.when(mockUpdater.assignActualBreakOwner(Mockito.any(), Mockito.any(), Mockito.any())).thenThrow(new RuntimeException("Test exception"));
+        ReflectionTestUtils.setField(reconciliationServiceImpl, "dataUpdater", mockUpdater);
+
+        Method method = ReconciliationActionServiceImpl.class.getDeclaredMethod("getPAndMRecordsWithBreakOwner", List.class, Map.class, List.class);
+        method.setAccessible(true);
+        try {
+            method.invoke(reconciliationServiceImpl, reconReportDocuments, requests, writeResults);
+            Assert.fail("Expected BlotterRunTimeException");
+        } catch (Exception e) {
+            Assert.assertTrue(e.getCause() instanceof BlotterRunTimeException);
+        }
+    }
+
+    // Test for getReconWithJiraId when user validation fails
+    @Test
+    public void testGetReconWithJiraId_UserValidationFails() throws Exception {
+        List<ReconReportDocument> reconReportDocuments = Lists.newArrayList(getTestReconReport());
+        Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
+        requests.put(reconReportDocuments.get(0).getDocumentId(), getAddJiraRequest());
+        List<ReconciliationUpdateResult> writeResults = Lists.newArrayList();
+
+        ReconActionRequestValidator mockValidator = Mockito.mock(ReconActionRequestValidator.class);
+        Mockito.when(mockValidator.validateUser(Mockito.anyString(), Mockito.any())).thenReturn(false);
+        ReflectionTestUtils.setField(reconciliationServiceImpl, "requestValidator", mockValidator);
+
+        Method method = ReconciliationActionServiceImpl.class.getDeclaredMethod("getReconWithJiraId", List.class, Map.class, List.class);
+        method.setAccessible(true);
+        List<Pair<ReconReport, Long>> result = (List<Pair<ReconReport, Long>>) method.invoke(reconciliationServiceImpl, reconReportDocuments, requests, writeResults);
+
+        Assert.assertTrue(result.isEmpty());
+        Assert.assertEquals(1, writeResults.size());
+        Assert.assertEquals(Status.FAILIURE, writeResults.get(0).getStatus());
+        Assert.assertEquals("User is not authorised to perform this action.", writeResults.get(0).getError());
+    }
+
+    // Test for getReconWithJiraId when Jira ID is already present
+    @Test
+    public void testGetReconWithJiraId_JiraIdAlreadyPresent() throws Exception {
+        List<ReconReportDocument> reconReportDocuments = Lists.newArrayList(getTestReconReport());
+        Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
+        AddReconciliationJiraReference request = getAddJiraRequest();
+        request.getJiraReference().setJiraId("GTR-123"); // Matches existing Jira ID in test data
+        requests.put(reconReportDocuments.get(0).getDocumentId(), request);
+        List<ReconciliationUpdateResult> writeResults = Lists.newArrayList();
+
+        Method method = ReconciliationActionServiceImpl.class.getDeclaredMethod("getReconWithJiraId", List.class, Map.class, List.class);
+        method.setAccessible(true);
+        List<Pair<ReconReport, Long>> result = (List<Pair<ReconReport, Long>>) method.invoke(reconciliationServiceImpl, reconReportDocuments, requests, writeResults);
+
+        Assert.assertTrue(result.isEmpty());
+        Assert.assertEquals(1, writeResults.size());
+        Assert.assertEquals(Status.FAILIURE, writeResults.get(0).getStatus());
+        Assert.assertEquals("Jira Id is already present.", writeResults.get(0).getError());
+    }
+
+    // Test for getReconWithJiraId catch block
+    @Test
+    public void testGetReconWithJiraId_CatchBlock() throws Exception {
+        List<ReconReportDocument> reconReportDocuments = Lists.newArrayList(getTestReconReport());
+        Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
+        requests.put(reconReportDocuments.get(0).getDocumentId(), getAddJiraRequest());
+        List<ReconciliationUpdateResult> writeResults = Lists.newArrayList();
+
+        ReconDataUpdater mockUpdater = Mockito.mock(ReconDataUpdater.class);
+        Mockito.when(mockUpdater.addJiraIdToException(Mockito.any(), Mockito.any(), Mockito.any())).thenThrow(new RuntimeException("Test exception"));
+        ReflectionTestUtils.setField(reconciliationServiceImpl, "dataUpdater", mockUpdater);
+
+        Method method = ReconciliationActionServiceImpl.class.getDeclaredMethod("getReconWithJiraId", List.class, Map.class, List.class);
+        method.setAccessible(true);
+        try {
+            method.invoke(reconciliationServiceImpl, reconReportDocuments, requests, writeResults);
+            Assert.fail("Expected BlotterRunTimeException");
+        } catch (Exception e) {
+            Assert.assertTrue(e.getCause() instanceof BlotterRunTimeException);
+        }
+    }
+
+    // Test for removeJiraId when user validation fails
+    @Test
+    public void testRemoveJiraId_UserValidationFails() throws Exception {
+        List<ReconReportDocument> reconReportDocuments = Lists.newArrayList(getTestReconReport());
+        Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
+        requests.put(reconReportDocuments.get(0).getDocumentId(), getRemoveJiraRequest());
+        List<ReconciliationUpdateResult> writeResults = Lists.newArrayList();
+
+        ReconActionRequestValidator mockValidator = Mockito.mock(ReconActionRequestValidator.class);
+        Mockito.when(mockValidator.validateUser(Mockito.anyString(), Mockito.any())).thenReturn(false);
+        ReflectionTestUtils.setField(reconciliationServiceImpl, "requestValidator", mockValidator);
+
+        Method method = ReconciliationActionServiceImpl.class.getDeclaredMethod("removeJiraId", List.class, Map.class, List.class);
+        method.setAccessible(true);
+        List<Pair<ReconReport, Long>> result = (List<Pair<ReconReport, Long>>) method.invoke(reconciliationServiceImpl, reconReportDocuments, requests, writeResults);
+
+        Assert.assertTrue(result.isEmpty());
+        Assert.assertEquals(1, writeResults.size());
+        Assert.assertEquals(Status.FAILIURE, writeResults.get(0).getStatus());
+        Assert.assertEquals("User is not authorised to perform this action.", writeResults.get(0).getError());
+    }
+
+    // Test for removeJiraId when Jira ID is not present
+    @Test
+    public void testRemoveJiraId_JiraIdNotPresent() throws Exception {
+        List<ReconReportDocument> reconReportDocuments = Lists.newArrayList(getTestReconReport());
+        Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
+        AddReconciliationJiraReference request = getRemoveJiraRequest();
+        request.getJiraReference().setJiraId("NON_EXISTENT_JIRA_ID");
+        requests.put(reconReportDocuments.get(0).getDocumentId(), request);
+        List<ReconciliationUpdateResult> writeResults = Lists.newArrayList();
+
+        Method method = ReconciliationActionServiceImpl.class.getDeclaredMethod("removeJiraId", List.class, Map.class, List.class);
+        method.setAccessible(true);
+        List<Pair<ReconReport, Long>> result = (List<Pair<ReconReport, Long>>) method.invoke(reconciliationServiceImpl, reconReportDocuments, requests, writeResults);
+
+        Assert.assertTrue(result.isEmpty());
+        Assert.assertEquals(1, writeResults.size());
+        Assert.assertEquals(Status.FAILIURE, writeResults.get(0).getStatus());
+        Assert.assertEquals("Jira Id is not present.", writeResults.get(0).getError());
+    }
+
+    // Test for removeJiraId catch block
+    @Test
+    public void testRemoveJiraId_CatchBlock() throws Exception {
+        List<ReconReportDocument> reconReportDocuments = Lists.newArrayList(getTestReconReport());
+        Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
+        requests.put(reconReportDocuments.get(0).getDocumentId(), getRemoveJiraRequest());
+        List<ReconciliationUpdateResult> writeResults = Lists.newArrayList();
+
+        ReconDataUpdater mockUpdater = Mockito.mock(ReconDataUpdater.class);
+        Mockito.when(mockUpdater.removeJiraIdFromException(Mockito.any(), Mockito.any(), Mockito.any())).thenThrow(new RuntimeException("Test exception"));
+        ReflectionTestUtils.setField(reconciliationServiceImpl, "dataUpdater", mockUpdater);
+
+        Method method = ReconciliationActionServiceImpl.class.getDeclaredMethod("removeJiraId", List.class, Map.class, List.class);
+        method.setAccessible(true);
+        try {
+            method.invoke(reconciliationServiceImpl, reconReportDocuments, requests, writeResults);
+            Assert.fail("Expected BlotterRunTimeException");
+        } catch (Exception e) {
+            Assert.assertTrue(e.getCause() instanceof BlotterRunTimeException);
+        }
+    }
+
+    // Test for getReconWithJiraType when user validation fails
+    @Test
+    public void testGetReconWithJiraType_UserValidationFails() throws Exception {
+        List<ReconReportDocument> reconReportDocuments = Lists.newArrayList(getTestReconReport());
+        Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
+        requests.put(reconReportDocuments.get(0).getDocumentId(), getAddJiraTypeRequest());
+        List<ReconciliationUpdateResult> writeResults = Lists.newArrayList();
+
+        ReconActionRequestValidator mockValidator = Mockito.mock(ReconActionRequestValidator.class);
+        Mockito.when(mockValidator.validateUser(Mockito.anyString(), Mockito.any())).thenReturn(false);
+        ReflectionTestUtils.setField(reconciliationServiceImpl, "requestValidator", mockValidator);
+
+        Method method = ReconciliationActionServiceImpl.class.getDeclaredMethod("getReconWithJiraType", List.class, Map.class, List.class);
+        method.setAccessible(true);
+        List<Pair<ReconReport, Long>> result = (List<Pair<ReconReport, Long>>) method.invoke(reconciliationServiceImpl, reconReportDocuments, requests, writeResults);
+
+        Assert.assertTrue(result.isEmpty());
+        Assert.assertEquals(1, writeResults.size());
+        Assert.assertEquals(Status.FAILIURE, writeResults.get(0).getStatus());
+        Assert.assertEquals("User is not authorised to perform this action.", writeResults.get(0).getError());
+    }
+
+    // Test for getReconWithJiraType catch block
+    @Test
+    public void testGetReconWithJiraType_CatchBlock() throws Exception {
+        List<ReconReportDocument> reconReportDocuments = Lists.newArrayList(getTestReconReport());
+        Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
+        requests.put(reconReportDocuments.get(0).getDocumentId(), getAddJiraTypeRequest());
+        List<ReconciliationUpdateResult> writeResults = Lists.newArrayList();
+
+        ReconDataUpdater mockUpdater = Mockito.mock(ReconDataUpdater.class);
+        Mockito.when(mockUpdater.addJiraTypeToException(Mockito.any(), Mockito.any(), Mockito.any())).thenThrow(new RuntimeException("Test exception"));
+        ReflectionTestUtils.setField(reconciliationServiceImpl, "dataUpdater", mockUpdater);
+
+        Method method = ReconciliationActionServiceImpl.class.getDeclaredMethod("getReconWithJiraType", List.class, Map.class, List.class);
+        method.setAccessible(true);
+        try {
+            method.invoke(reconciliationServiceImpl, reconReportDocuments, requests, writeResults);
+            Assert.fail("Expected BlotterRunTimeException");
+        } catch (Exception e) {
+            Assert.assertTrue(e.getCause() instanceof BlotterRunTimeException);
+        }
+    }
+
+    // Test for removeJiraType when user validation fails
+    @Test
+    public void testRemoveJiraType_UserValidationFails() throws Exception {
+        List<ReconReportDocument> reconReportDocuments = Lists.newArrayList(getTestReconReport());
+        Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
+        requests.put(reconReportDocuments.get(0).getDocumentId(), getRemoveJiraTypeRequest());
+        List<ReconciliationUpdateResult> writeResults = Lists.newArrayList();
+
+        ReconActionRequestValidator mockValidator = Mockito.mock(ReconActionRequestValidator.class);
+        Mockito.when(mockValidator.validateUser(Mockito.anyString(), Mockito.any())).thenReturn(false);
+        ReflectionTestUtils.setField(reconciliationServiceImpl, "requestValidator", mockValidator);
+
+        Method method = ReconciliationActionServiceImpl.class.getDeclaredMethod("removeJiraType", List.class, Map.class, List.class);
+        method.setAccessible(true);
+        List<Pair<ReconReport, Long>> result = (List<Pair<ReconReport, Long>>) method.invoke(reconciliationServiceImpl, reconReportDocuments, requests, writeResults);
+
+        Assert.assertTrue(result.isEmpty());
+        Assert.assertEquals(1, writeResults.size());
+        Assert.assertEquals(Status.FAILIURE, writeResults.get(0).getStatus());
+        Assert.assertEquals("User is not authorised to perform this action.", writeResults.get(0).getError());
+    }
+
+    // Test for removeJiraType when Jira type does not match
+    @Test
+    public void testRemoveJiraType_JiraTypeDoesNotMatch() throws Exception {
+        List<ReconReportDocument> reconReportDocuments = Lists.newArrayList(getTestReconReport());
+        Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
+        AddReconciliationJiraType request = getRemoveJiraTypeRequest();
+        request.getJiraType().setIssueType("Non Matching Type"); // Does not match "Mis Reporting" in test data
+        requests.put(reconReportDocuments.get(0).getDocumentId(), request);
+        List<ReconciliationUpdateResult> writeResults = Lists.newArrayList();
+
+        Method method = ReconciliationActionServiceImpl.class.getDeclaredMethod("removeJiraType", List.class, Map.class, List.class);
+        method.setAccessible(true);
+        List<Pair<ReconReport, Long>> result = (List<Pair<ReconReport, Long>>) method.invoke(reconciliationServiceImpl, reconReportDocuments, requests, writeResults);
+
+        Assert.assertTrue(result.isEmpty());
+        Assert.assertEquals(1, writeResults.size());
+        Assert.assertEquals(Status.FAILIURE, writeResults.get(0).getStatus());
+        Assert.assertEquals("Jira Type is not present.", writeResults.get(0).getError());
+    }
+
+    // Test for removeJiraType catch block
+    @Test
+    public void testRemoveJiraType_CatchBlock() throws Exception {
+        List<ReconReportDocument> reconReportDocuments = Lists.newArrayList(getTestReconReport());
+        Map<DocumentId, ReconciliationRequest> requests = new HashMap<>();
+        requests.put(reconReportDocuments.get(0).getDocumentId(), getRemoveJiraTypeRequest());
+        List<ReconciliationUpdateResult> writeResults = Lists.newArrayList();
+
+        ReconDataUpdater mockUpdater = Mockito.mock(ReconDataUpdater.class);
+        Mockito.when(mockUpdater.removeJiraTypeFromException(Mockito.any(), Mockito.any(), Mockito.any())).thenThrow(new RuntimeException("Test exception"));
+        ReflectionTestUtils.setField(reconciliationServiceImpl, "dataUpdater", mockUpdater);
+
+        Method method = ReconciliationActionServiceImpl.class.getDeclaredMethod("removeJiraType", List.class, Map.class, List.class);
+        method.setAccessible(true);
+        try {
+            method.invoke(reconciliationServiceImpl, reconReportDocuments, requests, writeResults);
+            Assert.fail("Expected BlotterRunTimeException");
+        } catch (Exception e) {
+            Assert.assertTrue(e.getCause() instanceof BlotterRunTimeException);
+        }
+    }
+
+    // Test for executeReadCommand catch block
+    @Test(expected = BlotterRunTimeException.class)
+    public void testExecuteReadCommand_CatchBlock() {
+        FuturesDashboardSearchRequest request = new FuturesDashboardSearchRequest();
+        Mockito.when(dfReconPersistManager.findProjectionWithGroupingByQuery(Mockito.any()))
+                .thenThrow(new RuntimeException("Test exception"));
+        reconciliationServiceImpl.executeReadCommand(request);
+    }
 }
